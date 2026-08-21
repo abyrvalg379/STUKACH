@@ -134,7 +134,7 @@ Access via Edit → Preferences → Extensions → STUKACH ⚙️
 
 ## Author
 
-**Maksim Kovalev** — Head of Modeling, Pipeline Studio
+**Maksim Kovalev**
 
 ---
 
