@@ -18,3 +18,10 @@ __pycache__/
 # OS
 .DS_Store
 Thumbs.db
+
+# Distributives live in out/ and GitHub Releases, not in the repo
+*.zip
+
+# Local dev materials (Maya version, references, backups)
+/ref/
+/maya/
