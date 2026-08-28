@@ -10,6 +10,8 @@ Pipeline asset validation addon for Blender.
 
 ## Installation
 
+Download `STUKACH.zip` from the [latest release](https://github.com/abyrvalg379/STUKACH/releases/latest).
+
 **Option 1 — Drag & Drop:**
 Drag `STUKACH.zip` into the Blender viewport.
 
