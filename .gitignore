@@ -3,10 +3,6 @@ reload_addon.py
 _gen_docx.py
 _gen_docx_en.py
 
-# Claude project instructions
-CLAUDE.md
-.claude/
-
 # MCP config
 .mcp.json
 
