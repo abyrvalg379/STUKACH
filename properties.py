@@ -6,7 +6,7 @@ import json
 import os
 import tempfile
 from datetime import datetime
-from bpy.types import PropertyGroup
+from bpy.types import PropertyGroup, Menu
 from bpy.props import BoolProperty, EnumProperty, StringProperty, FloatProperty
 
 CHECK_CATEGORIES = {
@@ -92,9 +92,20 @@ def mc_object_datas_updater(attr):
 # install, survive .blend switches).  Parity with the Maya version's
 # save/load/delete presets.
 
-# EnumProperty items callback requires the returned list to outlive the call —
-# keep it in a module-level holder.
-_PRESET_ENUM_CACHE: list = []
+# Static items for the object-list check filter (built once)
+_CHECK_FILTER_ITEMS: list = []
+
+
+def _check_filter_items(self, context):
+    global _CHECK_FILTER_ITEMS
+    if not _CHECK_FILTER_ITEMS:
+        items = [("__all__", "All checks", "Show all tracked objects")]
+        for cat, checks in CHECK_CATEGORIES.items():
+            for c in checks:
+                label = _CHECK_LABELS.get(c, c.replace("_", " ").title())
+                items.append((c, label, f"Objects with '{label}' issues"))
+        _CHECK_FILTER_ITEMS = items
+    return _CHECK_FILTER_ITEMS
 
 
 def _get_addon_prefs(context):
@@ -109,18 +120,194 @@ def _get_addon_prefs(context):
     return None
 
 
-def _preset_items(self, context):
-    """Dynamic EnumProperty items — one entry per saved preset."""
-    global _PRESET_ENUM_CACHE
-    items = []
+# ── Check presets v2 (v1.5.0) — native Blender preset system ─────────────────
+# Presets are .py files under presets/asset_checker/ (Blender's standard
+# preset framework).  A preset captures the check toggles AND the inline
+# naming policy fields.  Files are plain text — easy to share with the team
+# (export/import operators below).
+
+# Check props captured by "Save Preset" (+ naming fields, same mc group)
+_PRESET_VALUE_KEYS = (
+    # check toggles — kept in sync with manager._AC_CHECK_PROPS
+    'non_manifold', 'boundary_edges', 'isolated_verts', 'triangles', 'ngons',
+    'poles', 'zero_area', 'z_fighting', 'duplicate_verts', 'face_aspect_ratio',
+    'non_applied_transform', 'scale', 'origin_at_zero', 'modifier_stack',
+    'symmetry_x', 'symmetry_y', 'symmetry_z',
+    'uv_single_set', 'uv_overlap', 'uv_micro_shell', 'uv_texel_density',
+    'uv_stretch', 'uv_padding', 'uv_udim_bounds', 'uv_material_udim',
+    'obj_naming', 'col_naming',
+    'mat_suffix', 'mat_assignment', 'missing_textures', 'unused_data',
+    # inline naming policy
+    'obj_required_prefix', 'obj_required_suffix',
+    'col_required_prefix', 'col_required_suffix',
+)
+
+
+def _preset_dir():
+    import os
+    return bpy.utils.user_resource('SCRIPTS',
+                                   path=os.path.join("presets", "asset_checker"),
+                                   create=True)
+
+
+class ASSET_CHECKER_MT_presets(bpy.types.Menu):
+    """Check preset dropdown (native preset framework)"""
+    bl_label = "Check Presets"
+    preset_subdir = "asset_checker"
+    preset_operator = "script.execute_preset"
+
+    def draw(self, _context):
+        bpy.types.Menu.draw_preset(self, _context)
+        layout = self.layout
+        layout.separator()
+        layout.operator("asset_checker.preset_import", icon="IMPORT")
+
+
+class ASSET_CHECKER_OT_preset_add(bpy.types.Operator):
+    """Save the current check set (toggles + naming fields) as a preset"""
+    bl_idname = "asset_checker.preset_add"
+    bl_label = "Save Check Preset"
+    bl_options = {'REGISTER'}
+
+    name: StringProperty(name="Name")
+
+    def invoke(self, context, _event):
+        self.name = prefs_preset_active_name(context) or ""
+        return context.window_manager.invoke_props_dialog(self)
+
+    def draw(self, _context):
+        self.layout.prop(self, "name")
+
+    def execute(self, context):
+        import os
+        name = (self.name or "").strip()
+        if not name:
+            self.report({'WARNING'}, "Type a preset name")
+            return {'CANCELLED'}
+        mc = context.window_manager.mesh_check_props
+        lines = ["import bpy",
+                 "mc = bpy.context.window_manager.mesh_check_props"]
+        for key in _PRESET_VALUE_KEYS:
+            lines.append(f"mc.{key} = {getattr(mc, key, False)!r}")
+        dst = os.path.join(_preset_dir(), name + ".py")
+        with open(dst, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(lines) + "\n")
+        prefs = _get_addon_prefs(context)
+        if prefs:
+            prefs.preset_active = name
+        self.report({'INFO'}, f"Saved preset '{name}'")
+        return {'FINISHED'}
+
+
+def prefs_preset_active_name(context):
     prefs = _get_addon_prefs(context)
-    if prefs:
-        items = [(p.name, p.name, f"Apply check preset '{p.name}'")
-                 for p in prefs.presets]
-    if not items:
-        items = [("__none__", "— no presets —", "Save a check set first")]
-    _PRESET_ENUM_CACHE = items     # replace the holder — must outlive the call
-    return _PRESET_ENUM_CACHE
+    return prefs.preset_active if prefs else ""
+
+
+class ASSET_CHECKER_OT_preset_remove(bpy.types.Operator):
+    """Remove a saved check preset file"""
+    bl_idname = "asset_checker.preset_remove"
+    bl_label = "Remove Check Preset"
+    bl_options = {'REGISTER'}
+
+    name: StringProperty(
+        name="Name",
+        description="Preset name to remove (empty = last applied)",
+    )
+
+    def invoke(self, context, _event):
+        if not self.name:
+            self.name = prefs_preset_active_name(context)
+        return context.window_manager.invoke_props_dialog(self)
+
+    def draw(self, _context):
+        self.layout.prop(self, "name")
+
+    def execute(self, context):
+        import os
+        name = (self.name or "").strip()
+        path = os.path.join(_preset_dir(), name + ".py")
+        if not name or not os.path.isfile(path):
+            self.report({'WARNING'}, f"Preset '{name}' not found")
+            return {'CANCELLED'}
+        os.remove(path)
+        prefs = _get_addon_prefs(context)
+        if prefs and prefs.preset_active == name:
+            prefs.preset_active = ""
+        self.report({'INFO'}, f"Removed preset '{name}'")
+        return {'FINISHED'}
+
+
+class ASSET_CHECKER_OT_preset_export(bpy.types.Operator):
+    """Export a check preset as a .py file — share it with the team"""
+    bl_idname = "asset_checker.preset_export"
+    bl_label = "Export Preset"
+    bl_options = {'REGISTER'}
+
+    name: StringProperty(options={'HIDDEN'})
+    filepath: StringProperty(subtype='FILE_PATH', options={'HIDDEN'})
+
+    def invoke(self, context, _event):
+        if not self.name:
+            self.report({'WARNING'}, "No preset to export")
+            return {'CANCELLED'}
+        import os
+        self.filepath = os.path.join(_preset_dir(), self.name + ".py")
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+
+    def execute(self, context):
+        import os, shutil
+        src = os.path.join(_preset_dir(), self.name + ".py")
+        if not os.path.isfile(src):
+            self.report({'ERROR'}, f"Preset file not found: {src}")
+            return {'CANCELLED'}
+        dst = bpy.path.abspath(self.filepath)
+        shutil.copyfile(src, dst)
+        self.report({'INFO'}, f"Exported preset '{self.name}' → {dst}")
+        return {'FINISHED'}
+
+
+class ASSET_CHECKER_MT_preset_export(bpy.types.Menu):
+    """Per-preset export entries"""
+    bl_label = "Export Preset"
+
+    def draw(self, context):
+        import os
+        layout = self.layout
+        files = sorted(f for f in os.listdir(_preset_dir()) if f.endswith(".py"))
+        if not files:
+            layout.label(text="No presets saved", icon="INFO")
+            return
+        for f in files:
+            op = layout.operator("asset_checker.preset_export",
+                                 text=f"'{f[:-3]}'")
+            op.name = f[:-3]
+
+
+class ASSET_CHECKER_OT_preset_import(bpy.types.Operator):
+    """Import a check preset from a .py file"""
+    bl_idname = "asset_checker.preset_import"
+    bl_label = "Import Preset"
+    bl_options = {'REGISTER'}
+
+    filepath: StringProperty(subtype='FILE_PATH', options={'HIDDEN'})
+    filter_glob: StringProperty(default="*.py", options={'HIDDEN'})
+
+    def invoke(self, context, _event):
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+
+    def execute(self, context):
+        import os, shutil
+        src = bpy.path.abspath(self.filepath)
+        if not os.path.isfile(src):
+            self.report({'ERROR'}, f"File not found: {src}")
+            return {'CANCELLED'}
+        dst = os.path.join(_preset_dir(), os.path.basename(src))
+        shutil.copyfile(src, dst)
+        self.report({'INFO'}, f"Imported preset '{os.path.basename(src)}'")
+        return {'FINISHED'}
 
 
 def update_face_orientation(self, context):
@@ -329,6 +516,9 @@ _FIX_OPERATORS: dict = {
     "modifier_stack":        "asset_checker.fix_modifier_stack",
     "isolated_verts":        "asset_checker.fix_merge_by_distance",
     "duplicate_verts":       "asset_checker.fix_merge_by_distance",
+    "zero_area":             "asset_checker.fix_zero_area",
+    "mat_numbering":         "asset_checker.fix_mat_numbering",
+    "uv_single_set":         "asset_checker.fix_uv_single_set",
     "obj_naming":            "asset_checker.fix_naming",
     "mat_suffix":            "asset_checker.fix_mat_suffix",
 }
@@ -686,6 +876,124 @@ class ASSET_CHECKER_OT_collapse_objects(bpy.types.Operator):
         return {'FINISHED'}
 
 
+# ── Fix: Delete Zero-area Faces ───────────────────────────────────────────────
+class ASSET_CHECKER_OT_fix_zero_area(bpy.types.Operator):
+    """Delete degenerate (zero-area) faces detected by the Zero Area check"""
+    bl_idname  = "asset_checker.fix_zero_area"
+    bl_label   = "Fix: Delete Zero-area Faces"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        from .manager import MeshCheck
+        fixed = 0
+        prev_active = context.view_layer.objects.active
+        if context.mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
+
+        for obj, mc_obj in list(_problem_objects("zero_area")):
+            checker = mc_obj._checks.get("zero_area")
+            face_idx = set(getattr(checker, '_faces_idx', []) or [])
+            if not face_idx:
+                continue
+            state = _ensure_visible(obj)
+            try:
+                context.view_layer.objects.active = obj
+                obj.select_set(True)
+                bpy.ops.object.mode_set(mode='EDIT')
+                bm = bmesh.from_edit_mesh(obj.data)
+                bm.faces.ensure_lookup_table()
+                for f in bm.faces:
+                    f.select_set(f.index in face_idx)
+                bm.select_flush_mode()
+                bmesh.update_edit_mesh(obj.data)
+                bpy.ops.mesh.delete(type='FACE')
+                bpy.ops.object.mode_set(mode='OBJECT')
+                obj.select_set(False)
+                fixed += 1
+            except Exception as e:
+                print(f"[AssetChecker] fix_zero_area {obj.name}: {e}")
+                try:
+                    bpy.ops.object.mode_set(mode='OBJECT')
+                except Exception:
+                    pass
+            finally:
+                _restore_visible(obj, state)
+
+        try:
+            if prev_active:
+                context.view_layer.objects.active = prev_active
+        except Exception:
+            pass
+
+        MeshCheck.update_mc_object_datas("zero_area")
+        self.report({'INFO'}, f"Deleted zero-area faces on {fixed} object(s)")
+        return {'FINISHED'}
+
+
+# ── Fix: Rename numbered materials ────────────────────────────────────────────
+class ASSET_CHECKER_OT_fix_mat_numbering(bpy.types.Operator):
+    """Rename materials with Blender auto-numbering (.001) to clean base names.
+    If the base name is taken, a numeric tail is replaced by '_v2', '_v3', ..."""
+    bl_idname  = "asset_checker.fix_mat_numbering"
+    bl_label   = "Fix: Rename Numbered Materials"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        import re
+        from .manager import MeshCheck
+        renamed = 0
+        pattern = re.compile(r'\.\d{3}$')
+        taken = {m.name for m in bpy.data.materials}
+
+        for obj, mc_obj in list(_problem_objects("mat_numbering")):
+            checker = mc_obj._checks.get("mat_numbering")
+            for mat_name in list(getattr(checker, '_issues', []) or []):
+                mat = bpy.data.materials.get(mat_name)
+                if mat is None or not pattern.search(mat.name):
+                    continue
+                base = pattern.sub('', mat.name)
+                new_name = base
+                n = 2
+                while new_name in taken and new_name != mat.name:
+                    new_name = f"{base}_v{n}"
+                    n += 1
+                if new_name == mat.name:
+                    continue
+                mat.name = new_name
+                taken.add(new_name)
+                renamed += 1
+
+        MeshCheck.update_mc_object_datas("mat_numbering")
+        self.report({'INFO'}, f"Renamed {renamed} material(s)")
+        return {'FINISHED'}
+
+
+# ── Fix: Remove extra UV sets ─────────────────────────────────────────────────
+class ASSET_CHECKER_OT_fix_uv_single_set(bpy.types.Operator):
+    """Remove extra UV sets — keep only the active one"""
+    bl_idname  = "asset_checker.fix_uv_single_set"
+    bl_label   = "Fix: Keep Active UV Set Only"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        from .manager import MeshCheck
+        fixed = 0
+        for obj, mc_obj in list(_problem_objects("uv_single_set")):
+            uvl = obj.data.uv_layers
+            if len(uvl) <= 1:
+                continue
+            active = uvl.active
+            for u in list(uvl):
+                if u != active:
+                    uvl.remove(u)
+            fixed += 1
+
+        if fixed:
+            MeshCheck.update_mc_object_datas("uv_single_set")
+        self.report({'INFO'}, f"Removed extra UV sets on {fixed} object(s)")
+        return {'FINISHED'}
+
+
 # ── Fix: All fixable checks in a category ────────────────────────────────────
 class ASSET_CHECKER_OT_fix_category(bpy.types.Operator):
     """Run all available auto-fixes for this category"""
@@ -799,7 +1107,7 @@ class ASSET_CHECKER_OT_export_report(bpy.types.Operator):
     @staticmethod
     def _build_report(context) -> dict:
         """Assemble a structured report dict from MeshCheck.objects."""
-        from .manager import MeshCheck
+        from .manager import MeshCheck, get_addon_version
         from .ui import CHECK_SEVERITY, _get_asset_status, _compute_asset_summary
 
         mc = context.window_manager.mesh_check_props
@@ -835,13 +1143,28 @@ class ASSET_CHECKER_OT_export_report(bpy.types.Operator):
                 "checks": checks_list,
             })
 
+        preset_name = "—"
+        ignored_lines = []
+        prefs = _get_addon_prefs(context)
+        if prefs and prefs.preset_active:
+            preset_name = prefs.preset_active
+        for obj, mc_obj in MeshCheck.objects.items():
+            try:
+                ignored = get_obj_ignore_list(obj)
+            except ReferenceError:
+                continue
+            if ignored:
+                ignored_lines.append(f"{obj.name}: {', '.join(sorted(ignored))}")
+
         return {
             "tool":    "STUKACH · Pipeline Snitch System",
-            "version": "1.2.3",
+            "version": get_addon_version(),
             "scene":   context.scene.name,
             "file":    bpy.data.filepath or "(unsaved)",
             "date":    datetime.now().isoformat(timespec='seconds'),
             "scope":   MeshCheck._scope,
+            "preset":  preset_name,
+            "ignored": ignored_lines,
             "summary": {
                 "status":       status_str,
                 "objects":      summary_data["obj_count"],
@@ -905,6 +1228,14 @@ class ASSET_CHECKER_OT_export_report(bpy.types.Operator):
         if not rows_html:
             rows_html = "<tr><td colspan='6' style='color:#40c070;text-align:center'>No issues found — pipeline clean ✓</td></tr>"
 
+        if report.get("ignored"):
+            ign = "<br>".join(report["ignored"])
+            ignored_html = (f"<div class='meta' style='margin-top:0'>"
+                            f"<div><div class='label'>Ignored checks</div>"
+                            f"<div class='value' style='font-size:12px'>{ign}</div></div></div>")
+        else:
+            ignored_html = ""
+
         html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -939,8 +1270,10 @@ class ASSET_CHECKER_OT_export_report(bpy.types.Operator):
   <div><div class="label">Objects</div><div class="value">{s['objects']}</div></div>
   <div><div class="label">Blockers</div><div class="value" style="color:#e84040">{s['blockers']}</div></div>
   <div><div class="label">Warnings</div><div class="value" style="color:#e8a040">{s['warnings']}</div></div>
+  <div><div class="label">Preset</div><div class="value">{report['preset']}</div></div>
   <div><div class="label">Date</div><div class="value">{report['date']}</div></div>
 </div>
+{ignored_html}
 
 <table>
 <thead>
@@ -1016,15 +1349,12 @@ class ASSET_CHECKER_OT_validate_scene(bpy.types.Operator):
         MeshCheck._scope = "SCENE"
         MeshCheck._scope_collection = ""
         MeshCheck._scene_stale = False
-        MeshCheck.objects.clear()
         MeshCheckGPU._batch_cache.clear()
         UVCheckGPU._batch_cache.clear()
-
-        context.window.cursor_set('WAIT')
-        try:
-            MeshCheck.add_scene_objects(wm=wm)
-        finally:
-            context.window.cursor_set('DEFAULT')
+        # Progressive: queue the objects — MeshCheckObject instances are built
+        # in small timer batches so the UI keeps breathing on large scenes.
+        MeshCheck.start_progressive_validation(
+            [o for o in context.scene.objects if o.type == "MESH"])
 
         return {'FINISHED'}
 
@@ -1051,15 +1381,10 @@ class ASSET_CHECKER_OT_validate_collection(bpy.types.Operator):
         MeshCheck._scope = "COLLECTION"
         MeshCheck._scope_collection = col.name
         MeshCheck._scene_stale = False
-        MeshCheck.objects.clear()
         MeshCheckGPU._batch_cache.clear()
         UVCheckGPU._batch_cache.clear()
-
-        context.window.cursor_set('WAIT')
-        try:
-            MeshCheck.add_collection_objects_from(col, wm=wm)
-        finally:
-            context.window.cursor_set('DEFAULT')
+        MeshCheck.start_progressive_validation(
+            [o for o in col.all_objects if o.type == "MESH"])
 
         return {'FINISHED'}
 
@@ -1078,91 +1403,133 @@ class ASSET_CHECKER_OT_clear_validation(bpy.types.Operator):
         return {'FINISHED'}
 
 
-# ── Check presets: apply / save / delete ─────────────────────────────────────
+# ── Copy Summary — compact validation report to clipboard ────────────────────
 
-class ASSET_CHECKER_OT_preset_apply(bpy.types.Operator):
-    """Apply the selected check preset (enables/disables checkers to the saved set)"""
-    bl_idname  = "asset_checker.preset_apply"
-    bl_label   = "Apply Preset"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    def execute(self, context):
-        from .manager import _AC_CHECK_PROPS
-        mc = context.window_manager.mesh_check_props
-        prefs = _get_addon_prefs(context)
-        name = mc.preset_enum
-        if name == "__none__" or not prefs:
-            self.report({'WARNING'}, "No preset selected")
-            return {'CANCELLED'}
-        item = prefs.presets.get(name)
-        if item is None:
-            self.report({'WARNING'}, f"Preset '{name}' not found")
-            return {'CANCELLED'}
-        try:
-            flags = json.loads(item.checks_json)
-        except Exception as e:
-            self.report({'ERROR'}, f"Preset is corrupted: {e}")
-            return {'CANCELLED'}
-        applied = 0
-        for key, val in flags.items():
-            if hasattr(mc, key):
-                setattr(mc, key, bool(val))   # fires per-check updaters
-                applied += 1
-        prefs.preset_active = name
-        self.report({'INFO'}, f"Applied preset '{name}' ({applied} checks)")
-        return {'FINISHED'}
-
-
-class ASSET_CHECKER_OT_preset_save(bpy.types.Operator):
-    """Save the current check set as a preset (overwrites an existing preset with the same name)"""
-    bl_idname  = "asset_checker.preset_save"
-    bl_label   = "Save Preset"
+class ASSET_CHECKER_OT_copy_summary(bpy.types.Operator):
+    """Copy a compact validation summary to the clipboard"""
+    bl_idname  = "asset_checker.copy_summary"
+    bl_label   = "Copy Summary"
     bl_options = {'REGISTER'}
 
     def execute(self, context):
-        from .manager import _AC_CHECK_PROPS
+        from .manager import MeshCheck, get_addon_version
         mc = context.window_manager.mesh_check_props
-        prefs = _get_addon_prefs(context)
-        if not prefs:
-            return {'CANCELLED'}
-        name = (mc.preset_name or "").strip()
-        if not name:
-            self.report({'WARNING'}, "Type a preset name first")
-            return {'CANCELLED'}
-        flags = {key: bool(getattr(mc, key, False)) for key in _AC_CHECK_PROPS}
-        item = prefs.presets.get(name)
-        if item is None:
-            item = prefs.presets.add()
-        item.name = name
-        item.checks_json = json.dumps(flags)
-        prefs.preset_active = name
-        mc.preset_name = ""
-        self.report({'INFO'}, f"Saved preset '{name}'")
+
+        lines = [f"STUKACH v{get_addon_version()} — validation summary"]
+        scope = MeshCheck._scope
+        if scope == "SCENE":
+            lines.append(f"scope: SCENE ({len(MeshCheck.objects)} objects)")
+        elif scope == "COLLECTION":
+            lines.append(f"scope: {MeshCheck._scope_collection} ({len(MeshCheck.objects)} objects)")
+        else:
+            lines.append(f"scope: SELECTION ({len(MeshCheck.objects)} objects)")
+
+        rows = []
+        total_b = total_w = 0
+        from .ui import CHECK_SEVERITY
+        for o, mc_obj in MeshCheck.objects.items():
+            try:
+                o.name
+            except ReferenceError:
+                continue
+            b = w = 0
+            worst = None
+            for chk_name, checker in mc_obj._checks.items():
+                if not getattr(mc, chk_name, False):
+                    continue
+                c = checker.count
+                if c <= 0:
+                    continue
+                if CHECK_SEVERITY.get(chk_name, "INFO") == "BLOCKER":
+                    b += c
+                else:
+                    w += c
+                if worst is None or c > worst[0]:
+                    worst = (c, chk_name)
+            total_b += b
+            total_w += w
+            if b or w:
+                rows.append((b, w, o.name, worst))
+        rows.sort(key=lambda t: (-t[0], -t[1], t[2]))
+
+        lines.append(f"issues: {total_b} blockers, {total_w} warnings")
+        for b, w, name, worst in rows[:10]:
+            line = f"  {name}: {b}B/{w}W"
+            if worst:
+                line += f" (top: {worst[1]})"
+            lines.append(line)
+        if len(rows) > 10:
+            lines.append(f"  …and {len(rows) - 10} more objects")
+
+        context.window_manager.clipboard = "\n".join(lines)
+        self.report({'INFO'}, f"Summary copied ({len(rows)} objects with issues)")
         return {'FINISHED'}
 
 
-class ASSET_CHECKER_OT_preset_delete(bpy.types.Operator):
-    """Delete the selected check preset"""
-    bl_idname  = "asset_checker.preset_delete"
-    bl_label   = "Delete Preset"
+class ASSET_CHECKER_OT_next_issue(bpy.types.Operator):
+    """Jump to the next object with issues — selects and frames it in the viewport"""
+    bl_idname  = "asset_checker.next_issue"
+    bl_label   = "Next Issue"
     bl_options = {'REGISTER'}
 
     def execute(self, context):
+        from .manager import MeshCheck
         mc = context.window_manager.mesh_check_props
-        prefs = _get_addon_prefs(context)
-        name = mc.preset_enum
-        if name == "__none__" or not prefs:
-            self.report({'WARNING'}, "No preset selected")
+
+        # Problem objects in stable worst-first order
+        problems = []
+        for o, mc_obj in MeshCheck.objects.items():
+            try:
+                o.name
+            except ReferenceError:
+                continue
+            total = 0
+            worst = None      # (count, check_name)
+            for chk_name, checker in mc_obj._checks.items():
+                if not getattr(mc, chk_name, False):
+                    continue
+                c = checker.count
+                if c > 0:
+                    total += c
+                    if worst is None or c > worst[0]:
+                        worst = (c, chk_name)
+            if total > 0:
+                problems.append((-total, o.name, o, worst))
+        if not problems:
+            self.report({'INFO'}, "No issues found — mesh is clean")
             return {'CANCELLED'}
-        for i, item in enumerate(prefs.presets):
-            if item.name == name:
-                prefs.presets.remove(i)
-                if prefs.preset_active == name:
-                    prefs.preset_active = ""
-                self.report({'INFO'}, f"Deleted preset '{name}'")
-                return {'FINISHED'}
-        self.report({'WARNING'}, f"Preset '{name}' not found")
-        return {'CANCELLED'}
+
+        problems.sort(key=lambda t: (t[0], t[1]))
+        idx = MeshCheck._next_issue_ptr % len(problems)
+        MeshCheck._next_issue_ptr = idx + 1
+        neg_total, name, o, worst = problems[idx]
+
+        if context.mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
+        bpy.ops.object.select_all(action='DESELECT')
+        o.select_set(True)
+        context.view_layer.objects.active = o
+
+        # Frame it in every 3D viewport
+        for window in context.window_manager.windows:
+            for area in window.screen.areas:
+                if area.type == 'VIEW_3D':
+                    region = next((rg for rg in area.regions
+                                   if rg.type == 'WINDOW'), None)
+                    if region is None:
+                        continue
+                    with context.temp_override(window=window, area=area,
+                                               region=region):
+                        try:
+                            bpy.ops.view3d.view_selected()
+                        except Exception:
+                            pass
+
+        msg = f"[{idx + 1}/{len(problems)}] {name}: {-neg_total} issue(s)"
+        if worst:
+            msg += f" — top: {worst[1]} ({worst[0]})"
+        self.report({'INFO'}, msg)
+        return {'FINISHED'}
 
 
 # ── Fix: Remove unused data ───────────────────────────────────────────────────
@@ -1707,62 +2074,69 @@ class MeshCheckProperties(PropertyGroup):
                     "(replaces the old flipped-normals counter — verify visually)",
     )
 
-    # Check presets (v1.4.1)
-    preset_enum: EnumProperty(
-        name="Preset",
-        items=_preset_items,
-        description="Saved check sets",
-    )
-    preset_name: StringProperty(
-        name="Preset Name",
-        default="",
-        description="Name for saving the current check set",
-    )
-
     # TOPOLOGY
-    non_manifold:        BoolProperty(name="Non-manifold",            default=False, update=mc_object_datas_updater("non_manifold"))
+    non_manifold:        BoolProperty(name="Non-manifold",            default=False, update=mc_object_datas_updater("non_manifold"),
+                                      description="Edges with other than 2 adjacent faces (T-junctions, wire edges) — breaks booleans, cloth sims and export")
     boundary_edges:      BoolProperty(name="Boundary Edges",          default=False, update=mc_object_datas_updater("boundary_edges"),
                                       description="Open mesh borders (edges with exactly one adjacent face)")
     isolated_verts:      BoolProperty(name="Isolated Vertices",       default=False, update=mc_object_datas_updater("isolated_verts"),
                                       description="Vertices not connected to any edge")
     duplicate_verts:     BoolProperty(name="Duplicate Vertices",      default=False, update=mc_object_datas_updater("duplicate_verts"),
-                                      description="Overlapping vertices within 0.1 mm — would merge on Merge by Distance")
+                                      description="Overlapping vertices within one connected shell (0.01 mm) — would merge on Merge by Distance. Coincident verts of DIFFERENT shells are intentional and not flagged")
     face_aspect_ratio:   BoolProperty(name="Face Aspect Ratio",       default=False, update=mc_object_datas_updater("face_aspect_ratio"),
                                       description="Quads with aspect ratio exceeding threshold (default 6:1) — causes stretching artifacts under subdivision")
-    triangles:           BoolProperty(name="Triangles",               default=False, update=mc_object_datas_updater("triangles"))
-    ngons:               BoolProperty(name="Ngons",                   default=False, update=mc_object_datas_updater("ngons"))
-    poles:               BoolProperty(name="Poles",                   default=False, update=mc_object_datas_updater("poles"))
-    zero_area:           BoolProperty(name="Zero-area faces",         default=False, update=mc_object_datas_updater("zero_area"))
+    triangles:           BoolProperty(name="Triangles",               default=False, update=mc_object_datas_updater("triangles"),
+                                      description="Triangular faces — midpoly workflow tolerates them; critical in deform zones and under subdivision")
+    ngons:               BoolProperty(name="Ngons",                   default=False, update=mc_object_datas_updater("ngons"),
+                                      description="Faces with 5+ edges — unpredictable renderer triangulation, normal artifacts on hard surfaces")
+    poles:               BoolProperty(name="Poles",                   default=False, update=mc_object_datas_updater("poles"),
+                                      description="Interior vertices with non-standard edge count (3, 5, >5) — affects subdivision and skinning, often intentional")
+    zero_area:           BoolProperty(name="Zero-area faces",         default=False, update=mc_object_datas_updater("zero_area"),
+                                      description="Degenerate faces with near-zero area — NaN normals, broken UVs. Caused by boolean, knife, merge")
     z_fighting:          BoolProperty(name="Z-Fighting",              default=False, update=mc_object_datas_updater("z_fighting"),
                                       description="Coplanar face overlap within the mesh and between tracked objects")
 
     # TRANSFORMS
-    non_applied_transform: BoolProperty(name="Non-applied rotation", default=False, update=mc_object_datas_updater("non_applied_transform"))
-    scale:                 BoolProperty(name="Scale (not 1.0)",      default=False, update=mc_object_datas_updater("scale"))
+    non_applied_transform: BoolProperty(name="Non-applied rotation", default=False, update=mc_object_datas_updater("non_applied_transform"),
+                                      description="Non-zero object rotation — changes normal directions on export, breaks physics and bone orientation")
+    scale:                 BoolProperty(name="Scale (not 1.0)",      default=False, update=mc_object_datas_updater("scale"),
+                                      description="Scale other than 1.0 on any axis — distorts simulations, skeleton deformation and texel density")
     origin_at_zero:        BoolProperty(name="Origin not at zero",   default=False, update=mc_object_datas_updater("origin_at_zero"),
                                         description="Object pivot point is not at world origin (0, 0, 0)")
     modifier_stack:        BoolProperty(name="Modifier Stack",       default=False, update=mc_object_datas_updater("modifier_stack"),
                                         description="Unapplied modifiers present on object (pipeline non-whitelisted)")
 
     # SYMMETRY
-    symmetry_x: BoolProperty(name="Symmetry X", default=False, update=mc_object_datas_updater("symmetry_x"))
-    symmetry_y: BoolProperty(name="Symmetry Y", default=False, update=mc_object_datas_updater("symmetry_y"))
-    symmetry_z: BoolProperty(name="Symmetry Z", default=False, update=mc_object_datas_updater("symmetry_z"))
+    symmetry_x: BoolProperty(name="Symmetry X", default=False, update=mc_object_datas_updater("symmetry_x"),
+                             description="Vertices without a mirror pair across the X axis (KD-tree)")
+    symmetry_y: BoolProperty(name="Symmetry Y", default=False, update=mc_object_datas_updater("symmetry_y"),
+                             description="Vertices without a mirror pair across the Y axis (KD-tree)")
+    symmetry_z: BoolProperty(name="Symmetry Z", default=False, update=mc_object_datas_updater("symmetry_z"),
+                             description="Vertices without a mirror pair across the Z axis (KD-tree)")
 
     # UV
-    uv_single_set:    BoolProperty(name="Single UV Set",        default=False, update=mc_object_datas_updater("uv_single_set"))
-    uv_overlap:       BoolProperty(name="UV Overlap",           default=False, update=mc_object_datas_updater("uv_overlap"))
-    uv_micro_shell:   BoolProperty(name="UV Micro-shells",      default=False, update=mc_object_datas_updater("uv_micro_shell"))
-    uv_texel_density: BoolProperty(name="Texel Density",        default=False, update=mc_object_datas_updater("uv_texel_density"))
-    uv_stretch:       BoolProperty(name="UV Stretch",           default=False, update=mc_object_datas_updater("uv_stretch"))
-    uv_padding:       BoolProperty(name="UV Padding",           default=False, update=mc_object_datas_updater("uv_padding"))
-    uv_udim_bounds:   BoolProperty(name="UDIM Bounds",          default=False, update=mc_object_datas_updater("uv_udim_bounds"))
+    uv_single_set:    BoolProperty(name="Single UV Set",        default=False, update=mc_object_datas_updater("uv_single_set"),
+                                   description="Mesh must have exactly one UV map")
+    uv_overlap:       BoolProperty(name="UV Overlap",           default=False, update=mc_object_datas_updater("uv_overlap"),
+                                   description="Overlapping UV islands — identical texels for different polygons, impossible to bake unique textures")
+    uv_micro_shell:   BoolProperty(name="UV Micro-shells",      default=False, update=mc_object_datas_updater("uv_micro_shell"),
+                                   description="UV islands too small for texturing (below area threshold) — waste atlas space, blurry texels")
+    uv_texel_density: BoolProperty(name="Texel Density",        default=False, update=mc_object_datas_updater("uv_texel_density"),
+                                   description="Texel density in px/cm shown as metric; becomes a control only when a target TD is set")
+    uv_stretch:       BoolProperty(name="UV Stretch",           default=False, update=mc_object_datas_updater("uv_stretch"),
+                                   description="Faces where the UV-space angle deviates from the 3D angle — texture distortion")
+    uv_padding:       BoolProperty(name="UV Padding",           default=False, update=mc_object_datas_updater("uv_padding"),
+                                   description="UV shells closer than the padding threshold — bleeding during mip-mapping")
+    uv_udim_bounds:   BoolProperty(name="UDIM Bounds",          default=False, update=mc_object_datas_updater("uv_udim_bounds"),
+                                   description="UV islands crossing UDIM tile boundaries — cannot assign a correct UDIM texture")
     uv_material_udim: BoolProperty(name="Uv Material Udim",         default=False, update=mc_object_datas_updater("uv_material_udim"),
                                    description="Each UDIM tile must contain shells from one material only (регламент: 1 UDIM = 1 material group)")
 
     # NAMING
-    obj_naming:    BoolProperty(name="Object Name",   default=False, update=update_obj_naming)
-    col_naming:    BoolProperty(name="Group Name",    default=False, update=mc_object_datas_updater("col_naming"))
+    obj_naming:    BoolProperty(name="Object Name",   default=False, update=update_obj_naming,
+                                description="Object names against naming policy: default names, .001 numbering, case, prefix/suffix rules")
+    col_naming:    BoolProperty(name="Group Name",    default=False, update=mc_object_datas_updater("col_naming"),
+                                description="Collection names against naming policy")
     mat_numbering: BoolProperty(name="Mat Numbering", default=False, update=mc_object_datas_updater("mat_numbering"),
                                 description="Material names must not contain Blender auto-numbering (.001, .002 ...)")
 
@@ -1784,8 +2158,10 @@ class MeshCheckProperties(PropertyGroup):
     )
 
     # MATERIALS
-    mat_suffix:       BoolProperty(name="Material Suffix (_mat)", default=False, update=mc_object_datas_updater("mat_suffix"))
-    mat_assignment:   BoolProperty(name="Material Assignment",    default=False, update=mc_object_datas_updater("mat_assignment"))
+    mat_suffix:       BoolProperty(name="Material Suffix (_mat)", default=False, update=mc_object_datas_updater("mat_suffix"),
+                                   description="Material names must end with the _mat suffix")
+    mat_assignment:   BoolProperty(name="Material Assignment",    default=False, update=mc_object_datas_updater("mat_assignment"),
+                                   description="Empty material slots (slot exists, no material) — black geometry in render")
     missing_textures: BoolProperty(name="Missing Textures",       default=False, update=mc_object_datas_updater("missing_textures"),
                                    description="Detect missing texture files referenced in material node trees")
 
@@ -1833,6 +2209,16 @@ class MeshCheckProperties(PropertyGroup):
         name="Issues Only",
         default=False,
         description="Show only objects that have at least one active issue",
+    )
+    obj_filter_check: EnumProperty(
+        name="Check Filter",
+        items=_check_filter_items,
+        description="Show only objects with issues from the selected check",
+    )
+    obj_sort_worst: BoolProperty(
+        name="Worst First",
+        default=False,
+        description="Sort the object list by total issue count — worst objects on top",
     )
 
     # Material → UDIM highlight selection (UV panel)

@@ -520,6 +520,7 @@ class MeshCheck:
     _state_restored: bool = False      # True after load_post restores settings; cleared on Run
     _scene_stale:   bool = False       # True when SCENE/COLLECTION has untracked objects
     _last_live_populate: float = 0.0   # monotonic timestamp — throttle for Live auto-add
+    _next_issue_ptr: int = 0           # cycling pointer for the Next Issue operator
 
     @staticmethod
     def poll():
@@ -532,6 +533,8 @@ class MeshCheck:
         cls.objects.clear()
         cls._live_dirty.clear()
         cls._live_repopulate = False
+        cls._validation_queue.clear()
+        cls._next_issue_ptr = 0
         MeshCheckGPU._batch_cache.clear()
         UVCheckGPU._batch_cache.clear()
         from .core import (_uv_island_cache, _uv_membership_cache,
@@ -633,6 +636,7 @@ class MeshCheck:
         cls.objects.clear()
         cls._live_dirty.clear()
         cls._live_repopulate = False
+        cls._validation_queue.clear()
         MeshCheckGPU._batch_cache.clear()
         UVCheckGPU._batch_cache.clear()
         cls._repopulate_by_scope()
@@ -889,24 +893,27 @@ class MeshCheck:
                         MeshCheck.remove_mesh_check_object(o)
 
                 # Stale detection: compare expected mesh count vs currently tracked
+                # (skipped while progressive validation is still filling the list)
                 try:
-                    if MeshCheck._scope == "SCENE":
-                        expected = sum(1 for o in ctx.scene.objects if o.type == "MESH")
-                    else:
-                        col = bpy.data.collections.get(MeshCheck._scope_collection)
-                        expected = sum(1 for o in col.all_objects
-                                       if o.type == "MESH") if col else 0
-                    if expected != len(MeshCheck.objects):
-                        if getattr(mc, 'live_update', False):
-                            # Live: auto-track new objects.  The heavy part
-                            # (MeshCheckObject init runs every enabled check)
-                            # is deferred to the timer.
-                            MeshCheck._live_repopulate = True
-                            MeshCheck._schedule_live_flush()
+                    if not MeshCheck._validation_queue:
+                        if MeshCheck._scope == "SCENE":
+                            expected = sum(1 for o in ctx.scene.objects
+                                           if o.type == "MESH")
                         else:
-                            MeshCheck._scene_stale = True
-                    else:
-                        MeshCheck._scene_stale = False
+                            col = bpy.data.collections.get(MeshCheck._scope_collection)
+                            expected = sum(1 for o in col.all_objects
+                                           if o.type == "MESH") if col else 0
+                        if expected != len(MeshCheck.objects):
+                            if getattr(mc, 'live_update', False):
+                                # Live: auto-track new objects.  The heavy part
+                                # (MeshCheckObject init runs every enabled check)
+                                # is deferred to the timer.
+                                MeshCheck._live_repopulate = True
+                                MeshCheck._schedule_live_flush()
+                            else:
+                                MeshCheck._scene_stale = True
+                        else:
+                            MeshCheck._scene_stale = False
                 except Exception:
                     pass
 
@@ -983,6 +990,59 @@ class MeshCheck:
                 # flag may now be out of sync; reset it, next event re-schedules.
                 cls._live_flush_pending = False
 
+    # Max objects re-checked per timer tick — keeps the UI responsive when a
+    # single action touches many tracked objects (e.g. join of a large scene).
+    _LIVE_FLUSH_BATCH: int = 8
+
+    # ── Progressive validation (Scene / Collection scope) ─────────────────────
+    # Scene-wide RUN used to build every MeshCheckObject synchronously — the
+    # UI froze for the whole pass.  Instead the objects are queued and built
+    # in small timer batches; counters fill in as the queue drains.
+    _validation_queue: list = []
+
+    @classmethod
+    def start_progressive_validation(cls, objects):
+        cls.objects.clear()
+        cls._live_dirty.clear()
+        MeshCheckGPU._batch_cache.clear()
+        UVCheckGPU._batch_cache.clear()
+        cls._validation_queue = [o for o in objects if o not in cls.objects]
+        if cls._validation_queue:
+            cls._schedule_validation_flush()
+
+    _validation_flush_pending: bool = False
+
+    @classmethod
+    def _schedule_validation_flush(cls):
+        if not cls._validation_flush_pending:
+            cls._validation_flush_pending = True
+            try:
+                bpy.app.timers.register(cls._validation_flush, first_interval=0.05)
+            except Exception:
+                cls._validation_flush_pending = False
+
+    @classmethod
+    def _validation_flush(cls):
+        cls._validation_flush_pending = False
+        try:
+            mc = getattr(bpy.context.window_manager, 'mesh_check_props', None)
+            batch = 6
+            while cls._validation_queue and batch > 0:
+                o = cls._validation_queue.pop(0)
+                try:
+                    o.name    # ReferenceError if deleted while queued
+                except ReferenceError:
+                    continue
+                cls.objects[o] = MeshCheckObject(o)
+                batch -= 1
+            if cls._validation_queue:
+                cls._schedule_validation_flush()
+            else:
+                cls._scene_stale = False
+        except Exception as e:
+            print(f"[AssetChecker] validation flush error: {e}")
+        return None
+
     @classmethod
     def _live_flush(cls):
         cls._live_flush_pending = False
@@ -1009,8 +1069,12 @@ class MeshCheck:
                     cls._scene_stale = True
                     cls._schedule_live_flush()
 
+            processed = 0
             for mc_obj in list(cls._live_dirty):
+                if processed >= cls._LIVE_FLUSH_BATCH:
+                    break
                 cls._live_dirty.discard(mc_obj)
+                processed += 1
                 try:
                     o = mc_obj._object
                     o.name    # ReferenceError if the object was deleted
@@ -1026,6 +1090,10 @@ class MeshCheck:
                 except Exception as e:
                     name = getattr(mc_obj._object, 'name', '?')
                     print(f"[AssetChecker] live flush {name}: {e}")
+
+            # More left in the queue — keep the loop going on the next tick.
+            if cls._live_dirty:
+                cls._schedule_live_flush()
         except Exception as e:
             print(f"[AssetChecker] live flush error: {e}")
         return None
@@ -1037,6 +1105,23 @@ class MeshCheck:
 # just presses Run again; the check selection is already pre-filled.
 
 _AC_STATE_KEY = "_ac_state"
+
+_ADDON_VERSION_CACHE = None
+
+
+def get_addon_version() -> str:
+    """Extension version from blender_manifest.toml (cached, no bl_info)."""
+    global _ADDON_VERSION_CACHE
+    if _ADDON_VERSION_CACHE is None:
+        try:
+            import tomllib
+            from pathlib import Path
+            manifest = Path(__file__).parent / "blender_manifest.toml"
+            with open(manifest, "rb") as fh:
+                _ADDON_VERSION_CACHE = tomllib.load(fh).get("version", "?")
+        except Exception:
+            _ADDON_VERSION_CACHE = "?"
+    return _ADDON_VERSION_CACHE
 
 # BoolProperty / StringProperty identifiers to include in the snapshot
 _AC_CHECK_PROPS: frozenset = frozenset({
