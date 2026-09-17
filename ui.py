@@ -862,18 +862,21 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
         badge.label(text=f"[ {scope_label} ]")
 
         # ── Row 2: category health strip — real colored dots per category ───
+        # Compact: dot + 2-letter code, no counts (row 1 has the totals) —
+        # 7 cells must fit the panel width without truncation.
         dots = _status_dots()
         cats_row = box.row(align=True)
         cats_row.scale_y = 0.75
         for cat, (cat_b, cat_w) in summary["cat_counts"].items():
-            total = cat_b + cat_w
             if dots:
                 ic = dots["bad"] if cat_b else (dots["warn"] if cat_w else dots["ok"])
-                cats_row.template_icon(icon_value=ic, scale=0.55)
-                cats_row.label(text=f"{cat[:4]} {total}" if total else cat[:4])
+                cell = cats_row.row(align=True)
+                cell.alignment = "CENTER"
+                cell.template_icon(icon_value=ic, scale=0.5)
+                cell.label(text=cat[:2])
             else:
                 icon = "ERROR" if cat_b else ("INFO" if cat_w else "CHECKMARK")
-                cats_row.label(text=f"{cat[:4]}: {total}", icon=icon)
+                cats_row.label(text=f"{cat[:2]}:{cat_b + cat_w}", icon=icon)
 
         # ── Row 3: Next Issue navigation + summary copy ─────────────────────
         action_row = box.row(align=True)
