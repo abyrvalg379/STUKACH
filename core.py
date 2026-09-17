@@ -3801,13 +3801,22 @@ class MeshDataNaming(BaseCheck):
 
     @classmethod
     def _mesh_suffixes(cls) -> List[str]:
+        suffixes = []
+        # Inline panel field takes priority (first = used by Fix)
+        try:
+            mc = bpy.context.window_manager.mesh_check_props
+            inline = getattr(mc, "mesh_required_suffix", "").strip()
+            if inline:
+                suffixes.append(inline)
+        except Exception:
+            pass
         prefs = cls._prefs()
         if prefs and getattr(prefs, "mesh_naming_suffixes", None):
-            vals = [e.value.strip() for e in prefs.mesh_naming_suffixes]
-            vals = [v for v in vals if v]
-            if vals:
-                return vals
-        return list(cls._DEFAULT_SUFFIXES)
+            for e in prefs.mesh_naming_suffixes:
+                v = e.value.strip()
+                if v and v not in suffixes:
+                    suffixes.append(v)
+        return suffixes or list(cls._DEFAULT_SUFFIXES)
 
     @classmethod
     def _target_name(cls, obj) -> str:

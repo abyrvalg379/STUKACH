@@ -1174,6 +1174,7 @@ _AC_UI_PROPS: frozenset = frozenset({
     'hierarchy_block_open', 'live_update',
     'obj_required_prefix', 'obj_required_suffix',
     'col_required_prefix', 'col_required_suffix',
+    'mesh_required_suffix',
 })
 _AC_ALL_PROPS: frozenset = _AC_CHECK_PROPS | _AC_UI_PROPS
 

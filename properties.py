@@ -142,6 +142,7 @@ _PRESET_VALUE_KEYS = (
     # inline naming policy
     'obj_required_prefix', 'obj_required_suffix',
     'col_required_prefix', 'col_required_suffix',
+    'mesh_required_suffix',
 )
 
 
@@ -2361,6 +2362,8 @@ class MeshCheckProperties(PropertyGroup):
                                         description="Required group name prefix (e.g. 'grp_')")
     col_required_suffix: StringProperty(name="Suffix", default="",
                                         description="Required group name suffix (e.g. '_grp')")
+    mesh_required_suffix: StringProperty(name="Mesh Suffix", default="_mesh",
+                                        description="Required mesh data block suffix (e.g. '_mesh'). Used by the Mesh Data Name check and its Fix button")
 
     # TD scope toggle — controls UV Space / Density summary in UV panel
     uv_td_scope_active: BoolProperty(
@@ -2676,6 +2679,11 @@ class MeshCheckProperties(PropertyGroup):
                 grp_col.label(text="Groups:", icon="OUTLINER_COLLECTION")
                 grp_col.prop(self, "col_required_prefix", text="Prefix")
                 grp_col.prop(self, "col_required_suffix", text="Suffix")
+
+                mesh_col = split.column(align=True)
+                mesh_col.label(text="Mesh:", icon="MESH_DATA")
+                mesh_col.label(text="")   # align with Prefix rows — mesh has no prefix rule
+                mesh_col.prop(self, "mesh_required_suffix", text="Suffix")
 
                 box.operator(
                     "asset_checker.check_naming",
