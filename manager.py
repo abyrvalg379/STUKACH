@@ -1035,10 +1035,17 @@ class MeshCheck:
                     continue
                 cls.objects[o] = MeshCheckObject(o)
                 batch -= 1
+                # Progress for the panel slider
+                if mc is not None:
+                    total = len(cls.objects) + len(cls._validation_queue)
+                    if total:
+                        mc.validation_progress = len(cls.objects) / total
             if cls._validation_queue:
                 cls._schedule_validation_flush()
             else:
                 cls._scene_stale = False
+                if mc is not None:
+                    mc.validation_progress = 1.0
         except Exception as e:
             print(f"[AssetChecker] validation flush error: {e}")
         return None
