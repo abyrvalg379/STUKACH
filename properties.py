@@ -7,7 +7,8 @@ import os
 import tempfile
 from datetime import datetime
 from bpy.types import PropertyGroup, Menu
-from bpy.props import BoolProperty, EnumProperty, StringProperty, FloatProperty
+from bpy.props import (BoolProperty, EnumProperty, StringProperty,
+                       FloatProperty, FloatVectorProperty)
 
 CHECK_CATEGORIES = {
     "TOPOLOGY":   ("non_manifold", "boundary_edges", "isolated_verts", "duplicate_verts",
@@ -2308,6 +2309,30 @@ class MeshCheckProperties(PropertyGroup):
         name="All Scene Objects",
         default=False,
         description="Rename UV maps on ALL mesh objects in the scene, not only validated ones",
+    )
+
+    # Health-strip swatch colors — written by _compute_asset_summary (ui.py),
+    # drawn as tiny color swatches in the score block. Colors live as RNA
+    # props because panels have no other sanctioned way to show real colors.
+    hs_topology:   FloatVectorProperty(name="HS Topology",   subtype='COLOR', size=4,
+                                       min=0.0, max=1.0, default=(0.25, 0.8, 0.35, 1.0))
+    hs_transforms: FloatVectorProperty(name="HS Transforms", subtype='COLOR', size=4,
+                                       min=0.0, max=1.0, default=(0.25, 0.8, 0.35, 1.0))
+    hs_symmetry:   FloatVectorProperty(name="HS Symmetry",   subtype='COLOR', size=4,
+                                       min=0.0, max=1.0, default=(0.25, 0.8, 0.35, 1.0))
+    hs_uv:         FloatVectorProperty(name="HS UV",         subtype='COLOR', size=4,
+                                       min=0.0, max=1.0, default=(0.25, 0.8, 0.35, 1.0))
+    hs_naming:     FloatVectorProperty(name="HS Naming",     subtype='COLOR', size=4,
+                                       min=0.0, max=1.0, default=(0.25, 0.8, 0.35, 1.0))
+    hs_materials:  FloatVectorProperty(name="HS Materials",  subtype='COLOR', size=4,
+                                       min=0.0, max=1.0, default=(0.25, 0.8, 0.35, 1.0))
+    hs_cleanup:    FloatVectorProperty(name="HS Cleanup",    subtype='COLOR', size=4,
+                                       min=0.0, max=1.0, default=(0.25, 0.8, 0.35, 1.0))
+
+    # Progressive validation progress (0..1), updated by the validation timer
+    validation_progress: FloatProperty(
+        name="Validation Progress",
+        min=0.0, max=1.0, default=0.0,
     )
     obj_filter_check: EnumProperty(
         name="Check Filter",

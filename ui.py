@@ -4,42 +4,16 @@ from . import manager as _manager_mod
 from .properties import CHECK_CATEGORIES
 
 
-# ── Health-strip dots (real colors in the panel) ─────────────────────────────
-# Blender icons are theme-monochrome — a red ERROR icon renders in text color.
-# For the score-block health strip and the validation progress bar we generate
-# colored squares via bpy.app.icons.new_triangles (new_static was removed in
-# Blender 5.x).  coords/colors must be packed float32 bytes.
-_DOTS = None
-
-
-def _status_dots():
-    """Lazy-create {ok, warn, bad, off} static icon ids. {} when unavailable."""
-    global _DOTS
-    if _DOTS is None:
-        import struct
-        # Icon triangle coords live in a 0..255 space — a 0..1 square is a
-        # sub-pixel in the corner (rendered as nothing).
-        coords = bytes(struct.pack(
-            "12f",
-            0.0,   0.0,   255.0, 0.0,   255.0, 255.0,
-            0.0,   0.0,   255.0, 255.0, 0.0,   255.0,
-        ))
-
-        def _mk(name, rgb):
-            try:
-                colors = bytes(struct.pack("24f", *([rgb[0], rgb[1], rgb[2], 1.0] * 6)))
-                return bpy.app.icons.new_triangles((4, 2), coords, colors)
-            except Exception:
-                return None
-
-        _DOTS = {
-            "ok":   _mk("stk_dot_g", (0.25, 0.80, 0.35)),
-            "warn": _mk("stk_dot_y", (0.92, 0.76, 0.20)),
-            "bad":  _mk("stk_dot_r", (0.90, 0.26, 0.24)),
-            "off":  _mk("stk_dot_o", (0.28, 0.28, 0.30)),
-        }
-        _DOTS = {k: v for k, v in _DOTS.items() if v is not None} or {}
-    return _DOTS
+# ── Health-strip: category → hidden COLOR property name ──────────────────────
+_CAT_HS_KEYS = {
+    "TOPOLOGY":   "hs_topology",
+    "TRANSFORMS": "hs_transforms",
+    "SYMMETRY":   "hs_symmetry",
+    "UV":         "hs_uv",
+    "NAMING":     "hs_naming",
+    "MATERIALS":  "hs_materials",
+    "CLEANUP":    "hs_cleanup",
+}
 
 
 def _addon_version() -> str:
@@ -863,18 +837,27 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
         badge.alignment = "RIGHT"
         badge.label(text=f"[ {scope_label} ]")
 
-        # ── Row 2: category health strip — real colored dots per category ───
-        # Compact: dot + 2-letter code, no counts (row 1 has the totals) —
-        # 7 cells must fit the panel width without truncation.
-        dots = _status_dots()
+        # ── Row 2: category health strip — real colored swatches ────────────
+        # Colors are stored in hidden COLOR properties (hs_*) written by
+        # _compute_asset_summary — the only sanctioned way to get real colors
+        # in a panel (custom triangle icons don't render via template_icon).
+        _strip_green = (0.25, 0.80, 0.35, 1.0)
+        _strip_yellow = (0.92, 0.76, 0.20, 1.0)
+        _strip_red = (0.90, 0.26, 0.24, 1.0)
         cats_row = box.row(align=True)
         cats_row.scale_y = 0.75
         for cat, (cat_b, cat_w) in summary["cat_counts"].items():
-            if dots:
-                ic = dots["bad"] if cat_b else (dots["warn"] if cat_w else dots["ok"])
+            hs_key = _CAT_HS_KEYS.get(cat)
+            if hs_key:
+                color = (_strip_red if cat_b else
+                         _strip_yellow if cat_w else _strip_green)
+                try:
+                    setattr(mc, hs_key, color)
+                except Exception:
+                    pass
                 cell = cats_row.row(align=True)
-                cell.alignment = "CENTER"
-                cell.template_icon(icon_value=ic, scale=0.5)
+                cell.scale_x = 0.22
+                cell.prop(mc, hs_key, text="")
                 cell.label(text=cat[:2])
             else:
                 icon = "ERROR" if cat_b else ("INFO" if cat_w else "CHECKMARK")
@@ -1111,24 +1094,12 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
             left = len(_manager_mod.MeshCheck._validation_queue)
             total = done + left
             factor = done / total if total else 1.0
-            dots = _status_dots()
-            if "ok" in dots and "off" in dots:
-                # Segmented progress bar from colored square icons
-                CELLS = 16
-                filled = round(factor * CELLS)
-                bar = layout.row(align=True)
-                bar.scale_y = 0.7
-                for i in range(CELLS):
-                    ic = dots["ok"] if i < filled else dots["off"]
-                    bar.template_icon(icon_value=ic, scale=0.42)
-                cap = bar.row()
-                cap.scale_y = 0.75
-                cap.label(text=f"  Validating {done}/{total}")
-            else:
-                prog = layout.row()
-                prog.scale_y = 0.75
-                prog.label(text=f"  Validating… {done} done, {left} to go",
-                           icon="SORT_TIME")
+            try:
+                mc.validation_progress = factor
+            except Exception:
+                pass
+            layout.prop(mc, "validation_progress", slider=True,
+                        text=f"Validating {done}/{total}")
         elif _hint_restored or _hint_stale:
             hint = layout.row()
             hint.scale_y = 0.75
