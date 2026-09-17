@@ -895,31 +895,43 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
             if getattr(mc, check, False) and mc_obj._checks.get(check) is not None
         ]
 
-        for i, (check, checker) in enumerate(active_checks):
-            col = c1 if i % 2 == 0 else c2
+        # Split the active checks: hot ones (issues / ignored) get full rows,
+        # clean ones collapse into a single summary line — with 30+ checks the
+        # expanded object would otherwise be a wall of "…: 0" rows.
+        MAX_GRID_LABEL = 24   # longer metrics truncate in a half-column
+        grid_items = []       # (check, checker, ignored)
+        wide_items = []       # long metric texts → full-width row
+        n_clean = 0
 
-            # ── Ignored check row ──────────────────────────────────────────
+        for check, checker in active_checks:
             if check in ignored_checks:
-                row = col.row(align=True)
-                # Label side — greyed out
+                grid_items.append((check, checker, True))
+                continue
+            if _get_check_count(mc_obj, check) > 0:
+                mt = getattr(checker, 'metric_text', '')
+                if mt and len(mt) > MAX_GRID_LABEL:
+                    wide_items.append((check, checker, False))
+                else:
+                    grid_items.append((check, checker, False))
+            else:
+                n_clean += 1
+
+        def _draw_check_row(parent, check, checker, ignored):
+            count     = _get_check_count(mc_obj, check)
+            threshold = _get_threshold(check, prefs)
+
+            if ignored:
+                row = parent.row(align=True)
                 lbl = row.row(align=True)
                 lbl.enabled = False
-                lbl.label(
-                    text=pretty_name(check),
-                    icon="HIDE_ON",
-                )
-                # Un-ignore button — always enabled
+                lbl.label(text=pretty_name(check), icon="HIDE_ON")
                 op = row.operator(
                     "asset_checker.toggle_ignore",
                     text="", icon="HIDE_OFF", emboss=False,
                 )
                 op.obj_name   = obj.name
                 op.check_name = check
-                continue
-
-            # ── Normal check row ───────────────────────────────────────────
-            count     = _get_check_count(mc_obj, check)
-            threshold = _get_threshold(check, prefs)
+                return
 
             if count == 0:
                 icon = "CHECKMARK"
@@ -931,11 +943,11 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
             mt    = getattr(checker, 'metric_text', '')
             label = mt if mt else f"{pretty_name(check)}: {count}"
 
-            row = col.row(align=True)
+            row = parent.row(align=True)
             row.label(text=label, icon=icon)
 
             if count > 0:
-                # Select button (left of ignore) — only where geometry is available
+                # Select button — only where geometry is available
                 if hasattr(checker, 'get_select_data'):
                     element_type, _ = checker.get_select_data()
                     if element_type is not None:
@@ -947,13 +959,29 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
                         op.check_name = check
                         row.separator(factor=0.5)
 
-                # Ignore button
                 op = row.operator(
                     "asset_checker.toggle_ignore",
                     text="", icon="HIDE_ON", emboss=False,
                 )
                 op.obj_name   = obj.name
                 op.check_name = check
+
+        for i, (check, checker, ignored) in enumerate(grid_items):
+            col = c1 if i % 2 == 0 else c2
+            _draw_check_row(col, check, checker, ignored)
+
+        # Long metric texts (e.g. 'Mesh.115 → fuselage_geo_031_mesh') get a
+        # full-width row instead of being truncated in a half-column.
+        for check, checker, ignored in wide_items:
+            _draw_check_row(ob_box, check, checker, ignored)
+
+        if n_clean:
+            cln = ob_box.row(align=True)
+            cln.enabled = False
+            cln.label(
+                text=f"{n_clean} check{'s' if n_clean > 1 else ''} clean",
+                icon="CHECKMARK",
+            )
 
     @staticmethod
     def _draw_asset_status(layout, mc):
@@ -1385,6 +1413,8 @@ class ASSET_CHECKER_PT_UV_Panel(bpy.types.Panel):
             icon = "CHECKBOX_HLT" if getattr(mc, check, False) else "CHECKBOX_DEHLT"
             r.prop(mc, check, icon=icon, emboss=False,
                    text=pretty_name(check))
+            # Expanding spacer: keeps the name left-aligned, swatch right
+            r.label(text="")
             if prefs and hasattr(prefs, f"{check}_color"):
                 c = r.row()
                 c.scale_x = 0.15
@@ -1397,17 +1427,17 @@ class ASSET_CHECKER_PT_UV_Panel(bpy.types.Panel):
             import math as _math
             td_box = layout.box()
             td_box.label(text="Texel Density Settings", icon="UV_DATA")
-            row = td_box.row(align=True)
-            row.label(text="Tex Size:")
-            row.prop(prefs, "uv_td_texture_size", text="")
-            row = td_box.row(align=True)
-            row.label(text="Target:")
-            row.prop(prefs, "uv_td_target", text="")
-            row.label(text="px/cm")
-            row = td_box.row(align=True)
-            row.label(text="Tolerance:")
-            row.prop(prefs, "uv_td_tolerance", text="")
-            row.label(text="%")
+            for lbl_text, prop_id, suffix in (
+                    ("Tex Size:",  "uv_td_texture_size", ""),
+                    ("Target:",    "uv_td_target",       "px/cm"),
+                    ("Tolerance:", "uv_td_tolerance",    "%")):
+                d_row = td_box.split(factor=0.35, align=True)
+                d_left = d_row.column()
+                d_left.label(text=lbl_text)
+                d_right = d_row.row(align=True)
+                d_right.prop(prefs, prop_id, text="")
+                if suffix:
+                    d_right.label(text=suffix)
 
             # ── UV Space + Density summary ──────────────────────────────
             td_box.separator(factor=0.5)
