@@ -2214,7 +2214,7 @@ class UVStretch(BaseCheck):
         pn_ws /= np.where(mag > 1e-10, mag, 1.0)
 
         # UV coords (flat list indexed by loop)
-        uv_flat = _get_uv_np(me, bm=self._parent._bm_object)   # already computed above
+        uv_flat = _get_uv_np(me, bm=bm)   # bm fetched above via bm_object
 
         face_verts = []
         face_norms = []

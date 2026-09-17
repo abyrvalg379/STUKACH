@@ -48,6 +48,7 @@ class MeshCheckObject:
     def __init__(self, obj):
         self._object = obj
         self._bm_object = None
+        self._bm_owned = False   # True only for bmesh.new() copies we must free
         self._verts = self._edges = self._faces = self._tris = 0
         self._checks = {name: cls(self) for name, cls in CHECK_TYPES.items()}
         self._mesh_key: tuple = ()   # (n_verts, n_edges, n_faces) — topology dirty flag
@@ -109,23 +110,34 @@ class MeshCheckObject:
                 xsum ^= hash((round(uv.x, 5), round(uv.y, 5)))
         return (n, uv_layer.name, xsum)
 
+    def _drop_cached_bm(self):
+        """Drop the cached bmesh.  Call .free() ONLY on our own bmesh.new()
+        copies — an edit-mode wrapper may point at an edit-BMesh Blender has
+        already freed (mode toggle / undo); even touching it segfaults in a
+        way try/except cannot catch (crash tb3_21692, 2026-09-17)."""
+        bm = self._bm_object
+        if bm is not None and self._bm_owned:
+            try:
+                bm.free()
+            except Exception:
+                pass
+        self._bm_object = None
+        self._bm_owned = False
+
     def set_bm_object(self):
         me = self._object.data
         if me.is_editmode:
-            # The edit-BMesh is owned by Blender — just grab the live wrapper.
-            # NEVER touch a cached bmesh here: after undo it may be freed, and
-            # even reading .is_valid on freed memory can take Blender down.
-            self._bm_object = bmesh.from_edit_mesh(me)
-        else:
-            if self._bm_object is not None:
-                try:
-                    self._bm_object.free()
-                except Exception:
-                    pass
-            bm = bmesh.new()
-            bm.from_mesh(me)
-            self._bm_object = bm
-        return self._bm_object
+            # The edit-BMesh is owned by Blender — hand out a transient
+            # wrapper for THIS call only.  Never cache it: it dies with the
+            # edit session (mode toggle / undo), and a stale wrapper frees
+            # freed memory.
+            return bmesh.from_edit_mesh(me)
+        self._drop_cached_bm()
+        bm = bmesh.new()
+        bm.from_mesh(me)
+        self._bm_object = bm
+        self._bm_owned = True
+        return bm
 
     def update_datas(self, bm, *, uv_changed: bool = True, topo_changed: bool = True,
                      transform_changed: bool = True):
@@ -191,12 +203,13 @@ class MeshCheckObject:
 
     @property
     def bm_object(self):
-        if not self._bm_object or not self._bm_object.is_valid:
-            bm = self.set_bm_object()
-            self._mesh_key      = (len(bm.verts), len(bm.edges), len(bm.faces))
-            self._uv_key        = self._sample_uv_key(bm)
-            self._transform_key = self._sample_transform_key(self._object)
-            self.update_datas(bm)
+        me = self._object.data
+        if me.is_editmode:
+            # Transient wrapper — see set_bm_object.  A cached one may dangle
+            # after a mode toggle or undo.
+            return bmesh.from_edit_mesh(me)
+        if self._bm_object is None:
+            self.set_bm_object()
         return self._bm_object
 
     @property
@@ -626,6 +639,7 @@ class MeshCheck:
         if o in cls.objects:
             mc_obj = cls.objects[o]
             cls._live_dirty.discard(mc_obj)
+            mc_obj._drop_cached_bm()
             for checker in mc_obj._checks.values():
                 MeshCheckGPU._batch_cache.pop(id(checker), None)
                 UVCheckGPU._batch_cache.pop(id(checker), None)
@@ -633,6 +647,8 @@ class MeshCheck:
 
     @classmethod
     def reset_mc_objects(cls):
+        for mc_obj in cls.objects.values():
+            mc_obj._drop_cached_bm()
         cls.objects.clear()
         cls._live_dirty.clear()
         cls._live_repopulate = False

@@ -174,13 +174,11 @@ def unregister():
     except Exception:
         pass
 
-    for obj in list(MeshCheck.objects.keys()):
-        mc = MeshCheck.objects.get(obj)
-        if mc and getattr(mc, '_bm_object', None) and mc._bm_object.is_valid:
-            try:
-                mc._bm_object.free()
-            except Exception:
-                pass
+    for mc in list(MeshCheck.objects.values()):
+        try:
+            mc._drop_cached_bm()
+        except Exception:
+            pass
     MeshCheck.objects.clear()
 
     try:
