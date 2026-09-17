@@ -4,6 +4,42 @@ from . import manager as _manager_mod
 from .properties import CHECK_CATEGORIES
 
 
+# ── Health-strip dots (real colors in the panel) ─────────────────────────────
+# Blender icons are theme-monochrome — a red ERROR icon renders in text color.
+# For the score-block health strip and the validation progress bar we generate
+# colored squares via bpy.app.icons.new_triangles (new_static was removed in
+# Blender 5.x).  coords/colors must be packed float32 bytes.
+_DOTS = None
+
+
+def _status_dots():
+    """Lazy-create {ok, warn, bad, off} static icon ids. {} when unavailable."""
+    global _DOTS
+    if _DOTS is None:
+        import struct
+        coords = bytes(struct.pack(
+            "12f",
+            0.0, 0.0, 1.0, 0.0, 1.0, 1.0,
+            0.0, 0.0, 1.0, 1.0, 0.0, 1.0,
+        ))
+
+        def _mk(name, rgb):
+            try:
+                colors = bytes(struct.pack("24f", *([rgb[0], rgb[1], rgb[2], 1.0] * 6)))
+                return bpy.app.icons.new_triangles((4, 2), coords, colors)
+            except Exception:
+                return None
+
+        _DOTS = {
+            "ok":   _mk("stk_dot_g", (0.25, 0.80, 0.35)),
+            "warn": _mk("stk_dot_y", (0.92, 0.76, 0.20)),
+            "bad":  _mk("stk_dot_r", (0.90, 0.26, 0.24)),
+            "off":  _mk("stk_dot_o", (0.28, 0.28, 0.30)),
+        }
+        _DOTS = {k: v for k, v in _DOTS.items() if v is not None} or {}
+    return _DOTS
+
+
 def _addon_version() -> str:
     """Extension version from blender_manifest.toml (no bl_info in 4.2+)."""
     try:
@@ -825,13 +861,19 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
         badge.alignment = "RIGHT"
         badge.label(text=f"[ {scope_label} ]")
 
-        # ── Row 2: per-category — red = has blockers, yellow = only warnings ─
+        # ── Row 2: category health strip — real colored dots per category ───
+        dots = _status_dots()
         cats_row = box.row(align=True)
         cats_row.scale_y = 0.75
         for cat, (cat_b, cat_w) in summary["cat_counts"].items():
             total = cat_b + cat_w
-            icon  = "ERROR" if cat_b else ("INFO" if cat_w else "CHECKMARK")
-            cats_row.label(text=f"{cat[:4]}: {total}", icon=icon)
+            if dots:
+                ic = dots["bad"] if cat_b else (dots["warn"] if cat_w else dots["ok"])
+                cats_row.template_icon(icon_value=ic, scale=0.55)
+                cats_row.label(text=f"{cat[:4]} {total}" if total else cat[:4])
+            else:
+                icon = "ERROR" if cat_b else ("INFO" if cat_w else "CHECKMARK")
+                cats_row.label(text=f"{cat[:4]}: {total}", icon=icon)
 
         # ── Row 3: Next Issue navigation + summary copy ─────────────────────
         action_row = box.row(align=True)
@@ -1060,12 +1102,28 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
         _hint_stale    = _manager_mod.MeshCheck._scene_stale and mc.show_overlay
         _hint_validating = bool(_manager_mod.MeshCheck._validation_queue)
         if _hint_validating:
-            prog = layout.row()
-            prog.scale_y = 0.75
             done = len(_manager_mod.MeshCheck.objects)
             left = len(_manager_mod.MeshCheck._validation_queue)
-            prog.label(text=f"  Validating… {done} done, {left} to go",
-                       icon="SORT_TIME")
+            total = done + left
+            factor = done / total if total else 1.0
+            dots = _status_dots()
+            if "ok" in dots and "off" in dots:
+                # Segmented progress bar from colored square icons
+                CELLS = 16
+                filled = round(factor * CELLS)
+                bar = layout.row(align=True)
+                bar.scale_y = 0.7
+                for i in range(CELLS):
+                    ic = dots["ok"] if i < filled else dots["off"]
+                    bar.template_icon(icon_value=ic, scale=0.42)
+                cap = bar.row()
+                cap.scale_y = 0.75
+                cap.label(text=f"  Validating {done}/{total}")
+            else:
+                prog = layout.row()
+                prog.scale_y = 0.75
+                prog.label(text=f"  Validating… {done} done, {left} to go",
+                           icon="SORT_TIME")
         elif _hint_restored or _hint_stale:
             hint = layout.row()
             hint.scale_y = 0.75
