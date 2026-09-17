@@ -1074,6 +1074,16 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
         # ── Scene Units check (scene-level, not per-object) ──────────────────
         _draw_scene_units_row(layout, mc)
 
+        # ── Check presets (v1.4.1) ──────────────────────────────────────────
+        preset_row = layout.row(align=True)
+        preset_row.prop(mc, "preset_enum", text="")
+        preset_row.operator("asset_checker.preset_apply", text="", icon="CHECKMARK")
+        preset_row.operator("asset_checker.preset_delete", text="", icon="REMOVE")
+        preset_save_row = layout.row(align=True)
+        preset_save_row.prop(mc, "preset_name", text="",
+                             placeholder="Preset name…")
+        preset_save_row.operator("asset_checker.preset_save", text="", icon="ADD")
+
         box = layout.box()
         box.label(text="Pipeline Checks:", icon="FILE_TEXT")
         # View helper — mirrors Blender's built-in Face Orientation overlay.

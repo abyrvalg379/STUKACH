@@ -146,9 +146,11 @@ class MeshCheckObject:
                 self._tris = 0
             del _np, _me, _n_polys
 
-        from .core import _uv_island_cache, _uv_membership_cache, build_material_udim_map
+        from .core import (_uv_island_cache, _uv_membership_cache,
+                           _edit_uv_cache, build_material_udim_map)
         _uv_island_cache.clear()
         _uv_membership_cache.clear()
+        _edit_uv_cache.clear()
 
         # Always rebuild material→UDIM map so the UV panel stays in sync
         # regardless of which checks are active.
@@ -533,9 +535,11 @@ class MeshCheck:
         MeshCheckGPU._batch_cache.clear()
         UVCheckGPU._batch_cache.clear()
         from .core import (_uv_island_cache, _uv_membership_cache,
+                           _edit_uv_cache,
                            _uv_padding_registry, _uv_padding_tile_stats)
         _uv_island_cache.clear()
         _uv_membership_cache.clear()
+        _edit_uv_cache.clear()
         _uv_padding_registry.clear()
         _uv_padding_tile_stats.clear()
 
@@ -1038,10 +1042,11 @@ _AC_STATE_KEY = "_ac_state"
 _AC_CHECK_PROPS: frozenset = frozenset({
     'non_manifold', 'boundary_edges', 'isolated_verts', 'triangles', 'ngons',
     'poles', 'zero_area', 'z_fighting',
+    'duplicate_verts', 'face_aspect_ratio',
     'non_applied_transform', 'scale', 'origin_at_zero', 'modifier_stack',
     'symmetry_x', 'symmetry_y', 'symmetry_z',
     'uv_single_set', 'uv_overlap', 'uv_micro_shell', 'uv_texel_density',
-    'uv_stretch', 'uv_padding', 'uv_udim_bounds',
+    'uv_stretch', 'uv_padding', 'uv_udim_bounds', 'uv_material_udim',
     'obj_naming', 'col_naming',
     'mat_suffix', 'mat_assignment', 'missing_textures',
     'unused_data',
