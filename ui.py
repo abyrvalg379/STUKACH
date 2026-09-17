@@ -1117,7 +1117,7 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
         scope_row = layout.row(align=True)
         scope_row.operator("asset_checker.validate_scene",      text="Scene",      icon="WORLD")
         scope_row.operator("asset_checker.validate_collection", text="Collection", icon="OUTLINER_COLLECTION")
-        scope_row.operator("asset_checker.clear_validation",    text="",           icon="X")
+        scope_row.operator("asset_checker.clear_validation",    text="Clear",      icon="X")
 
         box = layout.box()
         box.label(text="Pipeline Checks:", icon="FILE_TEXT")
@@ -1213,7 +1213,8 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
 
             # ── Filter bar ────────────────────────────────────────────────────
             filt_row = sec_box.row(align=True)
-            filt_row.prop(mc, "obj_filter_text",        text="", icon="VIEWZOOM")
+            filt_row.prop(mc, "obj_filter_text",        text="", icon="VIEWZOOM",
+                          placeholder="Search objects")
             filt_row.prop(mc, "obj_filter_errors_only", text="Issues", icon="FILTER", toggle=True)
             filt_row.prop(mc, "obj_sort_worst",         text="", icon="SORT_DESC")
             filt_row.prop(mc, "obj_filter_check",       text="")

@@ -2576,17 +2576,30 @@ class MeshCheckProperties(PropertyGroup):
             box = layout.box()
 
             # ── Collapsible header ─────────────────────────────────────────
+            # Left group: tria + name + on/off checkbox right after the label.
+            # The spacer label in the middle is what pushes the Fix button to
+            # the right edge (labels expand to fill the row).
             header = box.row(align=True)
-            header.prop(
+            head_left = header.row(align=True)
+            head_left.prop(
                 self, open_prop,
                 text="",
                 icon="TRIA_DOWN" if is_open else "TRIA_RIGHT",
                 emboss=False,
             )
-            header.label(
+            head_left.label(
                 text=pretty_name(cat_name),
                 icon=_CAT_ICONS.get(cat_name, "DOT"),
             )
+            any_on_head = any(getattr(self, c, False) for c in visible_checks if hasattr(self, c))
+            head_op = head_left.operator(
+                "mesh_check.toggle_category",
+                text="",
+                icon="CHECKBOX_HLT" if any_on_head else "CHECKBOX_DEHLT",
+                emboss=False,
+            )
+            head_op.category = cat_name
+            header.label(text="")
 
             # Fix button — only when at least one fixable check in the category has issues
             if MeshCheck.objects:
@@ -2607,14 +2620,7 @@ class MeshCheckProperties(PropertyGroup):
                     )
                     fix_op.category = cat_name
 
-            any_on = any(getattr(self, c, False) for c in visible_checks if hasattr(self, c))
-            op = header.operator(
-                "mesh_check.toggle_category",
-                text="",
-                icon="CHECKBOX_HLT" if any_on else "CHECKBOX_DEHLT",
-                emboss=False,
-            )
-            op.category = cat_name
+
 
             if not is_open:
                 continue
