@@ -121,6 +121,33 @@ class ASSET_CHECKER_OT_col_naming_remove_suffix(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class ASSET_CHECKER_OT_mesh_naming_add_suffix(bpy.types.Operator):
+    """Add a required mesh datablock suffix"""
+    bl_idname = "asset_checker.mesh_naming_add_suffix"
+    bl_label = "Add Suffix"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        prefs = context.preferences.addons[__name__.rsplit(".", 1)[0]].preferences
+        prefs.mesh_naming_suffixes.add()
+        return {'FINISHED'}
+
+
+class ASSET_CHECKER_OT_mesh_naming_remove_suffix(bpy.types.Operator):
+    """Remove the selected required mesh datablock suffix"""
+    bl_idname = "asset_checker.mesh_naming_remove_suffix"
+    bl_label = "Remove Suffix"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    index: IntProperty()
+
+    def execute(self, context):
+        prefs = context.preferences.addons[__name__.rsplit(".", 1)[0]].preferences
+        if 0 <= self.index < len(prefs.mesh_naming_suffixes):
+            prefs.mesh_naming_suffixes.remove(self.index)
+        return {'FINISHED'}
+
+
 def _uv_padding_settings_update(self, context):
     """Re-run cross-object padding check when any threshold setting changes.
     Called automatically by Blender when uv_padding_shell_px / tile_px /
@@ -209,6 +236,8 @@ class MeshCheckPreferences(AddonPreferences):
     # NAMING POLICY — collection prefixes / suffixes
     col_naming_prefixes: CollectionProperty(type=NamingEntry, name="Collection Required Prefixes")
     col_naming_suffixes: CollectionProperty(type=NamingEntry, name="Collection Required Suffixes")
+    # NAMING POLICY — mesh datablock suffixes (data names like 'body_mesh')
+    mesh_naming_suffixes: CollectionProperty(type=NamingEntry, name="Mesh Data Required Suffixes")
 
     # UV PADDING settings
     uv_padding_texture_size: EnumProperty(
@@ -346,6 +375,19 @@ class MeshCheckPreferences(AddonPreferences):
             "asset_checker.col_naming_add_prefix",  "asset_checker.col_naming_remove_prefix",
             "asset_checker.col_naming_add_suffix",  "asset_checker.col_naming_remove_suffix",
         )
+
+        # Mesh data — suffix only (checked by mesh_data_naming)
+        box_m = box.box()
+        box_m.label(text="Mesh Data (data block suffix)")
+        row = box_m.row(align=True)
+        op_add = "asset_checker.mesh_naming_add_suffix"
+        op_rm = "asset_checker.mesh_naming_remove_suffix"
+        for i, entry in enumerate(self.mesh_naming_suffixes):
+            r = box_m.row(align=True)
+            r.prop(entry, "value", text="")
+            op = r.operator(op_rm, text="", icon="X", emboss=False)
+            op.index = i
+        box_m.operator(op_add, text="Add", icon="ADD")
 
         hint = box.row()
         hint.enabled = False

@@ -3769,6 +3769,102 @@ class UnusedData(BaseCheck):
         return (None, [])
 
 
+class MeshDataNaming(BaseCheck):
+    """Mesh datablock must not keep Blender auto-names ('Mesh.101').
+
+    Valid when the datablock is named exactly like its object, or ends with
+    one of the configured mesh suffixes (Preferences → Naming Policy →
+    Mesh Data, default '_mesh').  Fix renames the datablock to
+    <object root> + first mesh suffix, stripping the object suffix
+    (e.g. object 'body_geo' → mesh 'body_mesh')."""
+
+    _DEFAULT_SUFFIXES = ("_mesh",)
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self._mesh_name: str = ""
+        self._target:    str = ""
+
+    # ── policy helpers ─────────────────────────────────────────────────────
+    @staticmethod
+    def _prefs():
+        try:
+            addon = bpy.context.preferences.addons.get(__name__.rsplit(".", 1)[0])
+            if addon is None:   # legacy installs key prefs by short name
+                for key in bpy.context.preferences.addons.keys():
+                    if key.endswith(".stukach"):
+                        addon = bpy.context.preferences.addons.get(key)
+                        break
+            return addon.preferences if addon else None
+        except Exception:
+            return None
+
+    @classmethod
+    def _mesh_suffixes(cls) -> List[str]:
+        prefs = cls._prefs()
+        if prefs and getattr(prefs, "mesh_naming_suffixes", None):
+            vals = [e.value.strip() for e in prefs.mesh_naming_suffixes]
+            vals = [v for v in vals if v]
+            if vals:
+                return vals
+        return list(cls._DEFAULT_SUFFIXES)
+
+    @classmethod
+    def _target_name(cls, obj) -> str:
+        """<object name minus object suffix> + first mesh suffix."""
+        from .naming import NAMING_RULES
+        name = obj.name
+        low = name.lower()
+        obj_suffixes = [s.lower() for s in
+                        NAMING_RULES.get("object", {}).get("allowed_suffixes", [])]
+        prefs = cls._prefs()
+        if prefs and getattr(prefs, "naming_suffixes", None):
+            obj_suffixes = [e.value.strip().lower()
+                            for e in prefs.naming_suffixes] + obj_suffixes
+        for s in obj_suffixes:
+            if s and low.endswith(s) and len(name) > len(s):
+                return name[:-len(s)] + cls._mesh_suffixes()[0]
+        return name + cls._mesh_suffixes()[0]
+
+    # ── check ──────────────────────────────────────────────────────────────
+    def set_datas(self) -> None:
+        obj = self._parent._object
+        if obj.type != "MESH":
+            self._count = 0
+            return
+        self._mesh_name = obj.data.name
+        name_l = self._mesh_name.lower()
+        if name_l == obj.name.lower():
+            self._count = 0
+            self._target = ""
+            return
+        if any(name_l.endswith(s.lower()) for s in self._mesh_suffixes()):
+            self._count = 0
+            self._target = ""
+            return
+        self._count = 1
+        self._target = self._target_name(obj)
+
+    @property
+    def metric_text(self) -> str:
+        if self._count and self._target:
+            return f"{self._mesh_name}  →  {self._target}"
+        return self._mesh_name
+
+    def get_edges(self, offset: float):
+        return ()
+
+    def get_points(self, offset: float):
+        return ()
+
+    def get_faces(self, offset: float):
+        return ()
+
+    def get_select_data(self):
+        # Nothing selectable — the fix renames the datablock
+        return (None, [])
+
+
 CHECK_TYPES = {
     "triangles":             Triangles,
     "ngons":                 Ngons,
@@ -3786,6 +3882,7 @@ CHECK_TYPES = {
     "z_fighting":            ZFighting,
     "obj_naming":            NamingCheck,
     "col_naming":            ColNaming,
+    "mesh_data_naming":      MeshDataNaming,
     "mat_suffix":            MaterialCheck,
     "mat_assignment":        MatAssignment,
     "mat_numbering":         MatNaming,

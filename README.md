@@ -4,7 +4,7 @@
 
 Pipeline asset validation addon for Blender.
 
-**Blender 5.2 · v1.5.2 · Author: Maksim Kovalev**
+**Blender 5.2 · v1.6.0 · Author: Maksim Kovalev**
 
 ---
 
@@ -82,6 +82,7 @@ The **STUKACH** tab appears in the N-Panel (View3D and UV Editor).
 | Obj Naming | WARNING | Object names must match naming policy |
 | Col Naming | WARNING | Collection naming validation |
 | Mat Numbering | WARNING | Catches `.001`, `.002` material suffixes |
+| Mesh Data Name | WARNING | Mesh datablock must not keep auto names (`Mesh.101`) — one-click rename to `<object>_mesh`, suffix configurable |
 
 ### MATERIALS
 | Check | Severity | Description |
