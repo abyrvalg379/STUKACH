@@ -837,10 +837,8 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
         badge.alignment = "RIGHT"
         badge.label(text=f"[ {scope_label} ]")
 
-        # ── Row 2: category health strip — real colored swatches ────────────
-        # Colors are stored in hidden COLOR properties (hs_*) written by
-        # _compute_asset_summary — the only sanctioned way to get real colors
-        # in a panel (custom triangle icons don't render via template_icon).
+        # ── Row 2: category health strip — real colored swatches, no text ───
+        # Hover a cell → category name + color legend (property tooltip).
         _strip_green = (0.25, 0.80, 0.35, 1.0)
         _strip_yellow = (0.92, 0.76, 0.20, 1.0)
         _strip_red = (0.90, 0.26, 0.24, 1.0)
@@ -855,10 +853,7 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
                     setattr(mc, hs_key, color)
                 except Exception:
                     pass
-                cell = cats_row.row(align=True)
-                cell.scale_x = 0.22
-                cell.prop(mc, hs_key, text="")
-                cell.label(text=cat[:2])
+                cats_row.prop(mc, hs_key, text="")
             else:
                 icon = "ERROR" if cat_b else ("INFO" if cat_w else "CHECKMARK")
                 cats_row.label(text=f"{cat[:2]}:{cat_b + cat_w}", icon=icon)
