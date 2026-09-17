@@ -2312,22 +2312,30 @@ class MeshCheckProperties(PropertyGroup):
     )
 
     # Health-strip swatch colors — written by _compute_asset_summary (ui.py),
-    # drawn as tiny color swatches in the score block. Colors live as RNA
-    # props because panels have no other sanctioned way to show real colors.
-    hs_topology:   FloatVectorProperty(name="HS Topology",   subtype='COLOR', size=4,
-                                       min=0.0, max=1.0, default=(0.25, 0.8, 0.35, 1.0))
-    hs_transforms: FloatVectorProperty(name="HS Transforms", subtype='COLOR', size=4,
-                                       min=0.0, max=1.0, default=(0.25, 0.8, 0.35, 1.0))
-    hs_symmetry:   FloatVectorProperty(name="HS Symmetry",   subtype='COLOR', size=4,
-                                       min=0.0, max=1.0, default=(0.25, 0.8, 0.35, 1.0))
-    hs_uv:         FloatVectorProperty(name="HS UV",         subtype='COLOR', size=4,
-                                       min=0.0, max=1.0, default=(0.25, 0.8, 0.35, 1.0))
-    hs_naming:     FloatVectorProperty(name="HS Naming",     subtype='COLOR', size=4,
-                                       min=0.0, max=1.0, default=(0.25, 0.8, 0.35, 1.0))
-    hs_materials:  FloatVectorProperty(name="HS Materials",  subtype='COLOR', size=4,
-                                       min=0.0, max=1.0, default=(0.25, 0.8, 0.35, 1.0))
-    hs_cleanup:    FloatVectorProperty(name="HS Cleanup",    subtype='COLOR', size=4,
-                                       min=0.0, max=1.0, default=(0.25, 0.8, 0.35, 1.0))
+    # drawn as color cells in the score block. Hover a cell: category + legend.
+    # Colors live as RNA props because panels have no other sanctioned way
+    # to show real colors.
+    hs_topology: FloatVectorProperty(name="Topology", subtype='COLOR', size=4,
+                                       min=0.0, max=1.0, default=(0.25, 0.8, 0.35, 1.0),
+                                       description="Topology: green = clean, yellow = warnings, red = blockers")
+    hs_transforms: FloatVectorProperty(name="Transforms", subtype='COLOR', size=4,
+                                       min=0.0, max=1.0, default=(0.25, 0.8, 0.35, 1.0),
+                                       description="Transforms: green = clean, yellow = warnings, red = blockers")
+    hs_symmetry: FloatVectorProperty(name="Symmetry", subtype='COLOR', size=4,
+                                       min=0.0, max=1.0, default=(0.25, 0.8, 0.35, 1.0),
+                                       description="Symmetry: green = clean, yellow = warnings, red = blockers")
+    hs_uv: FloatVectorProperty(name="UV", subtype='COLOR', size=4,
+                                       min=0.0, max=1.0, default=(0.25, 0.8, 0.35, 1.0),
+                                       description="UV: green = clean, yellow = warnings, red = blockers")
+    hs_naming: FloatVectorProperty(name="Naming", subtype='COLOR', size=4,
+                                       min=0.0, max=1.0, default=(0.25, 0.8, 0.35, 1.0),
+                                       description="Naming: green = clean, yellow = warnings, red = blockers")
+    hs_materials: FloatVectorProperty(name="Materials", subtype='COLOR', size=4,
+                                       min=0.0, max=1.0, default=(0.25, 0.8, 0.35, 1.0),
+                                       description="Materials: green = clean, yellow = warnings, red = blockers")
+    hs_cleanup: FloatVectorProperty(name="Cleanup", subtype='COLOR', size=4,
+                                       min=0.0, max=1.0, default=(0.25, 0.8, 0.35, 1.0),
+                                       description="Cleanup: green = clean, yellow = warnings, red = blockers")
 
     # Progressive validation progress (0..1), updated by the validation timer
     validation_progress: FloatProperty(
