@@ -114,6 +114,8 @@ The **STUKACH** tab appears in the N-Panel (View3D and UV Editor).
 - **Check Presets** — native dropdown; save check sets + naming rules as files, share with the team
 - **Next Issue** — one button jumps to the next problem object and frames it
 - **Copy Summary** — validation report to the clipboard in one click
+- **Health Strip** — per-category colored status dots in the score block
+- **Progress Bar** — segmented bar while Scene/Collection validation runs
 - **GPU Overlays** — colored face fills, edge outlines, and vertex markers in 3D viewport
 - **UV Editor Overlays** — highlighted shells in the Image Editor
 - **Select in Edit Mode** — click Sel to select problem geometry
