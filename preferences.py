@@ -155,9 +155,7 @@ class MeshCheckPreferences(AddonPreferences):
     triangles_color:            FloatVectorProperty(name="Triangles",            default=(0.7,  0.7,  0.02), min=0.0, max=1.0, size=3, subtype="COLOR")
     ngons_color:                FloatVectorProperty(name="Ngons",                default=(0.7,  0.02, 0.02), min=0.0, max=1.0, size=3, subtype="COLOR")
     zero_area_color:            FloatVectorProperty(name="Zero-area",            default=(1.0,  0.0,  1.0),  min=0.0, max=1.0, size=3, subtype="COLOR")
-    flipped_normals_color:      FloatVectorProperty(name="Flipped normals",      default=(1.0,  0.3,  0.0),  min=0.0, max=1.0, size=3, subtype="COLOR")
     z_fighting_color:           FloatVectorProperty(name="Z-Fighting",           default=(1.0,  0.0,  0.0),  min=0.0, max=1.0, size=3, subtype="COLOR")
-    invalid_normals_color:      FloatVectorProperty(name="Invalid normals",      default=(0.0,  0.8,  1.0),  min=0.0, max=1.0, size=3, subtype="COLOR")
 
     # POLES
     poles_color:           FloatVectorProperty(name="Poles",           default=(0.25, 0.4,  1.0),  min=0.0, max=1.0, size=3, subtype="COLOR")
@@ -414,7 +412,7 @@ class MeshCheckPreferences(AddonPreferences):
         for attr in (
             "triangles_color", "ngons_color", "non_manifold_color", "boundary_edges_color",
             "isolated_verts_color", "duplicate_verts_color", "poles_color", "zero_area_color",
-            "flipped_normals_color", "z_fighting_color", "invalid_normals_color",
+            "z_fighting_color",
             "non_applied_transform_color", "scale_color", "origin_at_zero_color",
             "modifier_stack_color",
             "face_aspect_ratio_color",

@@ -697,6 +697,9 @@ class Triangles(MainGeo):
 
 
 class Ngons(MainGeo):
+    # Fan-triangulating thousands of ngons in EDIT mode is pointless — cap it.
+    _EDIT_GPU_MAX_FACES: int = 20_000
+
     def __init__(self, parent):
         super().__init__(parent)
         self._faces_idx: List[int] = []
@@ -709,6 +712,33 @@ class Ngons(MainGeo):
         self._faces_idx = []
 
         me = self._parent._object.data
+
+        # In EDIT mode me.* lags behind the edit-BMesh (writeback happens on
+        # mode exit) — count from BMesh so live fixes clear the counter, same
+        # as the Triangles check.
+        if me.is_editmode:
+            bm = self._parent.bm_object
+            bm.faces.ensure_lookup_table()
+            bad_faces = [f for f in bm.faces if len(f.verts) > 4]
+            self._count = len(bad_faces)
+            if not self._count:
+                return
+            self._faces_idx = [f.index for f in bad_faces]
+            if len(bad_faces) <= self._EDIT_GPU_MAX_FACES:
+                verts_list: List[int] = []
+                indices_list = []
+                tri_base = 0
+                for f in bad_faces:
+                    fv = [v.index for v in f.verts]
+                    for k in range(1, len(fv) - 1):
+                        verts_list.extend((fv[0], fv[k], fv[k + 1]))
+                        indices_list.append((tri_base, tri_base + 1, tri_base + 2))
+                        tri_base += 3
+                self._verts_idx = verts_list
+                self._indices = indices_list
+                self._edges_idx = [e.index for f in bad_faces for e in f.edges]
+            return
+
         n_polys = len(me.polygons)
         if n_polys == 0:
             self._count = 0
@@ -856,29 +886,50 @@ class Poles(BaseCheck):
     def set_datas(self):
         import numpy as np
         me = self._parent._object.data
-        n_verts = len(me.vertices)
-        n_edges = len(me.edges)
-        n_loops = len(me.loops)
 
         self._e_poles_idx.clear()
         self._n_poles_idx.clear()
         self._more_poles_idx.clear()
 
-        if n_verts == 0 or n_edges == 0:
-            self._count = 0
-            return
+        # In EDIT mode me.* lags behind the edit-BMesh (writeback happens on
+        # mode exit) — read topology from BMesh so live fixes stay interactive.
+        if me.is_editmode:
+            bm = self._parent.bm_object
+            bm.verts.ensure_lookup_table()
+            bm.edges.ensure_lookup_table()
+            n_verts = len(bm.verts)
+            n_edges = len(bm.edges)
+            if n_verts == 0 or n_edges == 0:
+                self._count = 0
+                return
+            ev_list: List[int] = []
+            fc_list: List[int] = []
+            for e in bm.edges:
+                ev_list.append(e.verts[0].index)
+                ev_list.append(e.verts[1].index)
+                fc_list.append(len(e.link_faces))
+            ev = np.array(ev_list, dtype=np.int32).reshape(n_edges, 2)
+            # Faces per edge: the BMesh knows directly — no loop bincount needed.
+            edge_face_count = np.array(fc_list, dtype=np.int32)
+        else:
+            n_verts = len(me.vertices)
+            n_edges = len(me.edges)
+            n_loops = len(me.loops)
+            if n_verts == 0 or n_edges == 0:
+                self._count = 0
+                return
 
-        # Edge → (vert0, vert1) — C-level bulk read
-        ev = np.empty(n_edges * 2, dtype=np.int32)
-        me.edges.foreach_get("vertices", ev)
-        ev = ev.reshape(n_edges, 2)
+            # Edge → (vert0, vert1) — C-level bulk read
+            ev = np.empty(n_edges * 2, dtype=np.int32)
+            me.edges.foreach_get("vertices", ev)
+            ev = ev.reshape(n_edges, 2)
 
-        # Face count per edge: count how many loops reference each edge index.
-        # Each polygon loop references exactly one edge, so bincount gives the
-        # number of faces that share each edge.
-        el = np.empty(n_loops, dtype=np.int32)
-        me.loops.foreach_get("edge_index", el)
-        edge_face_count = np.bincount(el, minlength=n_edges)
+            # Face count per edge: count how many loops reference each edge index.
+            # Each polygon loop references exactly one edge, so bincount gives the
+            # number of faces that share each edge.
+            el = np.empty(n_loops, dtype=np.int32)
+            me.loops.foreach_get("edge_index", el)
+            edge_face_count = np.bincount(el, minlength=n_edges)
 
         # Boundary edges: used by ≤1 face (open border or isolated edge)
         bnd_mask = edge_face_count <= 1
@@ -1027,113 +1078,6 @@ class ZeroAreaFaces(BaseCheck):
             for v in bm.faces[fidx].verts
         })
         return ('VERT', vert_indices)
-
-
-class FlippedNormals(BaseCheck):
-    """Вывернутые грани — recalc (глобально) + проверка соседей (локально).
-
-    Алгоритм:
-      Stage 1 — recalc_face_normals на копии bmesh:
-        Находит грани несогласованные с глобальным flood-fill.
-        Интерьерные стены тоже попадают сюда (весь interior-регион несогласован).
-
-      Stage 2 — локальная проверка соседей:
-        Для каждого кандидата из Stage 1 считаем, сколько непосредственных
-        соседей имеют нормаль с dot < 0 к данной грани (т.е. противоположны ей).
-        Если БОЛЬШИНСТВО соседей противоположны → реальный изолированный флип.
-        Если большинство соседей СОГЛАСОВАНЫ → interior volume (все стены
-        кокпита смотрят внутрь, и их соседи тоже) → пропускаем.
-
-    Guard: >200k граней → пропускаем.
-    """
-
-    _MAX_FACES_RECALC: int = 200_000
-
-    def __init__(self, parent):
-        super().__init__(parent)
-        self._faces_idx: List[int] = []
-        self._cache_key: tuple = ()
-
-    def set_datas(self):
-        bm = self._parent.bm_object
-        bm.faces.ensure_lookup_table()
-        self._faces_idx.clear()
-        if not bm.faces:
-            self._count = 0
-            self._cache_key = ()
-            return
-
-        key = (len(bm.verts), len(bm.edges), len(bm.faces))
-        if key == self._cache_key:
-            return
-
-        if len(bm.faces) > self._MAX_FACES_RECALC:
-            self._faces_idx = []
-            self._cache_key = key
-            self._count = 0
-            return
-
-        bm_copy = bm.copy()
-        bm_copy.faces.ensure_lookup_table()
-        bmesh.ops.recalc_face_normals(bm_copy, faces=bm_copy.faces[:])
-        bm_copy.faces.ensure_lookup_table()
-        flipped = [i for i, f in enumerate(bm.faces)
-                   if bm_copy.faces[i].normal.dot(f.normal) < 0]
-        bm_copy.free()
-
-        self._faces_idx = flipped
-        self._cache_key = key
-        self._count = len(flipped)
-
-    def get_faces(self, offset: float = 0.0):
-        if not self._faces_idx:
-            return (), []
-        bm = self._parent.bm_object
-        bm.faces.ensure_lookup_table()
-        obj = self._parent._object
-        wm = obj.matrix_world
-        _offset = _get_offset(offset, obj)
-        coords, indices, vmap, idx = [], [], {}, 0
-        for fidx in self._faces_idx:
-            fv = []
-            for v in bm.faces[fidx].verts:
-                if v.index not in vmap:
-                    vmap[v.index] = idx
-                    idx += 1
-                    p = wm @ v.co
-                    coords.append((p.x + v.normal.x * _offset,
-                                   p.y + v.normal.y * _offset,
-                                   p.z + v.normal.z * _offset))
-                fv.append(vmap[v.index])
-            for i in range(1, len(fv) - 1):
-                indices.append((fv[0], fv[i], fv[i + 1]))
-        return tuple(coords), indices
-
-    def get_edges(self, offset: float = 0.0):
-        if not self._faces_idx:
-            return ()
-        bm = self._parent.bm_object
-        bm.faces.ensure_lookup_table()
-        obj = self._parent._object
-        wm = obj.matrix_world
-        _offset = _get_offset(offset, obj)
-        coords = []
-        for fidx in self._faces_idx:
-            f = bm.faces[fidx]
-            verts_ws = []
-            for v in f.verts:
-                p = wm @ v.co
-                verts_ws.append((p.x + v.normal.x * _offset,
-                                  p.y + v.normal.y * _offset,
-                                  p.z + v.normal.z * _offset))
-            n = len(verts_ws)
-            for i in range(n):
-                coords.append(verts_ws[i])
-                coords.append(verts_ws[(i + 1) % n])
-        return tuple(coords)
-
-    def get_select_data(self):
-        return ('FACE', self._faces_idx)
 
 
 class NonAppliedTransform(BaseCheck):
@@ -3001,7 +2945,11 @@ class SymmetryCheck(BaseCheck):
         if par._sym_kd_key != topo_key:
             me = par._object.data
             co_np = np.empty(n_verts * 3, dtype=np.float32)
-            me.vertices.foreach_get("co", co_np)
+            if me.is_editmode:
+                # me.vertices is stale in EDIT mode — read the live edit-BMesh.
+                bm.verts.foreach_get("co", co_np)
+            else:
+                me.vertices.foreach_get("co", co_np)
             co_np = co_np.reshape(n_verts, 3)
             par._sym_kd_key   = topo_key
             par._sym_kd_co    = co_np   # numpy (n_verts, 3) float32
@@ -3233,23 +3181,64 @@ class IsolatedVertices(BaseCheck):
 
 
 class DuplicateVertices(BaseCheck):
-    """Overlapping vertices within 0.1 mm — would merge on Merge by Distance."""
+    """Overlapping vertices within 0.1 mm — would merge on Merge by Distance.
+
+    Only flags doubles WITHIN one connected shell (island of the edge graph).
+    Coincident verts belonging to different shells (bolted plates, stacked
+    parts joined into one object) are intentional hard-surface practice —
+    merging them would weld separate shells, so they are NOT flagged.
+    """
 
     _MERGE_DIST = 1e-5  # 0.01 mm — only catches truly coincident verts, not just close ones
 
     def __init__(self, parent):
         super().__init__(parent)
         self._dup_idx: List[int] = []
+        self._dup_pair_idx: List[int] = []   # flagged verts ∪ their merge targets
+
+    @staticmethod
+    def _vert_islands(bm) -> list:
+        """Union-find over the edge graph → island id per vert index."""
+        parent = list(range(len(bm.verts)))
+
+        def find(x: int) -> int:
+            root = x
+            while parent[root] != root:
+                root = parent[root]
+            while parent[x] != root:      # path compression
+                parent[x], x = root, parent[x]
+            return root
+
+        for e in bm.edges:
+            a, b = e.verts[0].index, e.verts[1].index
+            ra, rb = find(a), find(b)
+            if ra != rb:
+                parent[ra] = rb
+        return [find(i) for i in range(len(parent))]
 
     def set_datas(self):
         bm = self._parent.bm_object
         self._dup_idx = []
+        self._dup_pair_idx = []
         if not bm.verts:
             self._count = 0
             return
         result = bmesh.ops.find_doubles(bm, verts=list(bm.verts), dist=self._MERGE_DIST)
-        self._dup_idx = [v.index for v in result['targetmap']]
+        targetmap = result['targetmap']
+        if not targetmap:
+            self._count = 0
+            return
+        islands = self._vert_islands(bm)
+        self._dup_idx = [v.index for v, t in targetmap.items()
+                         if islands[v.index] == islands[t.index]]
         self._count = len(self._dup_idx)
+        if self._count:
+            # Both pair members are needed for select/fix — merging with only
+            # half of each pair selected would be a no-op.
+            same_island = [(v, t) for v, t in targetmap.items()
+                           if islands[v.index] == islands[t.index]]
+            self._dup_pair_idx = sorted({*(v.index for v, _ in same_island),
+                                         *(t.index for _, t in same_island)})
 
     def get_edges(self, offset: float) -> Tuple:
         return ()
@@ -3273,7 +3262,7 @@ class DuplicateVertices(BaseCheck):
         return tuple(coords)
 
     def get_select_data(self):
-        return ('VERT', self._dup_idx)
+        return ('VERT', self._dup_pair_idx or self._dup_idx)
 
 
 class FaceAspectRatio(BaseCheck):
@@ -3353,125 +3342,6 @@ class FaceAspectRatio(BaseCheck):
 
     def get_select_data(self):
         return ('FACE', self._bad_face_indices)
-
-
-class InvalidNormals(BaseCheck):
-    """Custom split normals that are zero-length or flipped vs. geometric face normal.
-
-    Fires only when has_custom_normals is True AND at least one loop normal is:
-      • zero-length  (degenerate → NaN / black spot in render)
-      • flipped      (dot(custom_n, face_n) < 0 → dark artifact)
-
-    Intentionally correct midpoly normals (0 < dot ≤ 1) are NOT flagged —
-    safe to use in any weighted-normals / hard-surface workflow.
-    Skipped in Edit mode (me.loops normals are not updated there).
-    """
-
-    def __init__(self, parent):
-        super().__init__(parent)
-        self._faces_idx: List[int] = []
-
-    def set_datas(self):
-        me = self._parent._object.data
-        self._faces_idx = []
-        self._count = 0
-
-        if not me.has_custom_normals or me.is_editmode:
-            return
-
-        # Populate me.loops[i].normal with current split normals.
-        # Blender 4.1+ removed calc_normals_split() — loops.normal is always ready.
-        try:
-            me.calc_normals_split()
-        except AttributeError:
-            pass
-
-        n_loops = len(me.loops)
-        n_polys = len(me.polygons)
-        if n_loops == 0 or n_polys == 0:
-            return
-
-        # ── Fully-vectorized via numpy — all reads at C level, no Python loops ──
-        import numpy as np
-
-        # Batch-read all normals directly into numpy float32 buffers
-        ln_np = np.empty(n_loops * 3, dtype=np.float32)
-        me.loops.foreach_get("normal", ln_np)
-        ln_np = ln_np.reshape(n_loops, 3)
-
-        pn_np = np.empty(n_polys * 3, dtype=np.float32)
-        me.polygons.foreach_get("normal", pn_np)
-        pn_np = pn_np.reshape(n_polys, 3)
-
-        # Build loop→poly mapping: loop_total[i] copies of poly index i
-        poly_loop_total = np.empty(n_polys, dtype=np.int32)
-        me.polygons.foreach_get("loop_total", poly_loop_total)
-        poly_for_loop = np.repeat(np.arange(n_polys, dtype=np.int32), poly_loop_total)
-
-        # Per-loop face normal (broadcast poly normals down to loop level)
-        pn_per_loop = pn_np[poly_for_loop]   # (n_loops, 3)
-
-        # Zero-length custom normal (length² < ε)
-        len2 = (ln_np * ln_np).sum(axis=1)   # (n_loops,)
-        bad_zero = len2 < 1e-12
-
-        # Flipped: dot(custom_n, face_n) < 0
-        dot = (ln_np * pn_per_loop).sum(axis=1)   # (n_loops,)
-        bad_flip = dot < 0.0
-
-        bad_loop_mask = bad_zero | bad_flip   # (n_loops,) bool
-
-        # Reduce to faces: any bad loop → bad face
-        bad_face_mask = np.zeros(n_polys, dtype=bool)
-        np.bitwise_or.at(bad_face_mask, poly_for_loop, bad_loop_mask)
-
-        self._faces_idx = list(np.where(bad_face_mask)[0])
-        self._count = len(self._faces_idx)
-
-    def get_faces(self, offset: float):
-        if not self._faces_idx:
-            return (), []
-        bm = self._parent.bm_object
-        bm.faces.ensure_lookup_table()
-        obj = self._parent._object
-        wm = obj.matrix_world
-        _offset = _get_offset(offset, obj)
-        coords, indices, vmap, idx = [], [], {}, 0
-        for fidx in self._faces_idx:
-            fv = []
-            for v in bm.faces[fidx].verts:
-                if v.index not in vmap:
-                    vmap[v.index] = idx
-                    idx += 1
-                    p = wm @ v.co
-                    coords.append((p.x + v.normal.x * _offset,
-                                   p.y + v.normal.y * _offset,
-                                   p.z + v.normal.z * _offset))
-                fv.append(vmap[v.index])
-            for i in range(1, len(fv) - 1):
-                indices.append((fv[0], fv[i], fv[i + 1]))
-        return tuple(coords), indices
-
-    def get_edges(self, offset: float):
-        if not self._faces_idx:
-            return ()
-        bm = self._parent.bm_object
-        bm.faces.ensure_lookup_table()
-        obj = self._parent._object
-        wm = obj.matrix_world
-        _offset = _get_offset(offset, obj)
-        coords = []
-        for fidx in self._faces_idx:
-            for e in bm.faces[fidx].edges:
-                for v in e.verts:
-                    p = wm @ v.co
-                    coords.append((p.x + v.normal.x * _offset,
-                                   p.y + v.normal.y * _offset,
-                                   p.z + v.normal.z * _offset))
-        return tuple(coords)
-
-    def get_select_data(self):
-        return ('FACE', self._faces_idx)
 
 
 class ModifierStack(BaseCheck):
@@ -3749,11 +3619,9 @@ CHECK_TYPES = {
     "boundary_edges":        BoundaryEdges,
     "poles":                 Poles,
     "zero_area":             ZeroAreaFaces,
-    "flipped_normals":       FlippedNormals,
     "isolated_verts":        IsolatedVertices,
     "duplicate_verts":       DuplicateVertices,
     "face_aspect_ratio":     FaceAspectRatio,
-    "invalid_normals":       InvalidNormals,
     "non_applied_transform": NonAppliedTransform,
     "scale":                 Scale,
     "modifier_stack":        ModifierStack,

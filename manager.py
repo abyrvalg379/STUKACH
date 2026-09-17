@@ -111,14 +111,17 @@ class MeshCheckObject:
 
     def set_bm_object(self):
         me = self._object.data
-        if self._bm_object and self._bm_object.is_valid and not me.is_editmode:
-            try:
-                self._bm_object.free()
-            except Exception:
-                pass
         if me.is_editmode:
+            # The edit-BMesh is owned by Blender — just grab the live wrapper.
+            # NEVER touch a cached bmesh here: after undo it may be freed, and
+            # even reading .is_valid on freed memory can take Blender down.
             self._bm_object = bmesh.from_edit_mesh(me)
         else:
+            if self._bm_object is not None:
+                try:
+                    self._bm_object.free()
+                except Exception:
+                    pass
             bm = bmesh.new()
             bm.from_mesh(me)
             self._bm_object = bm
@@ -208,8 +211,7 @@ class MeshCheckGPU:
     _batch_cache: dict = {}
 
     _FACE_OVERLAY_CHECKS = {'zero_area', 'triangles', 'ngons', 'uv_stretch',
-                            'invalid_normals', 'uv_material_udim'}
-    # flipped_normals excluded — uses Blender's built-in Face Orientation overlay
+                            'uv_material_udim'}
     _THICK_LINE_CHECKS   = {'non_applied_transform', 'scale',
                             'modifier_stack', 'origin_at_zero'}
 
@@ -515,6 +517,7 @@ class MeshCheck:
     hierarchy_result = None            # HierarchyResult | None — set by scan_hierarchy operator
     _state_restored: bool = False      # True after load_post restores settings; cleared on Run
     _scene_stale:   bool = False       # True when SCENE/COLLECTION has untracked objects
+    _last_live_populate: float = 0.0   # monotonic timestamp — throttle for Live auto-add
 
     @staticmethod
     def poll():
@@ -525,6 +528,8 @@ class MeshCheck:
     def reset_mesh_check(cls):
         cls._mode = ""
         cls.objects.clear()
+        cls._live_dirty.clear()
+        cls._live_repopulate = False
         MeshCheckGPU._batch_cache.clear()
         UVCheckGPU._batch_cache.clear()
         from .core import (_uv_island_cache, _uv_membership_cache,
@@ -613,6 +618,7 @@ class MeshCheck:
     def remove_mesh_check_object(cls, o):
         if o in cls.objects:
             mc_obj = cls.objects[o]
+            cls._live_dirty.discard(mc_obj)
             for checker in mc_obj._checks.values():
                 MeshCheckGPU._batch_cache.pop(id(checker), None)
                 UVCheckGPU._batch_cache.pop(id(checker), None)
@@ -621,6 +627,8 @@ class MeshCheck:
     @classmethod
     def reset_mc_objects(cls):
         cls.objects.clear()
+        cls._live_dirty.clear()
+        cls._live_repopulate = False
         MeshCheckGPU._batch_cache.clear()
         UVCheckGPU._batch_cache.clear()
         cls._repopulate_by_scope()
@@ -800,6 +808,15 @@ class MeshCheck:
             checker = mc_obj._checks.get(name)
             if checker:
                 try:
+                    # The mesh may have been edited by a fix operator since the
+                    # cached bmesh was built — refresh it, or set_datas() would
+                    # recompute on stale geometry and keep the old count.
+                    me = mc_obj._object.data
+                    new_key = (len(me.vertices), len(me.edges), len(me.polygons))
+                    if new_key != mc_obj._mesh_key:
+                        mc_obj._mesh_key = new_key
+                        bm = mc_obj.set_bm_object()
+                        mc_obj._uv_key = MeshCheckObject._sample_uv_key(bm)
                     checker.set_datas()
                     _apply_obj_ignore(checker, mc_obj._object, name)
                     checker._gpu_dirty = True
@@ -842,6 +859,7 @@ class MeshCheck:
         if not ctx.object:
             ctx.window_manager.mesh_check_props.check_data = False
             return
+        mc = ctx.window_manager.mesh_check_props
         m = ctx.object.mode
         if m != MeshCheck._mode:
             MeshCheck.set_mode(m)
@@ -874,12 +892,37 @@ class MeshCheck:
                         col = bpy.data.collections.get(MeshCheck._scope_collection)
                         expected = sum(1 for o in col.all_objects
                                        if o.type == "MESH") if col else 0
-                    MeshCheck._scene_stale = (expected != len(MeshCheck.objects))
+                    if expected != len(MeshCheck.objects):
+                        if getattr(mc, 'live_update', False):
+                            # Live: auto-track new objects.  The heavy part
+                            # (MeshCheckObject init runs every enabled check)
+                            # is deferred to the timer.
+                            MeshCheck._live_repopulate = True
+                            MeshCheck._schedule_live_flush()
+                        else:
+                            MeshCheck._scene_stale = True
+                    else:
+                        MeshCheck._scene_stale = False
                 except Exception:
                     pass
 
-            # Transform dirty check — re-run origin/rotation/scale checks when
-            # the object's location/rotation/scale changes without topology change.
+            # Live: mesh edits in OBJECT mode (applied transforms/modifiers,
+            # join, delete, booleans…).  Only flag changed objects here —
+            # the bmesh rebuild + re-check run in the deferred timer.
+            if getattr(mc, 'live_update', False):
+                for o, mc_obj in MeshCheck.objects.items():
+                    try:
+                        me = o.data
+                        if (len(me.vertices), len(me.edges), len(me.polygons)) != mc_obj._mesh_key:
+                            MeshCheck._live_dirty.add(mc_obj)
+                    except ReferenceError:
+                        continue
+                if MeshCheck._live_dirty:
+                    MeshCheck._schedule_live_flush()
+
+            # Transform dirty check — cheap matrix reads, safe to run inline.
+            # Re-run origin/rotation/scale checks when the object's
+            # location/rotation/scale changes without topology change.
             for o, mc_obj in MeshCheck.objects.items():
                 try:
                     new_tk = MeshCheckObject._sample_transform_key(o)
@@ -895,29 +938,93 @@ class MeshCheck:
                     print(f"[AssetChecker] transform dirty check {o.name}: {e}")
 
         elif m == "EDIT" and MeshCheck.poll():
+            # Only flag objects with geometry updates — the heavy BMesh work
+            # runs in the deferred timer (_live_flush).  Building/reading
+            # edit-BMeshes and re-running checks inside the depsgraph callback
+            # crashed Blender (mid-undo / mid-operator access).
             deps = ctx.evaluated_depsgraph_get()
             for o, mc_obj in MeshCheck.objects.items():
-                bm = mc_obj.bm_object
+                # Updates for one object arrive in arbitrary order and may be
+                # selection/transform-only.  Scan ALL of them for a geometry
+                # update — stopping at the first non-geometry entry silently
+                # skipped the live refresh for some edit ops (n-gon dissolves
+                # stayed stale while tris-to-quads refreshed).
+                geo = False
                 for u in deps.updates:
-                    if u.id.original != o:
-                        continue
-                    if not u.is_updated_geometry:
-                        break
-                    new_mesh_key = (len(bm.verts), len(bm.edges), len(bm.faces))
-                    new_uv_key   = MeshCheckObject._sample_uv_key(bm)
-                    topo_ch = new_mesh_key != mc_obj._mesh_key
-                    uv_ch   = new_uv_key   != mc_obj._uv_key
-                    if topo_ch:
-                        mc_obj._mesh_key = new_mesh_key
-                    if uv_ch:
-                        mc_obj._uv_key = new_uv_key
-                    if topo_ch or uv_ch:
-                        mc_obj.update_datas(
-                            bm,
-                            uv_changed=uv_ch or topo_ch,
-                            topo_changed=topo_ch,
-                        )
-                    break
+                    oid = u.id.original
+                    if oid == o or oid == o.data:
+                        geo = geo or u.is_updated_geometry
+                if geo:
+                    MeshCheck._live_dirty.add(mc_obj)
+            if MeshCheck._live_dirty:
+                MeshCheck._schedule_live_flush()
+
+    # ── Deferred live refresh ─────────────────────────────────────────────────
+    # bpy.app.timers runs at safe points of the main loop: outside depsgraph
+    # evaluation, outside operators and undo — heavy mesh work is crash-free
+    # there, while the depsgraph handler only collects what changed.
+
+    _live_flush_pending: bool = False
+    _live_dirty: set = set()      # MeshCheckObject refs needing re-check
+    _live_repopulate: bool = False
+
+    @classmethod
+    def _schedule_live_flush(cls):
+        if not cls._live_flush_pending:
+            cls._live_flush_pending = True
+            try:
+                bpy.app.timers.register(cls._live_flush, first_interval=0.05)
+            except Exception:
+                # Already registered (race) or timers unavailable — the pending
+                # flag may now be out of sync; reset it, next event re-schedules.
+                cls._live_flush_pending = False
+
+    @classmethod
+    def _live_flush(cls):
+        cls._live_flush_pending = False
+        try:
+            mc = getattr(bpy.context.window_manager, 'mesh_check_props', None)
+            if mc is None or not mc.check_data:
+                cls._live_dirty.clear()
+                cls._live_repopulate = False
+                return None
+
+            if cls._live_repopulate:
+                cls._live_repopulate = False
+                import time as _time
+                now = _time.monotonic()
+                if now - cls._last_live_populate > 1.0:
+                    cls._last_live_populate = now
+                    try:
+                        cls._repopulate_by_scope()
+                        cls._scene_stale = False
+                    except Exception as e:
+                        print(f"[AssetChecker] live repopulate: {e}")
+                else:
+                    cls._live_repopulate = True      # still throttled — retry
+                    cls._scene_stale = True
+                    cls._schedule_live_flush()
+
+            for mc_obj in list(cls._live_dirty):
+                cls._live_dirty.discard(mc_obj)
+                try:
+                    o = mc_obj._object
+                    o.name    # ReferenceError if the object was deleted
+                except ReferenceError:
+                    continue
+                try:
+                    bm = mc_obj.set_bm_object()      # fresh from mesh / edit-mesh
+                    mc_obj._mesh_key = (len(bm.verts), len(bm.edges), len(bm.faces))
+                    mc_obj._uv_key = MeshCheckObject._sample_uv_key(bm)
+                    mc_obj.update_datas(bm)
+                except ReferenceError:
+                    continue
+                except Exception as e:
+                    name = getattr(mc_obj._object, 'name', '?')
+                    print(f"[AssetChecker] live flush {name}: {e}")
+        except Exception as e:
+            print(f"[AssetChecker] live flush error: {e}")
+        return None
 
 
 # ── Session state persistence ─────────────────────────────────────────────────
@@ -930,7 +1037,7 @@ _AC_STATE_KEY = "_ac_state"
 # BoolProperty / StringProperty identifiers to include in the snapshot
 _AC_CHECK_PROPS: frozenset = frozenset({
     'non_manifold', 'boundary_edges', 'isolated_verts', 'triangles', 'ngons',
-    'poles', 'zero_area', 'flipped_normals', 'z_fighting', 'invalid_normals',
+    'poles', 'zero_area', 'z_fighting',
     'non_applied_transform', 'scale', 'origin_at_zero', 'modifier_stack',
     'symmetry_x', 'symmetry_y', 'symmetry_z',
     'uv_single_set', 'uv_overlap', 'uv_micro_shell', 'uv_texel_density',
@@ -944,7 +1051,7 @@ _AC_UI_PROPS: frozenset = frozenset({
     'cat_uv_open', 'cat_naming_open', 'cat_materials_open',
     'cat_cleanup_open',
     'obj_list_open', 'uv_td_scope_active',
-    'hierarchy_block_open',
+    'hierarchy_block_open', 'live_update',
     'obj_required_prefix', 'obj_required_suffix',
     'col_required_prefix', 'col_required_suffix',
 })

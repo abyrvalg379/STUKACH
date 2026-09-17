@@ -4,6 +4,21 @@ from . import manager as _manager_mod
 from .properties import CHECK_CATEGORIES
 
 
+def _addon_version() -> str:
+    """Extension version from blender_manifest.toml (no bl_info in 4.2+)."""
+    try:
+        import tomllib
+        from pathlib import Path
+        manifest = Path(__file__).parent / "blender_manifest.toml"
+        with open(manifest, "rb") as fh:
+            return tomllib.load(fh).get("version", "?")
+    except Exception:
+        return "?"
+
+
+_ADDON_VERSION = _addon_version()
+
+
 def _MC():
     """Always returns the current MeshCheck class — safe across hot-reloads."""
     return _manager_mod.MeshCheck
@@ -31,8 +46,6 @@ CHECK_SEVERITY: dict = {
     # ── WARNINGS — artist must review before delivery ────────────────────────
     "isolated_verts":        "WARNING",   # cleanup noise
     "ngons":                 "WARNING",   # context-dependent but usually a problem
-    "flipped_normals":       "WARNING",   # may be intentional (sky dome, double-sided)
-    "invalid_normals":       "WARNING",   # custom normals issue
     "modifier_stack":        "WARNING",   # unapplied modifiers change exported geo
     "uv_single_set":         "WARNING",   # extra UV layers
     "uv_micro_shell":        "WARNING",   # tiny UV islands
@@ -70,10 +83,8 @@ CHECK_THRESHOLDS: dict = {
     "isolated_verts":        0,
     "duplicate_verts":       0,
     "face_aspect_ratio":     0,
-    "flipped_normals":       0,
     "zero_area":             0,
     "z_fighting":            0,
-    "invalid_normals":       0,
     "triangles":             50,
     "ngons":                 10,
     "poles":                 20,
@@ -337,10 +348,9 @@ def draw_coordinator_panel(layout, mc, context) -> None:
     from .properties import _AC_CHECKPOINT_KEY
 
     # ── Header ────────────────────────────────────────────────────────────────
-    hdr = layout.row(align=True)
-    hdr.prop(mc, "coordinator_mode",
-             text="", icon="TRIA_LEFT", emboss=False)
-    hdr.label(text="Coordinator Mode", icon="COMMUNITY")
+    # Switching back is done by the "Artist Mode" toolbar button under Run —
+    # no duplicate toggle here, title only.
+    layout.label(text="Coordinator Mode", icon="COMMUNITY")
 
     # ── Asset status badge ────────────────────────────────────────────────────
     status = _get_asset_status(mc)
@@ -758,7 +768,9 @@ def _draw_scene_units_row(layout, mc) -> None:
 
 
 class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
-    bl_label = "STUKACH"
+    # bl_label фиксируется при регистрации — ui.py переимпортируется при каждом
+    # reload, так что версия всегда актуальна на момент старта/перезагрузки.
+    bl_label = f"STUKACH v{_ADDON_VERSION}"
     bl_idname = "ASSET_CHECKER_PT_Panel"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
@@ -1013,10 +1025,17 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
         run_row = layout.row(align=True)
         run_row.scale_y = 1.3
         run_row.prop(mc, "show_overlay", text=btn_text, toggle=True, icon=btn_icon)
-        # Coordinator Mode toggle — small button on the right of Run
-        coord_icon = "COMMUNITY"
-        run_row.prop(mc, "coordinator_mode",
-                     text="", icon=coord_icon, toggle=True)
+
+        # ── Mode toolbar: Coordinator ⇄ Artist + Live ────────────────────────
+        aux_row = layout.row(align=True)
+        if mc.coordinator_mode:
+            aux_row.prop(mc, "coordinator_mode", text="Artist Mode",
+                         toggle=True, icon="USER")
+        else:
+            aux_row.prop(mc, "coordinator_mode", text="Coordinator Mode",
+                         toggle=True, icon="COMMUNITY")
+        aux_row.prop(mc, "live_update", text="Live",
+                     toggle=True, icon="FILE_REFRESH")
 
         # ── Branch: Coordinator Mode ─────────────────────────────────────────
         if mc.coordinator_mode:
@@ -1057,6 +1076,12 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
 
         box = layout.box()
         box.label(text="Pipeline Checks:", icon="FILE_TEXT")
+        # View helper — mirrors Blender's built-in Face Orientation overlay.
+        # Replaces the old flipped/invalid normals counters (too many false
+        # positives on interior geometry) — one place for all check views.
+        fo_row = box.row(align=True)
+        fo_row.prop(mc, "face_orientation", text="Face Orientation",
+                    toggle=True, icon='FACESEL')
         mc.draw_options(box)
 
         if prefs:
@@ -1214,7 +1239,7 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
 class ASSET_CHECKER_PT_UV_Panel(bpy.types.Panel):
     """STUKACH UV-панель в редакторе UV."""
 
-    bl_label = "STUKACH"
+    bl_label = f"STUKACH v{_ADDON_VERSION}"
     bl_idname = "ASSET_CHECKER_PT_UV_Panel"
     bl_space_type = "IMAGE_EDITOR"
     bl_region_type = "UI"
