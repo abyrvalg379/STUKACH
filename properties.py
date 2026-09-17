@@ -555,6 +555,7 @@ _FIX_OPERATORS: dict = {
     "uv_single_set":         "asset_checker.fix_uv_single_set",
     "obj_naming":            "asset_checker.fix_naming",
     "mat_suffix":            "asset_checker.fix_mat_suffix",
+    "unused_data":           "asset_checker.fix_unused_data",
 }
 
 
@@ -1625,40 +1626,120 @@ class ASSET_CHECKER_OT_next_issue(bpy.types.Operator):
 # ── Fix: Remove unused data ───────────────────────────────────────────────────
 
 class ASSET_CHECKER_OT_fix_unused_data(bpy.types.Operator):
-    """Remove empty vertex groups detected by the Unused Data check.
-    Custom attributes are listed but NOT auto-deleted — review them manually."""
+    """Clean up data flagged by the Unused Data check: removes empty vertex
+    groups and custom attributes left by geometry nodes / external tools.
+    Built-in attributes (uv_seam, bevel weights…) are never touched, and
+    instance_* attributes are skipped on objects with a Geometry Nodes
+    modifier — the nodes may still read them."""
     bl_idname  = "asset_checker.fix_unused_data"
     bl_label   = "Fix: Remove Unused Data"
     bl_options = {'REGISTER', 'UNDO'}
 
+    def _build_plan(self):
+        """Collect deletable attrs: [(obj_name, me_users, [attr_names])].
+
+        instance_* attrs on objects with a Geometry Nodes modifier are
+        skipped — the nodes read attributes by name and would silently
+        change behaviour.  Returns (plan, gn_skipped_count).
+        """
+        plan = []
+        gn_skipped = 0
+        for obj, mc_obj in _problem_objects("unused_data"):
+            checker = mc_obj._checks.get("unused_data")
+            if not checker or not checker._custom_attrs:
+                continue
+            has_gn = any(m.type == 'NODES' for m in obj.modifiers)
+            deletable = []
+            for name in checker._custom_attrs:
+                if has_gn and name.startswith("instance_"):
+                    gn_skipped += 1
+                else:
+                    deletable.append(name)
+            if deletable:
+                plan.append((obj.name, obj.data.users, deletable))
+        return plan, gn_skipped
+
+    def invoke(self, context, _event):
+        self._plan, self._gn_skipped = self._build_plan()
+        if not self._plan:
+            if self._gn_skipped:
+                self.report({'INFO'},
+                            f"Nothing safe to delete — {self._gn_skipped} "
+                            f"instance_* attr(s) are used by Geometry Nodes")
+            else:
+                self.report({'INFO'}, "Nothing to clean")
+            return {'CANCELLED'}
+        return context.window_manager.invoke_props_dialog(self, width=430)
+
+    def draw(self, _context):
+        col = self.layout.column(align=True)
+        n_attrs = sum(len(a) for _, _, a in self._plan)
+        col.label(text=f"Delete {n_attrs} attribute(s) on {len(self._plan)} object(s)?")
+        col.label(text="Empty vertex groups are removed too.")
+        if self._gn_skipped:
+            col.label(text=f"Skipped {self._gn_skipped} instance_* attr(s) — Geometry Nodes may read them.",
+                      icon="INFO")
+        shared = [n for n, u, _ in self._plan if u > 1]
+        if shared:
+            col.label(text=f"Shared mesh data ({', '.join(shared[:3])}): applies to all linked objects.",
+                      icon="LINKED")
+
     def execute(self, context):
         from .manager import MeshCheck
-        removed_vgroups = 0
-        attr_report     = []
+        if not getattr(self, '_plan', None):
+            # Direct/script call without the dialog — build the plan here
+            self._plan, self._gn_skipped = self._build_plan()
+        if context.mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
 
+        removed_vgroups = 0
+        removed_attrs = 0
+        shared_hits = []
+
+        # 1. Empty vertex groups
         for obj, mc_obj in list(_problem_objects("unused_data")):
             checker = mc_obj._checks.get("unused_data")
             if not checker:
                 continue
+            state = _ensure_visible(obj)
+            try:
+                for vg_name in list(checker._empty_vgroups):
+                    vg = obj.vertex_groups.get(vg_name)
+                    if vg:
+                        obj.vertex_groups.remove(vg)
+                        removed_vgroups += 1
+            except Exception as e:
+                print(f"[AssetChecker] fix_unused_data(vgroups) {obj.name}: {e}")
+            finally:
+                _restore_visible(obj, state)
 
-            # Remove empty vertex groups
-            for vg_name in list(checker._empty_vgroups):
-                vg = obj.vertex_groups.get(vg_name)
-                if vg:
-                    obj.vertex_groups.remove(vg)
-                    removed_vgroups += 1
-
-            # Report custom attrs — do NOT auto-delete
-            if checker._custom_attrs:
-                attr_report.append(
-                    f"{obj.name}: {', '.join(checker._custom_attrs)}"
-                )
+        # 2. Custom attributes — only what was confirmed in the dialog
+        for obj_name, me_users, attr_names in self._plan:
+            obj = bpy.data.objects.get(obj_name)
+            if obj is None:
+                continue
+            me = obj.data
+            state = _ensure_visible(obj)
+            try:
+                for name in attr_names:
+                    attr = me.attributes.get(name)
+                    if attr is not None:
+                        me.attributes.remove(attr)
+                        removed_attrs += 1
+            except Exception as e:
+                print(f"[AssetChecker] fix_unused_data {obj_name}: {e}")
+            finally:
+                _restore_visible(obj, state)
+            if me_users > 1:
+                shared_hits.append(obj_name)
 
         MeshCheck.update_mc_object_datas("unused_data")
 
-        msg = f"Removed {removed_vgroups} empty vertex group(s)."
-        if attr_report:
-            msg += f"  Custom attrs (manual review): {'; '.join(attr_report)}"
+        msg = f"Removed {removed_attrs} attribute(s), {removed_vgroups} empty vgroup(s)."
+        if self._gn_skipped:
+            msg += f"  Skipped {self._gn_skipped} GN-linked instance_* attr(s)."
+        if shared_hits:
+            msg += f"  Shared meshes updated: {', '.join(shared_hits[:5])}"
         self.report({'INFO'}, msg)
         return {'FINISHED'}
 

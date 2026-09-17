@@ -3681,6 +3681,9 @@ class UnusedData(BaseCheck):
         '.corner_vert', '.corner_edge', '.edge_verts', '.poly_edge_offset',
         '.poly_edge_indices', '.sculpt_face_set',
         'custom_normal',
+        # Legacy mesh properties stored as attributes since Blender 4.0/4.1 —
+        # these ARE mesh data (UV seams! bevel weights!), never flag them.
+        'uv_seam', 'bevel_weight_vert', 'bevel_weight_edge', 'mask',
     })
 
     # Guard: skip per-vertex group scan on very heavy meshes
