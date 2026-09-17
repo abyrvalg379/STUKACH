@@ -36,6 +36,26 @@ _CAT_ICONS = {
 }
 
 # Custom display labels — overrides auto-generated text for specific checks
+# Acronyms that must not be title-cased by pretty_name() ('uv_overlap' →
+# 'UV Overlap', not 'Uv Overlap').
+_ACRONYMS = {"uv": "UV", "td": "TD", "id": "ID"}
+
+
+def pretty_name(key: str) -> str:
+    """Human-readable check/category name with correct acronyms."""
+    words = key.replace("_", " ").title()
+    fixed = []
+    for w in words.split():
+        low = w.lower()
+        if low in _ACRONYMS:
+            fixed.append(_ACRONYMS[low])
+        elif low.startswith("udim"):
+            fixed.append("UDIM" + w[4:])
+        else:
+            fixed.append(w)
+    return " ".join(fixed)
+
+
 _CHECK_LABELS: dict = {
     "obj_naming":         "Object Name",
     "mesh_data_naming":   "Mesh Data Name",
@@ -104,7 +124,7 @@ def _check_filter_items(self, context):
         items = [("__all__", "All checks", "Show all tracked objects")]
         for cat, checks in CHECK_CATEGORIES.items():
             for c in checks:
-                label = _CHECK_LABELS.get(c, c.replace("_", " ").title())
+                label = _CHECK_LABELS.get(c, pretty_name(c))
                 items.append((c, label, f"Objects with '{label}' issues"))
         _CHECK_FILTER_ITEMS = items
     return _CHECK_FILTER_ITEMS
@@ -1830,7 +1850,7 @@ class ASSET_CHECKER_OT_preflight_export(bpy.types.Operator):
         issues = []
         for check, n_objs in tally.items():
             sev   = CHECK_SEVERITY.get(check, 'WARNING')
-            label = _CHECK_LABELS.get(check, check.replace('_', ' ').title())
+            label = _CHECK_LABELS.get(check, pretty_name(check))
             issues.append((sev, label, n_objs))
 
         # BLOCKER first, then WARNING; alphabetical within group
@@ -2564,7 +2584,7 @@ class MeshCheckProperties(PropertyGroup):
                 emboss=False,
             )
             header.label(
-                text=cat_name.replace("_", " ").title(),
+                text=pretty_name(cat_name),
                 icon=_CAT_ICONS.get(cat_name, "DOT"),
             )
 
@@ -2608,7 +2628,7 @@ class MeshCheckProperties(PropertyGroup):
                 col = col_1 if i % 2 == 0 else col_2
                 r = col.row(align=True)
                 icon = "CHECKBOX_HLT" if getattr(self, check, False) else "CHECKBOX_DEHLT"
-                label = _CHECK_LABELS.get(check, check.replace("_", " ").title())
+                label = _CHECK_LABELS.get(check, pretty_name(check))
                 r.prop(self, check, icon=icon, emboss=False, text=label)
 
                 if addon_prefs and hasattr(addon_prefs, f"{check}_color"):
