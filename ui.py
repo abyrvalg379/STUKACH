@@ -1135,11 +1135,12 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
         # ── Check presets — native dropdown + save/remove + share ───────────
         preset_row = box.row(align=True)
         preset_row.menu("ASSET_CHECKER_MT_presets", text="Presets", icon="PRESET")
-        preset_row.operator("asset_checker.preset_add",    text="", icon="ADD")
-        preset_row.operator("asset_checker.preset_remove", text="", icon="REMOVE")
+        preset_row.separator(factor=0.4)
+        preset_row.operator("asset_checker.preset_add",    text="", icon="ADD",    emboss=False)
+        preset_row.operator("asset_checker.preset_remove", text="", icon="REMOVE", emboss=False)
         # EXPORT opens a submenu listing each saved preset (per-preset export)
         preset_row.menu("ASSET_CHECKER_MT_preset_export", text="", icon="EXPORT")
-        preset_row.operator("asset_checker.preset_import", text="", icon="IMPORT")
+        preset_row.operator("asset_checker.preset_import", text="", icon="IMPORT", emboss=False)
 
         if prefs:
             off_row = box.row(align=True)
@@ -1161,43 +1162,46 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
             if _get_object_status(_mc_obj, mc) != "clean":
                 n_issues += 1
 
+        # ── Pre-compute visible objects (filter) — the section header shows
+        # the visible/total split when any filter is active, so it must be
+        # known before the header is drawn.
+        filter_text = mc.obj_filter_text.lower().strip()
+        errors_only = mc.obj_filter_errors_only
+        check_filter = mc.obj_filter_check
+        filter_active = bool(filter_text) or errors_only or (check_filter and check_filter != "__all__")
+
+        visible = []
+        for obj, mc_obj in _manager_mod.MeshCheck.objects.items():
+            try:
+                obj_name = obj.name
+            except ReferenceError:
+                continue
+            if filter_text and filter_text not in obj_name.lower():
+                continue
+            obj_status = _get_object_status(mc_obj, mc)
+            if errors_only and obj_status == "clean":
+                continue
+            if check_filter and check_filter != "__all__":
+                chk = mc_obj._checks.get(check_filter)
+                if not chk or chk.count <= 0:
+                    continue
+            visible.append((obj, mc_obj, obj_name, obj_status))
+
         sec_box  = layout.box()
         sec_head = sec_box.row(align=True)
 
         tria_sec = "TRIA_DOWN" if mc.obj_list_open else "TRIA_RIGHT"
         sec_head.prop(mc, "obj_list_open", text="", icon=tria_sec, emboss=False)
 
-        # Label: "Objects  18   ⚠ 3"
+        # Label: "Objects  18   ⚠ 3"  /  "Objects  5 / 18   ⚠ 3" when filtered
         sec_head.label(text="Objects", icon="OBJECT_DATA")
         cnt = sec_head.row()
         cnt.alignment = "RIGHT"
-        cnt.label(text=str(n_obj))
+        cnt.label(text=f"{len(visible)} / {n_obj}" if filter_active else str(n_obj))
         if n_issues:
             cnt.label(text=str(n_issues), icon="ERROR")
 
         if mc.obj_list_open:
-            # ── Pre-compute visible objects (filter + sort) ───────────────────
-            filter_text = mc.obj_filter_text.lower().strip()
-            errors_only = mc.obj_filter_errors_only
-            check_filter = mc.obj_filter_check
-
-            visible = []
-            for obj, mc_obj in _manager_mod.MeshCheck.objects.items():
-                try:
-                    obj_name = obj.name
-                except ReferenceError:
-                    continue
-                if filter_text and filter_text not in obj_name.lower():
-                    continue
-                obj_status = _get_object_status(mc_obj, mc)
-                if errors_only and obj_status == "clean":
-                    continue
-                if check_filter and check_filter != "__all__":
-                    chk = mc_obj._checks.get(check_filter)
-                    if not chk or chk.count <= 0:
-                        continue
-                visible.append((obj, mc_obj, obj_name, obj_status))
-
             if mc.obj_sort_worst:
                 def _issue_score(mc_obj):
                     t = 0
@@ -1213,10 +1217,6 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
             filt_row.prop(mc, "obj_filter_errors_only", text="Issues", icon="FILTER", toggle=True)
             filt_row.prop(mc, "obj_sort_worst",         text="", icon="SORT_DESC")
             filt_row.prop(mc, "obj_filter_check",       text="")
-
-            count_sub = filt_row.row()
-            count_sub.alignment = "RIGHT"
-            count_sub.label(text=f"{len(visible)} / {n_obj}")
 
             def _stat(o):
                 try:
@@ -1285,28 +1285,36 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
         cp_exists   = bool(context.scene.get(_AC_CHECKPOINT_KEY))
 
         exp_box = layout.box()
-        exp_row = exp_box.row(align=True)
-        exp_row.label(text="Export:", icon="EXPORT")
-        exp_row.enabled = has_results
+
+        # Labels in a fixed-width column so buttons start at the same X
+        d_row = exp_box.split(factor=0.32, align=True)
+        d_left = d_row.column()
+        d_left.label(text="Export", icon="EXPORT")
+        d_right = d_row.row(align=True)
+        d_right.enabled = has_results
         for fmt, lbl in (('JSON', 'JSON'), ('CSV', 'CSV'), ('HTML', 'HTML')):
-            op = exp_row.operator("asset_checker.export_report", text=lbl)
+            op = d_right.operator("asset_checker.export_report", text=lbl)
             op.fmt = fmt
 
-        pf_row = exp_box.row(align=True)
-        pf_row.label(text="Pre-flight:", icon="CHECKMARK")
-        pf_row.enabled = has_results
-        op_fbx = pf_row.operator("asset_checker.preflight_export", text="FBX", icon="EXPORT")
+        d_row = exp_box.split(factor=0.32, align=True)
+        d_left = d_row.column()
+        d_left.label(text="Pre-flight", icon="CHECKMARK")
+        d_right = d_row.row(align=True)
+        d_right.enabled = has_results
+        op_fbx = d_right.operator("asset_checker.preflight_export", text="FBX", icon="EXPORT")
         op_fbx.fmt = 'FBX'
-        op_usd = pf_row.operator("asset_checker.preflight_export", text="USD", icon="EXPORT")
+        op_usd = d_right.operator("asset_checker.preflight_export", text="USD", icon="EXPORT")
         op_usd.fmt = 'USD'
 
-        cp_row = exp_box.row(align=True)
-        cp_row.label(text="Checkpoint:", icon="BOOKMARKS")
-        cp_row.operator("asset_checker.save_checkpoint",
-                        text="Update" if cp_exists else "Save", icon="FILE_TICK")
-        cp_row.operator("asset_checker.load_checkpoint", text="", icon="IMPORT")
+        d_row = exp_box.split(factor=0.32, align=True)
+        d_left = d_row.column()
+        d_left.label(text="Checkpoint", icon="BOOKMARKS")
+        d_right = d_row.row(align=True)
+        d_right.operator("asset_checker.save_checkpoint",
+                         text="Update" if cp_exists else "Save", icon="FILE_TICK")
+        d_right.operator("asset_checker.load_checkpoint", text="", icon="IMPORT")
         if cp_exists:
-            cp_row.operator("asset_checker.clear_checkpoint", text="", icon="X", emboss=False)
+            d_right.operator("asset_checker.clear_checkpoint", text="", icon="X", emboss=False)
 
 
 class ASSET_CHECKER_PT_UV_Panel(bpy.types.Panel):
