@@ -4,7 +4,7 @@
 
 Pipeline asset validation addon for Blender.
 
-**Blender 5.1+ · Author: Maksim Kovalev**
+**Blender 5.2 · v1.4.0 · Author: Maksim Kovalev**
 
 ---
 
@@ -43,15 +43,13 @@ The **STUKACH** tab appears in the N-Panel (View3D and UV Editor).
 | Non Manifold | BLOCKER | Edges shared by more than 2 faces |
 | Boundary Edges | INFO | Edges with only 1 connected face |
 | Isolated Verts | WARNING | Vertices with no connected edges |
-| Duplicate Verts | BLOCKER | Overlapping vertices within 0.01mm |
+| Duplicate Verts | BLOCKER | Coincident vertices within one connected shell (0.01mm) — different shells touching are intentional and not flagged |
 | Face Aspect Ratio | INFO | Quad edge ratio exceeding threshold (default 6:1) |
 | Triangles | INFO | Tris outside deformable/subdiv zones |
 | Ngons | WARNING | Faces with more than 4 vertices |
 | Poles | INFO | N-poles (3 edges), E-poles (5+ edges) |
 | Zero Area | BLOCKER | Degenerate faces with near-zero area |
-| Flipped Normals | WARNING | Faces with inverted normals (uses Blender Face Orientation overlay) |
 | Z-Fighting | BLOCKER | Coplanar overlapping geometry |
-| Invalid Normals | WARNING | Non-unit or NaN normals |
 
 ### TRANSFORMS
 | Check | Severity | Description |
@@ -111,6 +109,8 @@ The **STUKACH** tab appears in the N-Panel (View3D and UV Editor).
 
 ## Features
 
+- **Live Mode** — checks re-run automatically as you edit, no manual re-run
+- **Face Orientation** — Blender's built-in normals overlay, toggled from the panel
 - **GPU Overlays** — colored face fills, edge outlines, and vertex markers in 3D viewport
 - **UV Editor Overlays** — highlighted shells in the Image Editor
 - **Select in Edit Mode** — click Sel to select problem geometry
