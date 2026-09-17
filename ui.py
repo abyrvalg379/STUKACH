@@ -1,7 +1,7 @@
 # -*- coding:utf-8 -*-
 import bpy
 from . import manager as _manager_mod
-from .properties import CHECK_CATEGORIES
+from .properties import CHECK_CATEGORIES, pretty_name
 
 
 # ── Health-strip: category → hidden COLOR property name ──────────────────────
@@ -647,7 +647,7 @@ def _draw_ignore_list_block(layout, mc) -> None:
 
         # Ignored check labels (human-readable)
         check_labels = [
-            _CHECK_LABELS.get(c, c.replace('_', ' ').title())
+            _CHECK_LABELS.get(c, pretty_name(c))
             for c in sorted(ignored)
         ]
         chips = row.row(align=True)
@@ -905,7 +905,7 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
                 lbl = row.row(align=True)
                 lbl.enabled = False
                 lbl.label(
-                    text=check.replace('_', ' ').title(),
+                    text=pretty_name(check),
                     icon="HIDE_ON",
                 )
                 # Un-ignore button — always enabled
@@ -929,7 +929,7 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
                 icon = "INFO"
 
             mt    = getattr(checker, 'metric_text', '')
-            label = mt if mt else f"{check.replace('_', ' ').title()}: {count}"
+            label = mt if mt else f"{pretty_name(check)}: {count}"
 
             row = col.row(align=True)
             row.label(text=label, icon=icon)
@@ -969,13 +969,13 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
 
         if status == "ready":
             box.label(text="ASSET STATUS: PIPELINE READY", icon="CHECKMARK")
-            box.label(text="Стукач считает ассет production-ready")
+            box.label(text="Asset is production-ready")
         elif status == "warning":
             box.label(text="ASSET STATUS: WARNING", icon="INFO")
-            box.label(text="Стукач советует еще поработать")
+            box.label(text="Needs more work before delivery")
         elif status == "critical":
             box.label(text="ASSET STATUS: CRITICAL", icon="ERROR")
-            box.label(text="Стукач блокирует publish")
+            box.label(text="Publish blocked — fix blockers first")
 
     @staticmethod
     def _draw_hierarchy_block(layout, mc):
@@ -1124,11 +1124,12 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
         # View helper — mirrors Blender's built-in Face Orientation overlay.
         # Replaces the old flipped/invalid normals counters (too many false
         # positives on interior geometry) — one place for all check views.
-        fo_row = box.row(align=True)
-        fo_row.prop(mc, "face_orientation", text="Face Orientation",
-                    toggle=True, icon='FACESEL')
-        fo_row.separator(factor=0.5)
-        fo_row.prop(mc, "scene_units", text="Scene Units", toggle=True)
+        fo_split = box.split(factor=0.5, align=True)
+        fo_left = fo_split.row(align=True)
+        fo_left.prop(mc, "face_orientation", text="Face Orientation",
+                     toggle=True, icon='FACESEL')
+        fo_right = fo_split.row(align=True)
+        fo_right.prop(mc, "scene_units", text="Scene Units", toggle=True)
         mc.draw_options(box)
 
         # ── Check presets — native dropdown + save/remove + share ───────────
@@ -1209,7 +1210,7 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
             # ── Filter bar ────────────────────────────────────────────────────
             filt_row = sec_box.row(align=True)
             filt_row.prop(mc, "obj_filter_text",        text="", icon="VIEWZOOM")
-            filt_row.prop(mc, "obj_filter_errors_only", text="Issues only", icon="FILTER", toggle=True)
+            filt_row.prop(mc, "obj_filter_errors_only", text="Issues", icon="FILTER", toggle=True)
             filt_row.prop(mc, "obj_sort_worst",         text="", icon="SORT_DESC")
             filt_row.prop(mc, "obj_filter_check",       text="")
 
@@ -1374,7 +1375,7 @@ class ASSET_CHECKER_PT_UV_Panel(bpy.types.Panel):
             r = col_a.row(align=True)
             icon = "CHECKBOX_HLT" if getattr(mc, check, False) else "CHECKBOX_DEHLT"
             r.prop(mc, check, icon=icon, emboss=False,
-                   text=check.replace("_", " ").title())
+                   text=pretty_name(check))
             if prefs and hasattr(prefs, f"{check}_color"):
                 c = r.row()
                 c.scale_x = 0.15
@@ -1607,7 +1608,7 @@ class ASSET_CHECKER_PT_UV_Panel(bpy.types.Panel):
                         icon = "INFO"
 
                     mt = getattr(checker, 'metric_text', '')
-                    label = mt if mt else f"{check.replace('_', ' ').title()}: {count}"
+                    label = mt if mt else f"{pretty_name(check)}: {count}"
                     ob_box.label(text=label, icon=icon)
 
                 if not any_active:
