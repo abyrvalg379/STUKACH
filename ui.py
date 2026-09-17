@@ -64,7 +64,8 @@ CHECK_SEVERITY: dict = {
     "uv_stretch":            "WARNING",   # angle distortion visible on textures
     "obj_naming":            "WARNING",   # naming convention
     "col_naming":            "WARNING",
-    "mat_numbering":         "WARNING",   # Material.001 leftover names
+    "mat_numbering":         "WARNING",
+    "mesh_data_naming":      "WARNING",   # Mesh.101 data blocks pollute pipelines   # Material.001 leftover names
     "mat_suffix":            "WARNING",   # material name convention
     "unused_data":           "WARNING",   # empty vgroups / leftover attributes
 
@@ -116,6 +117,7 @@ CHECK_THRESHOLDS: dict = {
     "uv_udim_bounds":        0,
     "uv_material_udim":      0,
     "obj_naming":            0,
+    "mesh_data_naming":      0,
     "col_naming":            0,
     "mat_numbering":         0,
     "mat_suffix":            0,

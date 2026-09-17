@@ -20,7 +20,7 @@ CHECK_CATEGORIES = {
     "UV":         ("uv_single_set", "uv_overlap", "uv_micro_shell",
                    "uv_texel_density", "uv_stretch", "uv_padding",
                    "uv_udim_bounds", "uv_material_udim"),
-    "NAMING":     ("obj_naming", "col_naming", "mat_numbering"),
+    "NAMING":     ("obj_naming", "col_naming", "mat_numbering", "mesh_data_naming"),
     "MATERIALS":  ("mat_suffix", "mat_assignment", "missing_textures"),
     "CLEANUP":    ("unused_data",),
 }
@@ -38,6 +38,7 @@ _CAT_ICONS = {
 # Custom display labels — overrides auto-generated text for specific checks
 _CHECK_LABELS: dict = {
     "obj_naming":         "Object Name",
+    "mesh_data_naming":   "Mesh Data Name",
     "col_naming":         "Group Name",
     "z_fighting":         "Z-Fighting",
     "face_aspect_ratio":  "Face Aspect Ratio",
@@ -136,7 +137,7 @@ _PRESET_VALUE_KEYS = (
     'symmetry_x', 'symmetry_y', 'symmetry_z',
     'uv_single_set', 'uv_overlap', 'uv_micro_shell', 'uv_texel_density',
     'uv_stretch', 'uv_padding', 'uv_udim_bounds', 'uv_material_udim',
-    'obj_naming', 'col_naming',
+    'obj_naming', 'col_naming', 'mesh_data_naming',
     'mat_suffix', 'mat_assignment', 'missing_textures', 'unused_data',
     # inline naming policy
     'obj_required_prefix', 'obj_required_suffix',
@@ -556,6 +557,7 @@ _FIX_OPERATORS: dict = {
     "obj_naming":            "asset_checker.fix_naming",
     "mat_suffix":            "asset_checker.fix_mat_suffix",
     "unused_data":           "asset_checker.fix_unused_data",
+    "mesh_data_naming":      "asset_checker.fix_mesh_data_naming",
 }
 
 
@@ -1744,6 +1746,43 @@ class ASSET_CHECKER_OT_fix_unused_data(bpy.types.Operator):
         return {'FINISHED'}
 
 
+# ── Fix: Rename mesh data blocks ─────────────────────────────────────────────
+
+class ASSET_CHECKER_OT_fix_mesh_data_naming(bpy.types.Operator):
+    """Rename mesh data blocks to match their object:
+    <object root> + first mesh suffix (object suffix stripped, e.g.
+    object 'body_geo' → mesh 'body_mesh').  The suffix is configurable in
+    Preferences → Naming Policy → Mesh Data."""
+    bl_idname  = "asset_checker.fix_mesh_data_naming"
+    bl_label   = "Fix: Rename Mesh Data"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        from .manager import MeshCheck
+        renamed = []
+        for obj, mc_obj in list(_problem_objects("mesh_data_naming")):
+            checker = mc_obj._checks.get("mesh_data_naming")
+            if not checker or not checker._target:
+                continue
+            old = obj.data.name
+            try:
+                obj.data.name = checker._target
+            except Exception as e:
+                print(f"[AssetChecker] fix_mesh_data_naming {obj.name}: {e}")
+                continue
+            renamed.append(f"{old} → {obj.data.name}")
+
+        MeshCheck.update_mc_object_datas("mesh_data_naming")
+
+        if renamed:
+            preview = "; ".join(renamed[:5])
+            more = f" (+{len(renamed) - 5} more)" if len(renamed) > 5 else ""
+            self.report({'INFO'}, f"Renamed {len(renamed)} mesh data block(s): {preview}{more}")
+        else:
+            self.report({'INFO'}, "Nothing to rename")
+        return {'FINISHED'}
+
+
 # ── Pre-flight Export ─────────────────────────────────────────────────────────
 
 class ASSET_CHECKER_OT_preflight_export(bpy.types.Operator):
@@ -2308,6 +2347,8 @@ class MeshCheckProperties(PropertyGroup):
                                 description="Object names against naming policy: default names, .001 numbering, case, prefix/suffix rules")
     col_naming:    BoolProperty(name="Group Name",    default=False, update=mc_object_datas_updater("col_naming"),
                                 description="Collection names against naming policy")
+    mesh_data_naming: BoolProperty(name="Mesh Data Name", default=False, update=mc_object_datas_updater("mesh_data_naming"),
+                                description="Mesh data block must not keep Blender auto-names ('Mesh.101') — rename to <object>_mesh. Suffix configurable in Preferences")
     mat_numbering: BoolProperty(name="Mat Numbering", default=False, update=mc_object_datas_updater("mat_numbering"),
                                 description="Material names must not contain Blender auto-numbering (.001, .002 ...)")
 

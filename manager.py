@@ -54,6 +54,7 @@ class MeshCheckObject:
         self._mesh_key: tuple = ()   # (n_verts, n_edges, n_faces) — topology dirty flag
         self._uv_key:   tuple = ()   # sampled UV hash — UV-coords dirty flag
         self._transform_key: tuple = ()  # (loc, rot, scale) — transform dirty flag
+        self._name_key: tuple = ()   # (obj.name, mesh data name) — rename dirty flag
         self._mat_udim_map: dict = {}
         # Shared KD-tree for SymmetryX / SymmetryY / SymmetryZ (built once per topology change)
         self._sym_kd_key:   tuple = ()
@@ -81,6 +82,7 @@ class MeshCheckObject:
 
     def _init_object(self):
         bm = self.set_bm_object()
+        self._name_key      = (self._object.name, self._object.data.name)
         self._mesh_key      = (len(bm.verts), len(bm.edges), len(bm.faces))
         self._uv_key        = self._sample_uv_key(bm)
         self._transform_key = self._sample_transform_key(self._object)
@@ -942,6 +944,10 @@ class MeshCheck:
                         me = o.data
                         if (len(me.vertices), len(me.edges), len(me.polygons)) != mc_obj._mesh_key:
                             MeshCheck._live_dirty.add(mc_obj)
+                        elif (o.name, me.name) != mc_obj._name_key:
+                            # Renames are cheap to detect but drive the naming
+                            # checks — re-check via the deferred flush.
+                            MeshCheck._live_dirty.add(mc_obj)
                     except ReferenceError:
                         continue
                 if MeshCheck._live_dirty:
@@ -1107,6 +1113,7 @@ class MeshCheck:
                     bm = mc_obj.set_bm_object()      # fresh from mesh / edit-mesh
                     mc_obj._mesh_key = (len(bm.verts), len(bm.edges), len(bm.faces))
                     mc_obj._uv_key = MeshCheckObject._sample_uv_key(bm)
+                    mc_obj._name_key = (o.name, o.data.name)
                     mc_obj.update_datas(bm)
                 except ReferenceError:
                     continue
@@ -1155,7 +1162,7 @@ _AC_CHECK_PROPS: frozenset = frozenset({
     'symmetry_x', 'symmetry_y', 'symmetry_z',
     'uv_single_set', 'uv_overlap', 'uv_micro_shell', 'uv_texel_density',
     'uv_stretch', 'uv_padding', 'uv_udim_bounds', 'uv_material_udim',
-    'obj_naming', 'col_naming',
+    'obj_naming', 'col_naming', 'mesh_data_naming',
     'mat_suffix', 'mat_assignment', 'missing_textures',
     'unused_data',
 })

@@ -32,6 +32,8 @@ classes = (
     preferences.ASSET_CHECKER_OT_col_naming_remove_prefix,
     preferences.ASSET_CHECKER_OT_col_naming_add_suffix,
     preferences.ASSET_CHECKER_OT_col_naming_remove_suffix,
+    preferences.ASSET_CHECKER_OT_mesh_naming_add_suffix,
+    preferences.ASSET_CHECKER_OT_mesh_naming_remove_suffix,
     preferences.MeshCheckPreferences,
     properties.MESH_CHECK_OT_toggle_category,
     properties.ASSET_CHECKER_OT_select_check_elements,
@@ -49,6 +51,7 @@ classes = (
     properties.ASSET_CHECKER_OT_fix_uv_single_set,
     properties.ASSET_CHECKER_OT_fix_naming,
     properties.ASSET_CHECKER_OT_fix_unused_data,
+    properties.ASSET_CHECKER_OT_fix_mesh_data_naming,
     properties.ASSET_CHECKER_OT_fix_mat_suffix,
     properties.ASSET_CHECKER_OT_fix_category,
     properties.ASSET_CHECKER_OT_export_report,
@@ -97,6 +100,16 @@ def register():
     bpy.types.Object.mesh_check_statistics = BoolProperty(
         name="Toggle Visibility",
         default=False)
+
+    # Seed the mesh-data suffix list with the pipeline default on first run
+    try:
+        prefs = bpy.context.preferences.addons.get(__name__)
+        if prefs is None:
+            prefs = bpy.context.preferences.addons.get(__name__.rsplit(".", 1)[0])
+        if prefs is not None and not len(prefs.preferences.mesh_naming_suffixes):
+            prefs.preferences.mesh_naming_suffixes.add().value = "_mesh"
+    except Exception as e:
+        print(f"[AssetChecker] mesh suffix seed: {e}")
 
     from .manager import register_state_handlers
     register_state_handlers()
