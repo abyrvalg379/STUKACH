@@ -111,6 +111,9 @@ The **STUKACH** tab appears in the N-Panel (View3D and UV Editor).
 
 - **Live Mode** — checks re-run automatically as you edit, no manual re-run
 - **Face Orientation** — Blender's built-in normals overlay, toggled from the panel
+- **Check Presets** — native dropdown; save check sets + naming rules as files, share with the team
+- **Next Issue** — one button jumps to the next problem object and frames it
+- **Copy Summary** — validation report to the clipboard in one click
 - **GPU Overlays** — colored face fills, edge outlines, and vertex markers in 3D viewport
 - **UV Editor Overlays** — highlighted shells in the Image Editor
 - **Select in Edit Mode** — click Sel to select problem geometry

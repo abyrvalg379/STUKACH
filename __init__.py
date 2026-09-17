@@ -2,6 +2,7 @@
 # Metadata is defined in blender_manifest.toml (Blender 4.2+ extension standard).
 
 import bpy
+import json
 from bpy.props import BoolProperty, PointerProperty
 
 if "bpy" in locals():
@@ -43,6 +44,9 @@ classes = (
     properties.ASSET_CHECKER_OT_fix_origin,
     properties.ASSET_CHECKER_OT_fix_modifier_stack,
     properties.ASSET_CHECKER_OT_fix_merge_by_distance,
+    properties.ASSET_CHECKER_OT_fix_zero_area,
+    properties.ASSET_CHECKER_OT_fix_mat_numbering,
+    properties.ASSET_CHECKER_OT_fix_uv_single_set,
     properties.ASSET_CHECKER_OT_fix_naming,
     properties.ASSET_CHECKER_OT_fix_unused_data,
     properties.ASSET_CHECKER_OT_fix_mat_suffix,
@@ -58,9 +62,14 @@ classes = (
     properties.ASSET_CHECKER_OT_validate_scene,
     properties.ASSET_CHECKER_OT_validate_collection,
     properties.ASSET_CHECKER_OT_clear_validation,
-    properties.ASSET_CHECKER_OT_preset_apply,
-    properties.ASSET_CHECKER_OT_preset_save,
-    properties.ASSET_CHECKER_OT_preset_delete,
+    properties.ASSET_CHECKER_MT_presets,
+    properties.ASSET_CHECKER_MT_preset_export,
+    properties.ASSET_CHECKER_OT_preset_add,
+    properties.ASSET_CHECKER_OT_preset_remove,
+    properties.ASSET_CHECKER_OT_preset_export,
+    properties.ASSET_CHECKER_OT_preset_import,
+    properties.ASSET_CHECKER_OT_next_issue,
+    properties.ASSET_CHECKER_OT_copy_summary,
     properties.MeshCheckProperties,
     ui.ASSET_CHECKER_PT_Panel,
     ui.ASSET_CHECKER_PT_UV_Panel,
@@ -90,6 +99,32 @@ def register():
 
     from .manager import register_state_handlers
     register_state_handlers()
+
+    # Migrate legacy pref-collection presets (<= 1.4.1) to native preset files
+    try:
+        import os
+        from .properties import _preset_dir
+        prefs = bpy.context.preferences.addons.get(__name__)
+        if prefs is None:
+            prefs = bpy.context.preferences.addons.get(__name__.rsplit(".", 1)[0])
+        if prefs is not None:
+            pref = prefs.preferences
+            for item in list(pref.presets):
+                try:
+                    flags = json.loads(item.checks_json)
+                    lines = ["import bpy",
+                             "mc = bpy.context.window_manager.mesh_check_props"]
+                    for key, val in flags.items():
+                        lines.append(f"mc.{key} = {val!r}")
+                    dst = os.path.join(_preset_dir(), f"{item.name}.py")
+                    with open(dst, "w", encoding="utf-8") as fh:
+                        fh.write("\n".join(lines) + "\n")
+                except Exception:
+                    pass
+            while len(pref.presets):
+                pref.presets.remove(0)
+    except Exception:
+        pass
 
 
 def unregister():

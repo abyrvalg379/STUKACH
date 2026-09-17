@@ -833,6 +833,13 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
             icon  = "ERROR" if cat_b else ("INFO" if cat_w else "CHECKMARK")
             cats_row.label(text=f"{cat[:4]}: {total}", icon=icon)
 
+        # ── Row 3: Next Issue navigation + summary copy ─────────────────────
+        action_row = box.row(align=True)
+        action_row.operator("asset_checker.next_issue",
+                            text="Next Issue", icon="ZOOM_SELECTED")
+        action_row.operator("asset_checker.copy_summary", text="",
+                            icon="COPYDOWN")
+
     @staticmethod
     def _draw_object_details(ob_box, obj, mc_obj, mc):
         from .properties import get_obj_ignore_list
@@ -1048,19 +1055,29 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
                 traceback.print_exc()
             return
 
-        # ── "Settings restored" hint ─────────────────────────────────────────
-        if _manager_mod.MeshCheck._state_restored and not mc.show_overlay:
+        # ── Hints — compact, single row when both apply ──────────────────────
+        _hint_restored = _manager_mod.MeshCheck._state_restored and not mc.show_overlay
+        _hint_stale    = _manager_mod.MeshCheck._scene_stale and mc.show_overlay
+        _hint_validating = bool(_manager_mod.MeshCheck._validation_queue)
+        if _hint_validating:
+            prog = layout.row()
+            prog.scale_y = 0.75
+            done = len(_manager_mod.MeshCheck.objects)
+            left = len(_manager_mod.MeshCheck._validation_queue)
+            prog.label(text=f"  Validating… {done} done, {left} to go",
+                       icon="SORT_TIME")
+        elif _hint_restored or _hint_stale:
             hint = layout.row()
             hint.scale_y = 0.75
-            hint.label(text="  Settings restored — press Run to revalidate",
-                       icon="RECOVER_LAST")
-
-        # ── "Scene stale" hint ───────────────────────────────────────────────
-        if _manager_mod.MeshCheck._scene_stale and mc.show_overlay:
-            stale = layout.row()
-            stale.scale_y = 0.75
-            stale.label(text="  Scene changed — re-run to include new objects",
-                        icon="FILE_REFRESH")
+            if _hint_restored and _hint_stale:
+                hint.label(text="  Restored — Run to revalidate · scene changed",
+                           icon="RECOVER_LAST")
+            elif _hint_restored:
+                hint.label(text="  Settings restored — press Run to revalidate",
+                           icon="RECOVER_LAST")
+            else:
+                hint.label(text="  Scene changed — re-run to include new objects",
+                           icon="FILE_REFRESH")
 
         # ── Score block (replaces status bar) ───────────────────────────────
         self._draw_score_block(layout, mc)
@@ -1071,19 +1088,6 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
         scope_row.operator("asset_checker.validate_collection", text="Collection", icon="OUTLINER_COLLECTION")
         scope_row.operator("asset_checker.clear_validation",    text="",           icon="X")
 
-        # ── Scene Units check (scene-level, not per-object) ──────────────────
-        _draw_scene_units_row(layout, mc)
-
-        # ── Check presets (v1.4.1) ──────────────────────────────────────────
-        preset_row = layout.row(align=True)
-        preset_row.prop(mc, "preset_enum", text="")
-        preset_row.operator("asset_checker.preset_apply", text="", icon="CHECKMARK")
-        preset_row.operator("asset_checker.preset_delete", text="", icon="REMOVE")
-        preset_save_row = layout.row(align=True)
-        preset_save_row.prop(mc, "preset_name", text="",
-                             placeholder="Preset name…")
-        preset_save_row.operator("asset_checker.preset_save", text="", icon="ADD")
-
         box = layout.box()
         box.label(text="Pipeline Checks:", icon="FILE_TEXT")
         # View helper — mirrors Blender's built-in Face Orientation overlay.
@@ -1092,7 +1096,17 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
         fo_row = box.row(align=True)
         fo_row.prop(mc, "face_orientation", text="Face Orientation",
                     toggle=True, icon='FACESEL')
+        fo_row.separator(factor=0.5)
+        fo_row.prop(mc, "scene_units", text="Scene Units", toggle=True)
         mc.draw_options(box)
+
+        # ── Check presets — native dropdown + save/remove + share ───────────
+        preset_row = box.row(align=True)
+        preset_row.menu("ASSET_CHECKER_MT_presets", text="Presets", icon="PRESET")
+        preset_row.operator("asset_checker.preset_add",    text="", icon="ADD")
+        preset_row.operator("asset_checker.preset_remove", text="", icon="REMOVE")
+        preset_row.operator("asset_checker.preset_export", text="", icon="EXPORT")
+        preset_row.operator("asset_checker.preset_import", text="", icon="IMPORT")
 
         if prefs:
             off_row = box.row(align=True)
@@ -1129,9 +1143,10 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
             cnt.label(text=str(n_issues), icon="ERROR")
 
         if mc.obj_list_open:
-            # ── Pre-compute visible objects (filter) ──────────────────────────
+            # ── Pre-compute visible objects (filter + sort) ───────────────────
             filter_text = mc.obj_filter_text.lower().strip()
             errors_only = mc.obj_filter_errors_only
+            check_filter = mc.obj_filter_check
 
             visible = []
             for obj, mc_obj in _manager_mod.MeshCheck.objects.items():
@@ -1144,12 +1159,27 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
                 obj_status = _get_object_status(mc_obj, mc)
                 if errors_only and obj_status == "clean":
                     continue
+                if check_filter and check_filter != "__all__":
+                    chk = mc_obj._checks.get(check_filter)
+                    if not chk or chk.count <= 0:
+                        continue
                 visible.append((obj, mc_obj, obj_name, obj_status))
+
+            if mc.obj_sort_worst:
+                def _issue_score(mc_obj):
+                    t = 0
+                    for chk_name, checker in mc_obj._checks.items():
+                        if getattr(mc, chk_name, False):
+                            t += checker.count
+                    return t
+                visible.sort(key=lambda t: -_issue_score(t[1]))
 
             # ── Filter bar ────────────────────────────────────────────────────
             filt_row = sec_box.row(align=True)
             filt_row.prop(mc, "obj_filter_text",        text="", icon="VIEWZOOM")
             filt_row.prop(mc, "obj_filter_errors_only", text="Issues only", icon="FILTER", toggle=True)
+            filt_row.prop(mc, "obj_sort_worst",         text="", icon="SORT_DESC")
+            filt_row.prop(mc, "obj_filter_check",       text="")
 
             count_sub = filt_row.row()
             count_sub.alignment = "RIGHT"
