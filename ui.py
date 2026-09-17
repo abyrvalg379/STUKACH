@@ -17,10 +17,12 @@ def _status_dots():
     global _DOTS
     if _DOTS is None:
         import struct
+        # Icon triangle coords live in a 0..255 space — a 0..1 square is a
+        # sub-pixel in the corner (rendered as nothing).
         coords = bytes(struct.pack(
             "12f",
-            0.0, 0.0, 1.0, 0.0, 1.0, 1.0,
-            0.0, 0.0, 1.0, 1.0, 0.0, 1.0,
+            0.0,   0.0,   255.0, 0.0,   255.0, 255.0,
+            0.0,   0.0,   255.0, 255.0, 0.0,   255.0,
         ))
 
         def _mk(name, rgb):
