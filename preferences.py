@@ -137,8 +137,19 @@ def _uv_padding_settings_update(self, context):
         pass
 
 
+class StukachPresetItem(PropertyGroup):
+    """Named check-set preset — stored with preferences (per Blender install)."""
+    name:        StringProperty(name="Preset Name")
+    checks_json: StringProperty(name="Checks JSON",
+                                description="JSON dict {check_key: enabled}")
+
+
 class MeshCheckPreferences(AddonPreferences):
     bl_idname = __name__.rsplit(".", 1)[0]
+
+    # Check presets (v1.4.1) — named sets of enabled checks
+    presets:       CollectionProperty(type=StukachPresetItem)
+    preset_active: StringProperty(name="Active Preset", default="")
 
     edges_width:   FloatProperty(name="Edges Width",  default=2.0,  min=1.0, max=10.0, subtype="PIXEL")
     faces_offset:  FloatProperty(name="Faces Offset", default=0.03, min=0.0, max=5.0,  precision=3)

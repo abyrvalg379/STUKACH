@@ -87,6 +87,42 @@ def mc_object_datas_updater(attr):
     return updater
 
 
+# ── Check presets (v1.4.1) ────────────────────────────────────────────────────
+# Named sets of enabled checks, stored in AddonPreferences (per Blender
+# install, survive .blend switches).  Parity with the Maya version's
+# save/load/delete presets.
+
+# EnumProperty items callback requires the returned list to outlive the call —
+# keep it in a module-level holder.
+_PRESET_ENUM_CACHE: list = []
+
+
+def _get_addon_prefs(context):
+    # Extensions register preferences under the FULL module name
+    # ("bl_ext.user_default.stukach"); the rsplit prefix is a legacy fallback.
+    mod_name = __name__
+    for key in (mod_name, mod_name.rsplit(".", 1)[0]):
+        try:
+            return context.preferences.addons[key].preferences
+        except Exception:
+            continue
+    return None
+
+
+def _preset_items(self, context):
+    """Dynamic EnumProperty items — one entry per saved preset."""
+    global _PRESET_ENUM_CACHE
+    items = []
+    prefs = _get_addon_prefs(context)
+    if prefs:
+        items = [(p.name, p.name, f"Apply check preset '{p.name}'")
+                 for p in prefs.presets]
+    if not items:
+        items = [("__none__", "— no presets —", "Save a check set first")]
+    _PRESET_ENUM_CACHE = items     # replace the holder — must outlive the call
+    return _PRESET_ENUM_CACHE
+
+
 def update_face_orientation(self, context):
     """Mirror of Blender's built-in Face Orientation viewport overlay.
 
@@ -1042,6 +1078,93 @@ class ASSET_CHECKER_OT_clear_validation(bpy.types.Operator):
         return {'FINISHED'}
 
 
+# ── Check presets: apply / save / delete ─────────────────────────────────────
+
+class ASSET_CHECKER_OT_preset_apply(bpy.types.Operator):
+    """Apply the selected check preset (enables/disables checkers to the saved set)"""
+    bl_idname  = "asset_checker.preset_apply"
+    bl_label   = "Apply Preset"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        from .manager import _AC_CHECK_PROPS
+        mc = context.window_manager.mesh_check_props
+        prefs = _get_addon_prefs(context)
+        name = mc.preset_enum
+        if name == "__none__" or not prefs:
+            self.report({'WARNING'}, "No preset selected")
+            return {'CANCELLED'}
+        item = prefs.presets.get(name)
+        if item is None:
+            self.report({'WARNING'}, f"Preset '{name}' not found")
+            return {'CANCELLED'}
+        try:
+            flags = json.loads(item.checks_json)
+        except Exception as e:
+            self.report({'ERROR'}, f"Preset is corrupted: {e}")
+            return {'CANCELLED'}
+        applied = 0
+        for key, val in flags.items():
+            if hasattr(mc, key):
+                setattr(mc, key, bool(val))   # fires per-check updaters
+                applied += 1
+        prefs.preset_active = name
+        self.report({'INFO'}, f"Applied preset '{name}' ({applied} checks)")
+        return {'FINISHED'}
+
+
+class ASSET_CHECKER_OT_preset_save(bpy.types.Operator):
+    """Save the current check set as a preset (overwrites an existing preset with the same name)"""
+    bl_idname  = "asset_checker.preset_save"
+    bl_label   = "Save Preset"
+    bl_options = {'REGISTER'}
+
+    def execute(self, context):
+        from .manager import _AC_CHECK_PROPS
+        mc = context.window_manager.mesh_check_props
+        prefs = _get_addon_prefs(context)
+        if not prefs:
+            return {'CANCELLED'}
+        name = (mc.preset_name or "").strip()
+        if not name:
+            self.report({'WARNING'}, "Type a preset name first")
+            return {'CANCELLED'}
+        flags = {key: bool(getattr(mc, key, False)) for key in _AC_CHECK_PROPS}
+        item = prefs.presets.get(name)
+        if item is None:
+            item = prefs.presets.add()
+        item.name = name
+        item.checks_json = json.dumps(flags)
+        prefs.preset_active = name
+        mc.preset_name = ""
+        self.report({'INFO'}, f"Saved preset '{name}'")
+        return {'FINISHED'}
+
+
+class ASSET_CHECKER_OT_preset_delete(bpy.types.Operator):
+    """Delete the selected check preset"""
+    bl_idname  = "asset_checker.preset_delete"
+    bl_label   = "Delete Preset"
+    bl_options = {'REGISTER'}
+
+    def execute(self, context):
+        mc = context.window_manager.mesh_check_props
+        prefs = _get_addon_prefs(context)
+        name = mc.preset_enum
+        if name == "__none__" or not prefs:
+            self.report({'WARNING'}, "No preset selected")
+            return {'CANCELLED'}
+        for i, item in enumerate(prefs.presets):
+            if item.name == name:
+                prefs.presets.remove(i)
+                if prefs.preset_active == name:
+                    prefs.preset_active = ""
+                self.report({'INFO'}, f"Deleted preset '{name}'")
+                return {'FINISHED'}
+        self.report({'WARNING'}, f"Preset '{name}' not found")
+        return {'CANCELLED'}
+
+
 # ── Fix: Remove unused data ───────────────────────────────────────────────────
 
 class ASSET_CHECKER_OT_fix_unused_data(bpy.types.Operator):
@@ -1582,6 +1705,18 @@ class MeshCheckProperties(PropertyGroup):
         update=update_face_orientation,
         description="Toggle Blender's built-in Face Orientation viewport overlay "
                     "(replaces the old flipped-normals counter — verify visually)",
+    )
+
+    # Check presets (v1.4.1)
+    preset_enum: EnumProperty(
+        name="Preset",
+        items=_preset_items,
+        description="Saved check sets",
+    )
+    preset_name: StringProperty(
+        name="Preset Name",
+        default="",
+        description="Name for saving the current check set",
     )
 
     # TOPOLOGY

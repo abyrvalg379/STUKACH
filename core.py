@@ -419,18 +419,121 @@ def _detect_uv_islands(me, bm=None):
     return result
 
 
+# ── Canonical EDIT-mode UV/topology snapshot ─────────────────────────────────
+# In EDIT mode me.* is stale (Blender writes the original mesh back on mode
+# exit) and me loop indices do NOT match BMesh loop order — mixing the two
+# produced wrong UV data after any topology edit.  Every EDIT-mode UV read
+# must come from ONE consistent BMesh walk; this helper is that walk.
+#
+# The snapshot is cached per update cycle (cleared in update_datas() alongside
+# the island caches) so the O(n_loops) Python walk runs once per check cycle,
+# not once per UV check.
+
+_edit_uv_cache: dict = {}
+
+
+def _edit_uv_data(bm):
+    """Walk the live edit-BMesh in face order, assigning sequential loop
+    positions (also written to l.index so calc_loop_triangles() results map
+    onto the same ordering).
+
+    Returns a dict of numpy arrays:
+      uv         (n_loops, 2)  float32 — active UV layer, loop order
+      loop_vert  (n_loops,)    int32   — vert index per loop
+      loop_face  (n_loops,)    int32   — face index per loop
+      face_start (n_faces,)    int32
+      face_len   (n_faces,)    int32
+      face_mat   (n_faces,)    int32   — material_index per face
+      tri_loop   (n_tris, 3)   int32   — loop positions (this ordering)
+      tri_vert   (n_tris, 3)   int32   — vert indices per triangle
+      co         (n_verts, 3)  float32 — local coords, indexed by vert index
+    or None when no active UV layer.
+    """
+    import numpy as np
+    uv_layer = bm.loops.layers.uv.active
+    if uv_layer is None:
+        return None
+
+    # NOTE: BMLoopSeq has no len() — loop count is derived from the walk below.
+    # The cache is cleared at the start of every update cycle (update_datas),
+    # so the key only needs to separate objects within one cycle.
+    cache_key = (id(bm), len(bm.verts), len(bm.edges), len(bm.faces))
+    cached = _edit_uv_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    bm.verts.ensure_lookup_table()
+    bm.faces.ensure_lookup_table()
+    bm.verts.index_update()
+    bm.faces.index_update()
+
+    uv_l:    list = []
+    lv:      list = []
+    lf:      list = []
+    face_start: list = []
+    face_len:   list = []
+    face_mat:   list = []
+    pos = 0
+    for fi, f in enumerate(bm.faces):
+        face_start.append(pos)
+        face_mat.append(f.material_index)
+        n = 0
+        for l in f.loops:
+            uv = l[uv_layer].uv
+            uv_l.append(uv.x)
+            uv_l.append(uv.y)
+            lv.append(l.vert.index)
+            lf.append(fi)
+            l.index = pos
+            pos += 1
+            n += 1
+        face_len.append(n)
+
+    uv = np.array(uv_l, dtype=np.float32).reshape(-1, 2)
+    loop_vert = np.array(lv, dtype=np.int32)
+    loop_face = np.array(lf, dtype=np.int32)
+
+    tris = bm.calc_loop_triangles()
+    tri_loop = np.array([[t0.index, t1.index, t2.index]
+                         for t0, t1, t2 in tris], dtype=np.int32)
+    tri_vert = np.array([[t0.vert.index, t1.vert.index, t2.vert.index]
+                         for t0, t1, t2 in tris], dtype=np.int32)
+
+    n_verts = len(bm.verts)
+    # BMVertSeq has no foreach_get (5.x) — plain walk, same cost class as above
+    co = np.array([v.co[:] for v in bm.verts], dtype=np.float32).reshape(n_verts, 3)
+
+    snap = {
+        'uv': uv,
+        'loop_vert': loop_vert,
+        'loop_face': loop_face,
+        'face_start': np.array(face_start, dtype=np.int32),
+        'face_len': np.array(face_len, dtype=np.int32),
+        'face_mat': np.array(face_mat, dtype=np.int32),
+        'tri_loop': tri_loop,
+        'tri_vert': tri_vert,
+        'co': co,
+        'n_faces': len(bm.faces),
+        'n_loops': pos,
+        'n_verts': n_verts,
+    }
+    _edit_uv_cache[cache_key] = snap
+    return snap
+
+
 
 
 def _get_uv_np(me, bm=None):
     """Return UV coordinates as a numpy array of shape (n_loops, 2), float32.
 
     Works in both OBJECT mode (C-level foreach_get) and EDIT mode (BMesh
-    fallback).  Returns None when UV data is unavailable.
+    snapshot — me.uv data is stale in EDIT, see _edit_uv_data).
+    Returns None when UV data is unavailable.
 
     OBJECT mode: me.uv_layers.active.data has n_loops items → foreach_get.
-    EDIT mode:   me.uv_layers.active.data is empty → iterate bm.faces.
-    The EDIT-mode path is O(n_loops) Python and therefore slow on large meshes;
-    callers should guard with their own poly-count limits.
+    EDIT mode:   canonical BMesh walk (_edit_uv_data) — the loop ordering is
+    the BMesh face/loop order, and ALL other EDIT-mode reads must use the
+    same ordering (callers get it from _edit_uv_data too).
     """
     import numpy as np
     if not me.uv_layers.active:
@@ -438,33 +541,19 @@ def _get_uv_np(me, bm=None):
     n_loops  = len(me.loops)
     uv_data  = me.uv_layers.active.data
 
-    if len(uv_data) == n_loops:
+    if len(uv_data) == n_loops and not me.is_editmode:
         # OBJECT mode: fast C-level read
         uv_flat = np.empty(n_loops * 2, dtype=np.float32)
         uv_data.foreach_get("uv", uv_flat)
         return uv_flat.reshape(n_loops, 2)
 
-    # EDIT mode fallback — read from BMesh
+    # EDIT mode — canonical BMesh snapshot (me.* is stale here)
     if bm is None:
         return None
-    uv_layer_bm = bm.loops.layers.uv.active
-    if uv_layer_bm is None:
+    snap = _edit_uv_data(bm)
+    if snap is None:
         return None
-    n_polys = len(me.polygons)
-    ps = [0] * n_polys
-    pt = [0] * n_polys
-    me.polygons.foreach_get("loop_start", ps)
-    me.polygons.foreach_get("loop_total", pt)
-    uv_np = np.zeros((n_loops, 2), dtype=np.float32)
-    bm.faces.ensure_lookup_table()
-    for fi in range(n_polys):
-        face = bm.faces[fi]
-        ls   = ps[fi]
-        for k, loop in enumerate(face.loops):
-            uv = loop[uv_layer_bm].uv
-            uv_np[ls + k, 0] = float(uv.x)
-            uv_np[ls + k, 1] = float(uv.y)
-    return uv_np
+    return snap['uv']
 
 
 def _uv_island_membership(me, max_polys: int, bm=None):
@@ -476,69 +565,64 @@ def _uv_island_membership(me, max_polys: int, bm=None):
 
     Isolated from _uv_island_cache so that UVPaddingCheck can use a higher
     poly limit without polluting the shared cache used by UVUDIMBounds.
-    Data reads use me.* foreach_get (C-level bulk copy) instead of per-loop
-    BMesh access for a 10–20× speedup on the data-reading phase.
-    bm is kept as a parameter for backward compatibility but is no longer
-    used for data reading (only for the UV-layer existence check).
+    OBJECT mode reads use me.* foreach_get (C-level bulk copy) for a 10–20×
+    speedup; EDIT mode reads come from the canonical _edit_uv_data snapshot.
     """
     if bm is None:
         return None
 
-    n_polys = len(me.polygons)
-    if n_polys > max_polys:
-        return None
+    # ── EDIT mode: everything from the canonical BMesh snapshot ──────────────
+    # me.* is stale in EDIT and me loop indices don't match BMesh order —
+    # mixing them produced wrong islands after any topology edit.
+    if me.is_editmode:
+        snap = _edit_uv_data(bm)
+        if snap is None:
+            return None
+        n_polys = snap['n_faces']
+        if n_polys > max_polys:
+            return None
+        n_loops = snap['n_loops']
+        if n_loops == 0:
+            return None
+        cache_key = (me.as_pointer(), 'EDIT', n_polys, n_loops,
+                     me.uv_layers.active.name if me.uv_layers.active else '')
+        cached = _uv_membership_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        flat_uvs  = snap['uv'].ravel().tolist()
+        lv        = snap['loop_vert'].tolist()
+        poly_start = snap['face_start'].tolist()
+        poly_total = snap['face_len'].tolist()
+    else:
+        n_polys = len(me.polygons)
+        if n_polys > max_polys:
+            return None
+        if not me.uv_layers.active:
+            return None
+        n_loops   = len(me.loops)
+        uv_data   = me.uv_layers.active.data
 
-    if not me.uv_layers.active:
-        return None
+        # ── Per-update cache (cleared in update_datas()) ─────────────────────
+        # Multiple UV checks (overlap, micro_shell, padding) call this function
+        # for the same mesh in one update cycle. Cache the result to avoid
+        # O(n_loops) Union-Find work being repeated 3× per update.
+        cache_key = (me.as_pointer(), n_loops, me.uv_layers.active.name)
+        cached = _uv_membership_cache.get(cache_key)
+        if cached is not None:
+            return cached
 
-    n_loops   = len(me.loops)
-    uv_data   = me.uv_layers.active.data
-
-    # ── Per-update cache (cleared in update_datas()) ─────────────────────────
-    # Multiple UV checks (overlap, micro_shell, padding) call this function for
-    # the same mesh in one update cycle. Cache the result to avoid O(n_loops)
-    # Union-Find work being repeated 3× per update.
-    cache_key = (me.as_pointer(), n_loops, me.uv_layers.active.name)
-    cached = _uv_membership_cache.get(cache_key)
-    if cached is not None:
-        return cached
-
-    # ── Build flat_uvs ────────────────────────────────────────────────────────
-    if len(uv_data) == n_loops:
         # OBJECT mode: fast C-level bulk read.
         flat_uvs = [0.0] * (n_loops * 2)
         uv_data.foreach_get("uv", flat_uvs)
-    elif bm is not None:
-        # EDIT mode: me.uv_layers.active.data is empty while the live UV data
-        # lives in the BMesh.  Fall back to a Python loop over bm.faces —
-        # slower (O(n_loops)) but correct.  Guarded by max_polys above.
-        uv_layer_bm = bm.loops.layers.uv.active
-        if uv_layer_bm is None:
-            return None
-        poly_start_tmp = [0] * n_polys
-        poly_total_tmp = [0] * n_polys
-        me.polygons.foreach_get("loop_start", poly_start_tmp)
-        me.polygons.foreach_get("loop_total", poly_total_tmp)
-        flat_uvs = [0.0] * (n_loops * 2)
-        bm.faces.ensure_lookup_table()
-        for fi in range(n_polys):
-            face = bm.faces[fi]
-            ls   = poly_start_tmp[fi]
-            for k, loop in enumerate(face.loops):
-                uv = loop[uv_layer_bm].uv
-                flat_uvs[(ls + k) * 2]     = float(uv.x)
-                flat_uvs[(ls + k) * 2 + 1] = float(uv.y)
-    else:
-        return None
 
-    lv = [0] * n_loops
-    me.loops.foreach_get("vertex_index", lv)
+        lv = [0] * n_loops
+        me.loops.foreach_get("vertex_index", lv)
 
-    poly_start = [0] * n_polys
-    me.polygons.foreach_get("loop_start", poly_start)
+        poly_start = [0] * n_polys
+        me.polygons.foreach_get("loop_start", poly_start)
 
-    poly_total = [0] * n_polys
-    me.polygons.foreach_get("loop_total", poly_total)
+        poly_total = [0] * n_polys
+        me.polygons.foreach_get("loop_total", poly_total)
 
     lu = tuple(
         (round(flat_uvs[i * 2], 6), round(flat_uvs[i * 2 + 1], 6))
@@ -1541,24 +1625,37 @@ class UVOverlapCheck(BaseCheck):
 
         # ── Data reads via numpy foreach_get (C-level, no Python tri loop) ──────
         import numpy as np
-        me.calc_loop_triangles()
-        n_tris = len(me.loop_triangles)
-        if n_tris == 0:
-            return
-        if n_tris > _UV_OVERLAP_MAX_TRIS:
-            return
+        if me.is_editmode:
+            # EDIT mode: canonical BMesh snapshot (me.* is stale, me loop
+            # indices don't match BMesh loop order).
+            snap = _edit_uv_data(bm)
+            if snap is None:
+                return
+            tri_loop_np = snap['tri_loop']
+            n_tris = len(tri_loop_np)
+            if n_tris == 0 or n_tris > _UV_OVERLAP_MAX_TRIS:
+                return
+            tri_poly_np = snap['loop_face'][tri_loop_np[:, 0]]
+            uv_np = snap['uv']
+        else:
+            me.calc_loop_triangles()
+            n_tris = len(me.loop_triangles)
+            if n_tris == 0:
+                return
+            if n_tris > _UV_OVERLAP_MAX_TRIS:
+                return
 
-        tri_loop_np = np.empty(n_tris * 3, dtype=np.int32)
-        me.loop_triangles.foreach_get("loops", tri_loop_np)
-        tri_loop_np = tri_loop_np.reshape(n_tris, 3)
+            tri_loop_np = np.empty(n_tris * 3, dtype=np.int32)
+            me.loop_triangles.foreach_get("loops", tri_loop_np)
+            tri_loop_np = tri_loop_np.reshape(n_tris, 3)
 
-        tri_poly_np = np.empty(n_tris, dtype=np.int32)
-        me.loop_triangles.foreach_get("polygon_index", tri_poly_np)
+            tri_poly_np = np.empty(n_tris, dtype=np.int32)
+            me.loop_triangles.foreach_get("polygon_index", tri_poly_np)
 
-        # UV read: C-level in OBJECT mode, BMesh fallback in EDIT mode
-        uv_np = _get_uv_np(me, bm=bm)
-        if uv_np is None:
-            return
+            # UV read: C-level in OBJECT mode
+            uv_np = _get_uv_np(me, bm=bm)
+            if uv_np is None:
+                return
 
         # Per-triangle UV vertices (fancy indexing — fast C-level gather)
         uv0 = uv_np[tri_loop_np[:, 0]]   # (n_tris, 2)
@@ -1687,16 +1784,27 @@ class UVMicroShellCheck(BaseCheck):
         # ── Triangle index buffers — allocated as numpy directly ──────────────
         # Avoids the slow Python-list → numpy conversion for large meshes.
         import numpy as np
-        me.calc_loop_triangles()
-        n_tris = len(me.loop_triangles)
-        if n_tris == 0:
-            return
+        if me.is_editmode:
+            # EDIT mode: canonical BMesh snapshot (me.* is stale here).
+            snap = _edit_uv_data(bm)
+            if snap is None:
+                return
+            tri_loop_np = snap['tri_loop']
+            tri_poly_np = snap['loop_face'][tri_loop_np[:, 0]]
+            n_tris = len(tri_loop_np)
+            if n_tris == 0:
+                return
+        else:
+            me.calc_loop_triangles()
+            n_tris = len(me.loop_triangles)
+            if n_tris == 0:
+                return
 
-        tri_loop_np = np.empty(n_tris * 3, dtype=np.int32)
-        me.loop_triangles.foreach_get("loops", tri_loop_np)     # C-level, no Python iter
+            tri_loop_np = np.empty(n_tris * 3, dtype=np.int32)
+            me.loop_triangles.foreach_get("loops", tri_loop_np)     # C-level, no Python iter
 
-        tri_poly_np = np.empty(n_tris, dtype=np.int32)
-        me.loop_triangles.foreach_get("polygon_index", tri_poly_np)
+            tri_poly_np = np.empty(n_tris, dtype=np.int32)
+            me.loop_triangles.foreach_get("polygon_index", tri_poly_np)
 
         # ── Island-based detection (fully vectorised) ──────────────────────────
         # All reads go through me.* foreach_get into numpy; no Python loop over
@@ -1862,28 +1970,41 @@ class UVTexelDensity(BaseCheck):
         # TD is an aggregate scalar — small transient inconsistency in edit mode is acceptable.
         import numpy as np
 
-        me.calc_loop_triangles()
-        n_tris = len(me.loop_triangles)
-        if n_tris == 0:
-            return
+        if me.is_editmode:
+            # EDIT mode: canonical BMesh snapshot (me.* is stale here).
+            snap = _edit_uv_data(bm)
+            if snap is None:
+                return
+            tri_l = snap['tri_loop']
+            tri_v = snap['tri_vert']
+            co_np = snap['co']
+            uv_np = snap['uv']
+            n_tris = len(tri_l)
+            if n_tris == 0:
+                return
+        else:
+            me.calc_loop_triangles()
+            n_tris = len(me.loop_triangles)
+            if n_tris == 0:
+                return
 
-        # C-level bulk reads directly into numpy buffers
-        uv_np = _get_uv_np(me, bm=bm)
-        if uv_np is None:
-            return
+            # C-level bulk reads directly into numpy buffers
+            uv_np = _get_uv_np(me, bm=bm)
+            if uv_np is None:
+                return
 
-        n_verts = len(me.vertices)
-        co_np = np.empty(n_verts * 3, dtype=np.float32)
-        me.vertices.foreach_get("co", co_np)
-        co_np = co_np.reshape(n_verts, 3)
+            n_verts = len(me.vertices)
+            co_np = np.empty(n_verts * 3, dtype=np.float32)
+            me.vertices.foreach_get("co", co_np)
+            co_np = co_np.reshape(n_verts, 3)
 
-        tri_l = np.empty(n_tris * 3, dtype=np.int32)
-        me.loop_triangles.foreach_get("loops", tri_l)
-        tri_l = tri_l.reshape(n_tris, 3)
+            tri_l = np.empty(n_tris * 3, dtype=np.int32)
+            me.loop_triangles.foreach_get("loops", tri_l)
+            tri_l = tri_l.reshape(n_tris, 3)
 
-        tri_v = np.empty(n_tris * 3, dtype=np.int32)
-        me.loop_triangles.foreach_get("vertices", tri_v)
-        tri_v = tri_v.reshape(n_tris, 3)
+            tri_v = np.empty(n_tris * 3, dtype=np.int32)
+            me.loop_triangles.foreach_get("vertices", tri_v)
+            tri_v = tri_v.reshape(n_tris, 3)
 
         # ── UV area — vectorized 2D cross product ─────────────────────────────
         uv0 = uv_np[tri_l[:, 0]]   # (n_tris, 2)
@@ -1967,11 +2088,44 @@ class UVStretch(BaseCheck):
         self._stretched_face_verts.clear()
         self._count = 0
 
-        if not me.uv_layers.active or not me.polygons:
+        if not me.uv_layers.active:
             return
-        n_polys = len(me.polygons)
-        if n_polys > _UV_STRETCH_MAX_POLYS:
-            return
+
+        # ── Fully vectorized via numpy ──────────────────────────────────────────
+        # EDIT mode: ALL sources come from the canonical BMesh snapshot —
+        # me.* sizes/indices are stale and don't match BMesh loop order.
+        if me.is_editmode:
+            snap = _edit_uv_data(self._parent.bm_object)
+            if snap is None:
+                return
+            n_polys = snap['n_faces']
+            if n_polys > _UV_STRETCH_MAX_POLYS:
+                return
+            n_verts = snap['n_verts']
+            n_loops = snap['n_loops']
+            ps = snap['face_start']
+            pt = snap['face_len']
+            lv = snap['loop_vert']
+            vc = snap['co']
+        else:
+            n_polys = len(me.polygons)
+            if n_polys > _UV_STRETCH_MAX_POLYS:
+                return
+            n_verts = len(me.vertices)
+            n_loops = len(me.loops)
+
+            # Polygon → loop start / total
+            ps = np.empty(n_polys, dtype=np.int32)
+            pt = np.empty(n_polys, dtype=np.int32)
+            me.polygons.foreach_get("loop_start", ps)
+            me.polygons.foreach_get("loop_total", pt)
+
+            lv = np.empty(n_loops, dtype=np.int32)
+            me.loops.foreach_get("vertex_index", lv)
+
+            vc = np.empty(n_verts * 3, dtype=np.float32)
+            me.vertices.foreach_get("co", vc)
+            vc = vc.reshape(n_verts, 3)
 
         # Threshold from preferences, fallback to default
         try:
@@ -1980,16 +2134,6 @@ class UVStretch(BaseCheck):
             threshold = getattr(prefs, 'uv_stretch_threshold', _UV_STRETCH_DEFAULT_THRESHOLD)
         except Exception:
             threshold = _UV_STRETCH_DEFAULT_THRESHOLD
-
-        # ── Fully vectorized via numpy ──────────────────────────────────────────
-        n_verts = len(me.vertices)
-        n_loops = len(me.loops)
-
-        # Polygon → loop start / total
-        ps = np.empty(n_polys, dtype=np.int32)
-        pt = np.empty(n_polys, dtype=np.int32)
-        me.polygons.foreach_get("loop_start", ps)
-        me.polygons.foreach_get("loop_total", pt)
 
         # Per-loop: which polygon it belongs to + size + start of that polygon
         poly_ids      = np.repeat(np.arange(n_polys, dtype=np.int32), pt)  # (n_loops,)
@@ -2003,14 +2147,6 @@ class UVStretch(BaseCheck):
         # Ring-wrap next / prev loop indices
         loop_next = loop_poly_st + (off_in_poly + 1)               % loop_poly_sz
         loop_prev = loop_poly_st + (off_in_poly + loop_poly_sz - 1) % loop_poly_sz
-
-        # Vertex indices & coordinates (local space — calc_angle is local)
-        lv = np.empty(n_loops, dtype=np.int32)
-        me.loops.foreach_get("vertex_index", lv)
-
-        vc = np.empty(n_verts * 3, dtype=np.float32)
-        me.vertices.foreach_get("co", vc)
-        vc = vc.reshape(n_verts, 3)
 
         cur_co  = vc[lv]            # (n_loops, 3)
         next_co = vc[lv[loop_next]] # (n_loops, 3)
@@ -2673,17 +2809,28 @@ class UVUDIMBounds(BaseCheck):
         bad_poly_set = {fi for fi, isl in enumerate(poly_to_island)
                         if isl in bad_isl_set}
 
-        # ── Visual triangles via me.loop_triangles foreach_get ─────────────────
-        me.calc_loop_triangles()
-        n_tris = len(me.loop_triangles)
-        if n_tris == 0:
-            return
+        # ── Visual triangles — snapshot in EDIT mode, me.loop_triangles otherwise ─
+        if me.is_editmode:
+            # me.* is stale here; reuse the canonical snapshot (same ordering
+            # as uv_np).
+            snap = _edit_uv_data(bm)
+            if snap is None:
+                return
+            tri_l = snap['tri_loop']
+            tri_poly_np = snap['loop_face'][tri_l[:, 0]]
+            if len(tri_l) == 0:
+                return
+        else:
+            me.calc_loop_triangles()
+            n_tris = len(me.loop_triangles)
+            if n_tris == 0:
+                return
 
-        tri_loop_np = np.empty(n_tris * 3, dtype=np.int32)
-        me.loop_triangles.foreach_get("loops", tri_loop_np)
-        tri_poly_np = np.empty(n_tris, dtype=np.int32)
-        me.loop_triangles.foreach_get("polygon_index", tri_poly_np)
-        tri_l = tri_loop_np.reshape(n_tris, 3)
+            tri_loop_np = np.empty(n_tris * 3, dtype=np.int32)
+            me.loop_triangles.foreach_get("loops", tri_loop_np)
+            tri_poly_np = np.empty(n_tris, dtype=np.int32)
+            me.loop_triangles.foreach_get("polygon_index", tri_poly_np)
+            tri_l = tri_loop_np.reshape(n_tris, 3)
 
         # Vectorised bad-poly mask via np.isin
         bad_poly_arr  = np.fromiter(bad_poly_set, dtype=np.int32, count=len(bad_poly_set))
@@ -2766,14 +2913,21 @@ class UVMaterialUDIM(BaseCheck):
             return
 
         poly_to_island, flat_uvs, poly_start, poly_total = membership
-        n_polys   = len(me.polygons)
+        # Membership poly count is authoritative (me.polygons is stale in EDIT)
+        n_polys   = len(poly_to_island)
         n_islands = (max(poly_to_island) + 1) if poly_to_island else 0
         if n_islands == 0:
             return
 
-        # Get material indices per polygon via bulk read
-        mat_indices = [0] * n_polys
-        me.polygons.foreach_get("material_index", mat_indices)
+        # Get material indices per polygon (snapshot in EDIT mode — me stale)
+        if me.is_editmode:
+            snap = _edit_uv_data(self._parent.bm_object)
+            if snap is None:
+                return
+            mat_indices = snap['face_mat'].tolist()
+        else:
+            mat_indices = [0] * n_polys
+            me.polygons.foreach_get("material_index", mat_indices)
 
         # Per island: dominant UDIM tile vote + material set
         island_votes: list = [dict() for _ in range(n_islands)]

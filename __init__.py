@@ -19,6 +19,8 @@ else:
 classes = (
     # NamingEntry must precede MeshCheckPreferences (CollectionProperty type dependency)
     preferences.NamingEntry,
+    # StukachPresetItem must precede MeshCheckPreferences (CollectionProperty type dependency)
+    preferences.StukachPresetItem,
     # Object naming policy operators
     preferences.ASSET_CHECKER_OT_naming_add_prefix,
     preferences.ASSET_CHECKER_OT_naming_remove_prefix,
@@ -56,6 +58,9 @@ classes = (
     properties.ASSET_CHECKER_OT_validate_scene,
     properties.ASSET_CHECKER_OT_validate_collection,
     properties.ASSET_CHECKER_OT_clear_validation,
+    properties.ASSET_CHECKER_OT_preset_apply,
+    properties.ASSET_CHECKER_OT_preset_save,
+    properties.ASSET_CHECKER_OT_preset_delete,
     properties.MeshCheckProperties,
     ui.ASSET_CHECKER_PT_Panel,
     ui.ASSET_CHECKER_PT_UV_Panel,
