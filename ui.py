@@ -1052,7 +1052,7 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
         # ── Main action button ───────────────────────────────────────────────
         sub = layout.row()
         sub.scale_y = 0.55
-        sub.label(text="pipeline snitch system")
+        sub.label(text="Pipeline Snitch System")
 
         btn_text = "STUKACH ACTIVE" if mc.show_overlay else "RUN STUKACH"
         btn_icon = "RADIOBUT_ON"    if mc.show_overlay else "PLAY"
