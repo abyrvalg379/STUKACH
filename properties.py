@@ -1455,10 +1455,15 @@ class ASSET_CHECKER_OT_uv_rename(bpy.types.Operator):
             self.report({'WARNING'}, "No target name selected")
             return {'CANCELLED'}
 
+        if mc.uv_rename_all_scene:
+            objects = [o for o in context.scene.objects if o.type == 'MESH']
+        else:
+            objects = list(MeshCheck.objects)
+
         renamed_layers = 0
         touched = 0
         suffixed = 0
-        for obj in list(MeshCheck.objects):
+        for obj in objects:
             try:
                 uvl = obj.data.uv_layers
             except (ReferenceError, AttributeError):
@@ -2299,6 +2304,11 @@ class MeshCheckProperties(PropertyGroup):
         items=_uv_rename_items,
         description="Target UV map name (DCC conventions + names detected on validated objects)",
     )
+    uv_rename_all_scene: BoolProperty(
+        name="All Scene Objects",
+        default=False,
+        description="Rename UV maps on ALL mesh objects in the scene, not only validated ones",
+    )
     obj_filter_check: EnumProperty(
         name="Check Filter",
         items=_check_filter_items,
@@ -2449,6 +2459,29 @@ class MeshCheckProperties(PropertyGroup):
                     c.scale_y = 0.8
                     c.alignment = "RIGHT"
                     c.prop(addon_prefs, f"{check}_color", text="")
+
+            # ── Inline UV actions: map names + rename (PROKLADKA conventions) ─
+            if cat_name == "UV" and MeshCheck.objects:
+                from collections import Counter
+                _unames = Counter()
+                for _o in MeshCheck.objects:
+                    try:
+                        for _l in _o.data.uv_layers:
+                            _unames[_l.name] += 1
+                    except Exception:
+                        continue
+                if _unames:
+                    box.separator(factor=0.3)
+                    box.label(
+                        text="UV Names: " + "  ·  ".join(
+                            f"{n} ×{c}" for n, c in _unames.most_common()),
+                        icon="UV_DATA",
+                    )
+                    _rn = box.row(align=True)
+                    _rn.prop(self, "uv_rename_target", text="")
+                    _rn.operator("asset_checker.uv_rename", text="Rename")
+                    box.prop(self, "uv_rename_all_scene", text="All Scene Objects",
+                             icon="OUTLINER_OB_MESH")
 
             # ── Inline CLEANUP actions ─────────────────────────────────────
             if cat_name == "CLEANUP":
