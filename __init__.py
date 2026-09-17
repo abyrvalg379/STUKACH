@@ -70,6 +70,7 @@ classes = (
     properties.ASSET_CHECKER_OT_preset_import,
     properties.ASSET_CHECKER_OT_next_issue,
     properties.ASSET_CHECKER_OT_copy_summary,
+    properties.ASSET_CHECKER_OT_uv_rename,
     properties.MeshCheckProperties,
     ui.ASSET_CHECKER_PT_Panel,
     ui.ASSET_CHECKER_PT_UV_Panel,

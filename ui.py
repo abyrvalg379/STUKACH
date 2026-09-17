@@ -1495,6 +1495,26 @@ class ASSET_CHECKER_PT_UV_Panel(bpy.types.Panel):
             layout.box().label(text="Awaiting suspects.", icon="GHOST_ENABLED")
             return
 
+        # ── UV map naming / rename (PROKLADKA-style DCC conventions) ─────────
+        from collections import Counter
+        _names = Counter()
+        for _obj in _manager_mod.MeshCheck.objects:
+            try:
+                for _l in _obj.data.uv_layers:
+                    _names[_l.name] += 1
+            except (ReferenceError, AttributeError):
+                continue
+        name_box = layout.box()
+        name_box.label(text="UV Map Names:", icon="UV_DATA")
+        if _names:
+            name_box.label(text="  ·  ".join(f"{n} ×{c}" for n, c in _names.most_common()),
+                           icon="FONT_DATA")
+            rn_row = name_box.row(align=True)
+            rn_row.prop(mc, "uv_rename_target", text="")
+            rn_row.operator("asset_checker.uv_rename", text="Rename")
+        else:
+            name_box.label(text="No UV maps on validated objects", icon="INFO")
+
         # ── Collapsible object-list section ──────────────────────────────────
         n_obj    = len(_manager_mod.MeshCheck.objects)
         n_issues = sum(

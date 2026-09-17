@@ -310,6 +310,39 @@ class ASSET_CHECKER_OT_preset_import(bpy.types.Operator):
         return {'FINISHED'}
 
 
+# ── UV map naming / rename (v1.5.0, PROKLADKA-style DCC conventions) ─────────
+_UV_NAME_CACHE: list = []
+
+
+def _uv_rename_items(self, context):
+    """Rename target dropdown: DCC-canonical names first, then every UV name
+    detected on tracked objects."""
+    global _UV_NAME_CACHE
+    canonical = [
+        ("UVMap", "UVMap (Blender)", "Blender default UV map name"),
+        ("map1",  "map1 (Maya)",     "Maya default UV set name"),
+        ("uv",    "uv (Houdini)",    "Houdini default uv attribute name"),
+    ]
+    seen = {key for key, _l, _d in canonical}
+    detected = []
+    try:
+        from .manager import MeshCheck
+        for obj in MeshCheck.objects:
+            try:
+                uvl = obj.data.uv_layers
+            except (ReferenceError, AttributeError):
+                continue
+            for layer in uvl:
+                if layer.name not in seen:
+                    seen.add(layer.name)
+                    detected.append((layer.name, f"{layer.name} (detected)",
+                                     "Found on validated objects"))
+    except Exception:
+        pass
+    _UV_NAME_CACHE = canonical + detected
+    return _UV_NAME_CACHE
+
+
 def update_face_orientation(self, context):
     """Mirror of Blender's built-in Face Orientation viewport overlay.
 
@@ -1405,6 +1438,57 @@ class ASSET_CHECKER_OT_clear_validation(bpy.types.Operator):
 
 # ── Copy Summary — compact validation report to clipboard ────────────────────
 
+# ── UV map renaming ───────────────────────────────────────────────────────────
+
+class ASSET_CHECKER_OT_uv_rename(bpy.types.Operator):
+    """Rename UV maps on all validated objects to the selected name.
+    Blender deduplicates name collisions with a .001 suffix."""
+    bl_idname  = "asset_checker.uv_rename"
+    bl_label   = "Rename UV Maps"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        from .manager import MeshCheck
+        mc = context.window_manager.mesh_check_props
+        target = mc.uv_rename_target
+        if not target:
+            self.report({'WARNING'}, "No target name selected")
+            return {'CANCELLED'}
+
+        renamed_layers = 0
+        touched = 0
+        suffixed = 0
+        for obj in list(MeshCheck.objects):
+            try:
+                uvl = obj.data.uv_layers
+            except (ReferenceError, AttributeError):
+                continue
+            if len(uvl) == 0:
+                continue
+            obj_touched = False
+            for layer in list(uvl):
+                if layer.name == target:
+                    continue
+                layer.name = target
+                if layer.name.startswith(target):
+                    renamed_layers += 1
+                    obj_touched = True
+                    if layer.name != target:
+                        suffixed += 1     # Blender deduped: target.001
+            if obj_touched:
+                touched += 1
+
+        if renamed_layers == 0:
+            self.report({'INFO'}, f"All UV maps already named '{target}'")
+            return {'FINISHED'}
+
+        msg = f"Renamed {renamed_layers} UV layer(s) on {touched} object(s) → '{target}'"
+        if suffixed:
+            msg += f" ({suffixed} deduplicated with suffix)"
+        self.report({'INFO'}, msg)
+        return {'FINISHED'}
+
+
 class ASSET_CHECKER_OT_copy_summary(bpy.types.Operator):
     """Copy a compact validation summary to the clipboard"""
     bl_idname  = "asset_checker.copy_summary"
@@ -2209,6 +2293,11 @@ class MeshCheckProperties(PropertyGroup):
         name="Issues Only",
         default=False,
         description="Show only objects that have at least one active issue",
+    )
+    uv_rename_target: EnumProperty(
+        name="Rename To",
+        items=_uv_rename_items,
+        description="Target UV map name (DCC conventions + names detected on validated objects)",
     )
     obj_filter_check: EnumProperty(
         name="Check Filter",
