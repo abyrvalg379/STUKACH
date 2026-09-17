@@ -1105,7 +1105,8 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
         preset_row.menu("ASSET_CHECKER_MT_presets", text="Presets", icon="PRESET")
         preset_row.operator("asset_checker.preset_add",    text="", icon="ADD")
         preset_row.operator("asset_checker.preset_remove", text="", icon="REMOVE")
-        preset_row.operator("asset_checker.preset_export", text="", icon="EXPORT")
+        # EXPORT opens a submenu listing each saved preset (per-preset export)
+        preset_row.menu("ASSET_CHECKER_MT_preset_export", text="", icon="EXPORT")
         preset_row.operator("asset_checker.preset_import", text="", icon="IMPORT")
 
         if prefs:
