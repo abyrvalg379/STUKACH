@@ -40,7 +40,6 @@ classes = (
     properties.ASSET_CHECKER_OT_fix_scale,
     properties.ASSET_CHECKER_OT_fix_origin,
     properties.ASSET_CHECKER_OT_fix_modifier_stack,
-    properties.ASSET_CHECKER_OT_fix_normals,
     properties.ASSET_CHECKER_OT_fix_merge_by_distance,
     properties.ASSET_CHECKER_OT_fix_naming,
     properties.ASSET_CHECKER_OT_fix_unused_data,

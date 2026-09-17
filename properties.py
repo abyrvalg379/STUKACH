@@ -13,7 +13,7 @@ CHECK_CATEGORIES = {
     "TOPOLOGY":   ("non_manifold", "boundary_edges", "isolated_verts", "duplicate_verts",
                    "face_aspect_ratio",
                    "triangles", "ngons", "poles",
-                   "zero_area", "flipped_normals", "z_fighting", "invalid_normals"),
+                   "zero_area", "z_fighting"),
     "TRANSFORMS": ("non_applied_transform", "scale", "origin_at_zero", "modifier_stack"),
     "SYMMETRY":   ("symmetry_x", "symmetry_y", "symmetry_z"),
     "UV":         ("uv_single_set", "uv_overlap", "uv_micro_shell",
@@ -87,13 +87,13 @@ def mc_object_datas_updater(attr):
     return updater
 
 
-def update_flipped_normals(self, context):
-    """Toggle Blender's built-in Face Orientation overlay with the check."""
-    from .manager import MeshCheck
-    enabled = self.flipped_normals
-    if enabled:
-        MeshCheck.update_mc_object_datas('flipped_normals')
-    # Sync all VIEW_3D spaces
+def update_face_orientation(self, context):
+    """Mirror of Blender's built-in Face Orientation viewport overlay.
+
+    Pure view helper — no validation, no counters.  Keeps every VIEW_3D
+    space in sync so the panel is the single place to toggle check views.
+    """
+    enabled = self.face_orientation
     for window in context.window_manager.windows:
         for area in window.screen.areas:
             if area.type == 'VIEW_3D':
@@ -291,8 +291,8 @@ _FIX_OPERATORS: dict = {
     "scale":                 "asset_checker.fix_scale",
     "origin_at_zero":        "asset_checker.fix_origin",
     "modifier_stack":        "asset_checker.fix_modifier_stack",
-    "flipped_normals":       "asset_checker.fix_normals",
     "isolated_verts":        "asset_checker.fix_merge_by_distance",
+    "duplicate_verts":       "asset_checker.fix_merge_by_distance",
     "obj_naming":            "asset_checker.fix_naming",
     "mat_suffix":            "asset_checker.fix_mat_suffix",
 }
@@ -404,52 +404,6 @@ class ASSET_CHECKER_OT_fix_scale(bpy.types.Operator):
         return {'FINISHED'}
 
 
-# ── Fix: Recalculate Normals ──────────────────────────────────────────────────
-class ASSET_CHECKER_OT_fix_normals(bpy.types.Operator):
-    """Recalculate normals outside for all tracked objects with flipped normals"""
-    bl_idname  = "asset_checker.fix_normals"
-    bl_label   = "Fix: Recalculate Normals"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    def execute(self, context):
-        from .manager import MeshCheck
-        fixed = 0
-        prev_active = context.view_layer.objects.active
-
-        if context.mode != 'OBJECT':
-            bpy.ops.object.mode_set(mode='OBJECT')
-
-        for obj, _ in list(_problem_objects("flipped_normals")):
-            state = _ensure_visible(obj)
-            try:
-                context.view_layer.objects.active = obj
-                obj.select_set(True)
-                bpy.ops.object.mode_set(mode='EDIT')
-                bpy.ops.mesh.select_all(action='SELECT')
-                bpy.ops.mesh.normals_make_consistent(inside=False)
-                bpy.ops.object.mode_set(mode='OBJECT')
-                obj.select_set(False)
-                fixed += 1
-            except Exception as e:
-                print(f"[AssetChecker] fix_normals {obj.name}: {e}")
-                try:
-                    bpy.ops.object.mode_set(mode='OBJECT')
-                except Exception:
-                    pass
-            finally:
-                _restore_visible(obj, state)
-
-        try:
-            if prev_active:
-                context.view_layer.objects.active = prev_active
-        except Exception:
-            pass
-
-        MeshCheck.update_mc_object_datas("flipped_normals")
-        self.report({'INFO'}, f"Recalculated normals on {fixed} object(s)")
-        return {'FINISHED'}
-
-
 # ── Fix: Merge by Distance ────────────────────────────────────────────────────
 class ASSET_CHECKER_OT_fix_merge_by_distance(bpy.types.Operator):
     """Merge vertices by distance to remove isolated verts and near-duplicates"""
@@ -491,14 +445,50 @@ class ASSET_CHECKER_OT_fix_merge_by_distance(bpy.types.Operator):
             finally:
                 _restore_visible(obj, state)
 
+        # duplicate_verts: merge ONLY the flagged pairs.  Different shells with
+        # coincident verts are intentional (not flagged) — a blanket merge here
+        # would weld them, so the selection is restricted to the check results.
+        merged_objs = 0
+        for obj, mc_obj in list(_problem_objects("duplicate_verts")):
+            checker = mc_obj._checks.get("duplicate_verts")
+            pair_idx = list(getattr(checker, '_dup_pair_idx', []) or [])
+            if not pair_idx:
+                continue
+            state = _ensure_visible(obj)
+            try:
+                context.view_layer.objects.active = obj
+                obj.select_set(True)
+                bpy.ops.object.mode_set(mode='EDIT')
+                bm = bmesh.from_edit_mesh(obj.data)
+                bm.verts.ensure_lookup_table()
+                for v in bm.verts:
+                    v.select_set(v.index in set(pair_idx))
+                bm.select_flush_mode()
+                bmesh.update_edit_mesh(obj.data)
+                bpy.ops.mesh.remove_doubles(threshold=self.threshold)
+                bpy.ops.object.mode_set(mode='OBJECT')
+                obj.select_set(False)
+                merged_objs += 1
+            except Exception as e:
+                print(f"[AssetChecker] fix_merge(dup) {obj.name}: {e}")
+                try:
+                    bpy.ops.object.mode_set(mode='OBJECT')
+                except Exception:
+                    pass
+            finally:
+                _restore_visible(obj, state)
+
         try:
             if prev_active:
                 context.view_layer.objects.active = prev_active
         except Exception:
             pass
 
+        if merged_objs:
+            MeshCheck.update_mc_object_datas("duplicate_verts")
         MeshCheck.update_mc_object_datas("isolated_verts")
-        self.report({'INFO'}, f"Merged by distance on {fixed} object(s)")
+        self.report({'INFO'},
+                    f"Merged by distance on {fixed + merged_objs} object(s)")
         return {'FINISHED'}
 
 
@@ -1577,6 +1567,23 @@ class MeshCheckProperties(PropertyGroup):
         description="Switch to coordinator view — compare current results vs saved checkpoint",
     )
 
+    # Live mode — auto re-run checks without pressing Run again
+    live_update: BoolProperty(
+        name="Live",
+        default=False,
+        description="Auto re-run checks when meshes change (object mode edits, "
+                    "applied modifiers, new scene objects) — no manual re-run needed",
+    )
+
+    # View helper — mirror of Blender's built-in Face Orientation overlay
+    face_orientation: BoolProperty(
+        name="Face Orientation",
+        default=False,
+        update=update_face_orientation,
+        description="Toggle Blender's built-in Face Orientation viewport overlay "
+                    "(replaces the old flipped-normals counter — verify visually)",
+    )
+
     # TOPOLOGY
     non_manifold:        BoolProperty(name="Non-manifold",            default=False, update=mc_object_datas_updater("non_manifold"))
     boundary_edges:      BoolProperty(name="Boundary Edges",          default=False, update=mc_object_datas_updater("boundary_edges"),
@@ -1591,11 +1598,8 @@ class MeshCheckProperties(PropertyGroup):
     ngons:               BoolProperty(name="Ngons",                   default=False, update=mc_object_datas_updater("ngons"))
     poles:               BoolProperty(name="Poles",                   default=False, update=mc_object_datas_updater("poles"))
     zero_area:           BoolProperty(name="Zero-area faces",         default=False, update=mc_object_datas_updater("zero_area"))
-    flipped_normals:     BoolProperty(name="Flipped normals",         default=False, update=update_flipped_normals)
     z_fighting:          BoolProperty(name="Z-Fighting",              default=False, update=mc_object_datas_updater("z_fighting"),
                                       description="Coplanar face overlap within the mesh and between tracked objects")
-    invalid_normals:      BoolProperty(name="Invalid Normals",        default=False, update=mc_object_datas_updater("invalid_normals"),
-                                       description="Custom split normals that are zero-length or flipped vs. face geometry (midpoly-safe)")
 
     # TRANSFORMS
     non_applied_transform: BoolProperty(name="Non-applied rotation", default=False, update=mc_object_datas_updater("non_applied_transform"))
