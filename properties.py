@@ -1287,6 +1287,36 @@ class ASSET_CHECKER_OT_export_report(bpy.types.Operator):
         if not rows_html:
             rows_html = "<tr><td colspan='6' style='color:#40c070;text-align:center'>No issues found — pipeline clean ✓</td></tr>"
 
+        # ── Fix-first verdict section (blockers/warnings by priority) ──────
+        flat = []
+        for obj in report["objects"]:
+            for ch in obj["checks"]:
+                if ch["count"] > 0 and ch["severity"] in ("BLOCKER", "WARNING"):
+                    flat.append((ch["severity"], ch["check"], obj["name"], ch["count"]))
+        fix_first_html = ""
+        if flat:
+            items = []
+            blockers = sorted((f for f in flat if f[0] == "BLOCKER"), key=lambda t: -t[3])
+            warns = sorted((f for f in flat if f[0] == "WARNING"), key=lambda t: -t[3])
+            for sev, chk, name, cnt in blockers[:8]:
+                items.append(f"<li><span style='color:#e84040;font-weight:bold'>[{cnt}]</span> "
+                             f"{chk.replace('_', ' ')} — {name}</li>")
+            if len(blockers) > 8:
+                items.append(f"<li style='color:#888'>…and {len(blockers) - 8} more</li>")
+            for sev, chk, name, cnt in warns[:5]:
+                items.append(f"<li><span style='color:#e8a040;font-weight:bold'>[{cnt}]</span> "
+                             f"{chk.replace('_', ' ')} — {name}</li>")
+            if len(warns) > 5:
+                items.append(f"<li style='color:#888'>…and {len(warns) - 5} more</li>")
+            fix_first_html = ("<div style='background:#252525;border:1px solid #333;"
+                              "border-left:4px solid #e84040;border-radius:6px;"
+                              "padding:10px 16px;margin-bottom:20px'>"
+                              "<div style='color:#fff;font-size:12px;font-weight:bold;"
+                              "text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px'>"
+                              "Fix first</div>"
+                              "<ul style='margin-left:18px;line-height:1.7'>"
+                              + "".join(items) + "</ul></div>")
+
         if report.get("ignored"):
             ign = "<br>".join(report["ignored"])
             ignored_html = (f"<div class='meta' style='margin-top:0'>"
@@ -1333,6 +1363,7 @@ class ASSET_CHECKER_OT_export_report(bpy.types.Operator):
   <div><div class="label">Date</div><div class="value">{report['date']}</div></div>
 </div>
 {ignored_html}
+{fix_first_html}
 
 <table>
 <thead>
@@ -1554,13 +1585,15 @@ class ASSET_CHECKER_OT_copy_summary(bpy.types.Operator):
         mc = context.window_manager.mesh_check_props
 
         lines = [f"STUKACH v{get_addon_version()} — validation summary"]
+        n_tracked = len(MeshCheck.objects)
+        obj_word = "object" if n_tracked == 1 else "objects"
         scope = MeshCheck._scope
         if scope == "SCENE":
-            lines.append(f"scope: SCENE ({len(MeshCheck.objects)} objects)")
+            lines.append(f"scope: SCENE ({n_tracked} {obj_word})")
         elif scope == "COLLECTION":
-            lines.append(f"scope: {MeshCheck._scope_collection} ({len(MeshCheck.objects)} objects)")
+            lines.append(f"scope: {MeshCheck._scope_collection} ({n_tracked} {obj_word})")
         else:
-            lines.append(f"scope: SELECTION ({len(MeshCheck.objects)} objects)")
+            lines.append(f"scope: SELECTION ({n_tracked} {obj_word})")
 
         rows = []
         total_b = total_w = 0
@@ -1594,8 +1627,10 @@ class ASSET_CHECKER_OT_copy_summary(bpy.types.Operator):
         if mc.coordinator_mode:
             # Coordinator report — verdict for the rework task (Cerebro etc.)
             status = "READY" if not total_b and not total_w else ("BLOCKED" if total_b else "REVIEW")
+            b_word = "blocker" if total_b == 1 else "blockers"
+            w_word = "warning" if total_w == 1 else "warnings"
             lines[0] = (f"STUKACH v{get_addon_version()} — VALIDATION: {status} "
-                        f"({total_b} blockers, {total_w} warnings)")
+                        f"({total_b} {b_word}, {total_w} {w_word})")
             if total_b:
                 lines.append("")
                 lines.append("BLOCKERS (fix first):")
@@ -1619,7 +1654,9 @@ class ASSET_CHECKER_OT_copy_summary(bpy.types.Operator):
                 if len(warns) > 10:
                     lines.append(f"  …and {len(warns) - 10} more objects")
         else:
-            lines.append(f"issues: {total_b} blockers, {total_w} warnings")
+            b_word = "blocker" if total_b == 1 else "blockers"
+            w_word = "warning" if total_w == 1 else "warnings"
+            lines.append(f"issues: {total_b} {b_word}, {total_w} {w_word}")
             for b, w, name, worst in rows[:10]:
                 line = f"  {name}: {b}B/{w}W"
                 if worst:
