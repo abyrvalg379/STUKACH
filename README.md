@@ -4,7 +4,7 @@
 
 Pipeline asset validation addon for Blender.
 
-**Blender 5.2 · v1.6.7 · Author: Maksim Kovalev**
+**Blender 5.2 · v1.6.8 · Author: Maksim Kovalev**
 
 ---
 
@@ -50,6 +50,10 @@ The **STUKACH** tab appears in the N-Panel (View3D and UV Editor).
 | Poles | INFO | N-poles (3 edges), E-poles (5+ edges) |
 | Zero Area | BLOCKER | Degenerate faces with near-zero area |
 | Z-Fighting | BLOCKER | Coplanar overlapping geometry |
+| Lamina | BLOCKER | Zero-thickness faces folded onto themselves |
+| Zero Length Edges | BLOCKER | Edges of near-zero length (below 1e-8) |
+| Starlike | WARNING | Faces whose outline self-intersects (non-starlike) |
+| Sharp Edges Not Hard | WARNING | Edges with a dihedral angle ≥ 30° that are NOT marked sharp — only the missed ones are flagged |
 
 ### TRANSFORMS
 | Check | Severity | Description |
@@ -58,6 +62,8 @@ The **STUKACH** tab appears in the N-Panel (View3D and UV Editor).
 | Scale | BLOCKER | Scale not (1,1,1) |
 | Origin at Zero | INFO | Object pivot not at world origin |
 | Modifier Stack | WARNING | Unapplied modifiers (only Armature excluded) |
+| Uncentered Pivots | WARNING | Pivot further than 5% of the bbox diagonal from the bbox center |
+| Parent Geometry | WARNING | Object parented under another mesh object |
 
 ### SYMMETRY
 | Check | Severity | Description |
@@ -75,6 +81,7 @@ The **STUKACH** tab appears in the N-Panel (View3D and UV Editor).
 | Padding | INFO | Shell-to-shell and tile-border spacing |
 | UDIM Bounds | BLOCKER | UV islands crossing UDIM tile boundaries |
 | UV Material UDIM | BLOCKER | Different materials on the same UDIM tile |
+| Missing UVs | WARNING | Faces without UV mapping (no UV layer, or all loops at 0,0) |
 
 ### NAMING
 | Check | Severity | Description |
@@ -83,6 +90,8 @@ The **STUKACH** tab appears in the N-Panel (View3D and UV Editor).
 | Col Naming | WARNING | Collection naming validation |
 | Mat Numbering | WARNING | Catches `.001`, `.002` material suffixes |
 | Mesh Data Name | WARNING | Mesh datablock must not keep auto names (`Mesh.101`) — one-click rename to `<object>_mesh`, suffix configurable |
+| Duplicated Names | BLOCKER | Exact object name used by more than one object (linked-library collisions) |
+| Trailing Numbers | WARNING | Object name ends with digits (`Cube.001`-style leftovers) |
 
 ### MATERIALS
 | Check | Severity | Description |
@@ -179,6 +188,7 @@ GPL-3.0-or-later
 | Tool | Description |
 |------|-------------|
 | [STUKACH](https://github.com/abyrvalg379/STUKACH) | Pipeline asset validator for Blender |
+| [STUKACH_Maya](https://github.com/abyrvalg379/STUKACH_Maya) | Maya version of STUKACH — shared check semantics |
 | [LAMPOCHKA](https://github.com/abyrvalg379/LAMPOCHKA) | Scene light manager |
 | [Switch_UDIM](https://github.com/abyrvalg379/Switch_UDIM) | Single ↔ UDIM texture switcher |
 | [FLOMASTER](https://github.com/abyrvalg379/FLOMASTER) | OCIO launcher for DCC apps |

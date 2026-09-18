@@ -54,6 +54,9 @@ CHECK_SEVERITY: dict = {
     "uv_material_udim":      "BLOCKER",   # mixed materials on one UDIM — breaks baking/automation
     "mat_assignment":        "BLOCKER",   # missing material slot = black render
     "missing_textures":      "BLOCKER",   # broken file reference
+    "lamina":                "BLOCKER",   # zero-thickness faces break booleans / export
+    "zero_length_edges":     "BLOCKER",   # degenerate edges break subdivision / export
+    "duplicated_names":      "BLOCKER",   # linked-library name collisions break export
 
     # ── WARNINGS — artist must review before delivery ────────────────────────
     "isolated_verts":        "WARNING",   # cleanup noise
@@ -68,6 +71,12 @@ CHECK_SEVERITY: dict = {
     "mesh_data_naming":      "WARNING",   # Mesh.101 data blocks pollute pipelines   # Material.001 leftover names
     "mat_suffix":            "WARNING",   # material name convention
     "unused_data":           "WARNING",   # empty vgroups / leftover attributes
+    "sharp_edges_not_hard":  "WARNING",   # smooth-shaded sharp corners — shading artifacts
+    "starlike":              "WARNING",   # self-intersecting polygon outlines
+    "missing_uvs":           "WARNING",   # unmapped faces break baking
+    "trailing_numbers":      "WARNING",   # Cube.001-style name leftovers
+    "uncentered_pivots":     "WARNING",   # pivot far from bbox center
+    "parent_geometry":       "WARNING",   # mesh parented under mesh breaks hierarchies
 
     # ── INFO — artist awareness, no pipeline impact ───────────────────────────
     "boundary_edges":        "INFO",      # open edges — may be intentional
@@ -124,6 +133,15 @@ CHECK_THRESHOLDS: dict = {
     "mat_assignment":        0,
     "missing_textures":      0,
     "unused_data":           0,
+    "lamina":                0,
+    "zero_length_edges":     0,
+    "sharp_edges_not_hard":  0,
+    "starlike":              0,
+    "missing_uvs":           0,
+    "duplicated_names":      0,
+    "trailing_numbers":      0,
+    "uncentered_pivots":     0,
+    "parent_geometry":       0,
 }
 
 # Checks whose thresholds are user-configurable in Preferences

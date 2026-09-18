@@ -92,6 +92,7 @@ class MeshCheckObject:
     # the transform key changes, independently of topo/UV flags.
     _TRANSFORM_CHECKS = frozenset({
         'origin_at_zero', 'non_applied_transform', 'scale',
+        'uncentered_pivots',
     })
 
     def __init__(self, obj):
@@ -277,9 +278,10 @@ class MeshCheckGPU:
     _batch_cache: dict = {}
 
     _FACE_OVERLAY_CHECKS = {'zero_area', 'triangles', 'ngons', 'uv_stretch',
-                            'uv_material_udim'}
+                            'uv_material_udim', 'lamina', 'starlike', 'missing_uvs'}
     _THICK_LINE_CHECKS   = {'non_applied_transform', 'scale',
-                            'modifier_stack', 'origin_at_zero'}
+                            'modifier_stack', 'origin_at_zero',
+                            'uncentered_pivots'}
 
     @classmethod
     def get_shader(cls):
@@ -1211,9 +1213,12 @@ _AC_CHECK_PROPS: frozenset = frozenset({
     'symmetry_x', 'symmetry_y', 'symmetry_z',
     'uv_single_set', 'uv_overlap', 'uv_micro_shell', 'uv_texel_density',
     'uv_stretch', 'uv_padding', 'uv_udim_bounds', 'uv_material_udim',
-    'obj_naming', 'col_naming', 'mesh_data_naming',
+    'obj_naming', 'col_naming', 'mesh_data_naming', 'mat_numbering',
     'mat_suffix', 'mat_assignment', 'missing_textures',
     'unused_data',
+    'lamina', 'zero_length_edges', 'sharp_edges_not_hard', 'starlike',
+    'missing_uvs', 'duplicated_names', 'trailing_numbers',
+    'uncentered_pivots', 'parent_geometry',
 })
 _AC_UI_PROPS: frozenset = frozenset({
     'cat_topology_open', 'cat_transforms_open', 'cat_symmetry_open',

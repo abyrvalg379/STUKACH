@@ -306,6 +306,17 @@ class MeshCheckPreferences(AddonPreferences):
     # CLEANUP
     unused_data_color: FloatVectorProperty(name="Unused Data", default=(0.6, 0.4, 0.1), min=0.0, max=1.0, size=3, subtype="COLOR")
 
+    # MAYA v1.1.0 PARITY
+    lamina_color:              FloatVectorProperty(name="Lamina",              default=(1.0, 0.1, 0.7),  min=0.0, max=1.0, size=3, subtype="COLOR")
+    zero_length_edges_color:   FloatVectorProperty(name="Zero Length Edges",   default=(1.0, 0.25, 0.25), min=0.0, max=1.0, size=3, subtype="COLOR")
+    starlike_color:            FloatVectorProperty(name="Starlike",            default=(0.1, 0.9, 0.9),  min=0.0, max=1.0, size=3, subtype="COLOR")
+    sharp_edges_not_hard_color: FloatVectorProperty(name="Sharp Edges Not Hard", default=(1.0, 0.55, 0.1), min=0.0, max=1.0, size=3, subtype="COLOR")
+    missing_uvs_color:         FloatVectorProperty(name="Missing UVs",         default=(0.95, 0.85, 0.1), min=0.0, max=1.0, size=3, subtype="COLOR")
+    duplicated_names_color:    FloatVectorProperty(name="Duplicated Names",    default=(1.0, 0.2, 0.2),  min=0.0, max=1.0, size=3, subtype="COLOR")
+    trailing_numbers_color:    FloatVectorProperty(name="Trailing Numbers",    default=(0.9, 0.6, 0.2),  min=0.0, max=1.0, size=3, subtype="COLOR")
+    uncentered_pivots_color:   FloatVectorProperty(name="Uncentered Pivots",   default=(0.8, 0.5, 1.0),  min=0.0, max=1.0, size=3, subtype="COLOR")
+    parent_geometry_color:     FloatVectorProperty(name="Parent Geometry",     default=(0.65, 0.85, 0.2), min=0.0, max=1.0, size=3, subtype="COLOR")
+
     # CHECK THRESHOLDS — count ≤ threshold → yellow dot; count > threshold → red dot
     # Only the three checks that make sense to tune are exposed here.
     threshold_triangles: IntProperty(
@@ -488,6 +499,10 @@ class MeshCheckPreferences(AddonPreferences):
             "obj_naming_color", "col_naming_color", "mat_numbering_color",
             "mat_suffix_color", "mat_assignment_color", "missing_textures_color",
             "unused_data_color",
+            "lamina_color", "zero_length_edges_color", "starlike_color",
+            "sharp_edges_not_hard_color", "missing_uvs_color",
+            "duplicated_names_color", "trailing_numbers_color",
+            "uncentered_pivots_color", "parent_geometry_color",
         ):
             prop_def = self.bl_rna.properties.get(attr)
             label = prop_def.name if prop_def else attr

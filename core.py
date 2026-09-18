@@ -3874,6 +3874,375 @@ class MeshDataNaming(BaseCheck):
         return (None, [])
 
 
+# ─── MAYA v1.1.0 PARITY CHECKS (reference: STUKACH_Maya snapshot checks) ──────
+
+
+class _EdgeOverlay:
+    """Shared GPU edge draw for checks tracking an ``_edges_idx`` list."""
+
+    def get_edges(self, offset: float):
+        idx = getattr(self, "_edges_idx", None)
+        if not idx:
+            return ()
+        bm = self._parent.bm_object
+        bm.edges.ensure_lookup_table()
+        obj = self._parent._object
+        wm = obj.matrix_world
+        _offset = _get_offset(offset, obj)
+        coords = []
+        for e_idx in idx:
+            for v in bm.edges[e_idx].verts:
+                p = wm @ v.co
+                coords.append((p.x + v.normal.x * _offset,
+                               p.y + v.normal.y * _offset,
+                               p.z + v.normal.z * _offset))
+        return tuple(coords)
+
+
+class _FanFaceOverlay:
+    """Shared GPU face draw (fan triangulation) for checks tracking ``_faces_idx``."""
+
+    def get_faces(self, offset: float):
+        idx = getattr(self, "_faces_idx", None)
+        if not idx:
+            return (), []
+        bm = self._parent.bm_object
+        bm.faces.ensure_lookup_table()
+        bm.verts.ensure_lookup_table()
+        obj = self._parent._object
+        wm = obj.matrix_world
+        _offset = _get_offset(offset, obj)
+        coords = []
+        indices = []
+        base = 0
+        for f_idx in idx:
+            fv = [v.index for v in bm.faces[f_idx].verts]
+            for k in range(1, len(fv) - 1):
+                for vi in (fv[0], fv[k], fv[k + 1]):
+                    v = bm.verts[vi]
+                    p = wm @ v.co
+                    coords.append((p.x + v.normal.x * _offset,
+                                   p.y + v.normal.y * _offset,
+                                   p.z + v.normal.z * _offset))
+                indices.append((base, base + 1, base + 2))
+                base += 3
+        return tuple(coords), indices
+
+
+class Lamina(_EdgeOverlay, _FanFaceOverlay, BaseCheck):
+    """Lamina faces — zero-thickness geometry folded onto itself.
+
+    Maya isLamina() analog: the face contour traverses the same edge twice
+    or repeats a vertex, so the face has no thickness.  Breaks booleans,
+    subdivision and exporters."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self._faces_idx: List[int] = []
+        self._edges_idx: List[int] = []
+
+    def set_datas(self):
+        bm = self._parent.bm_object
+        bm.faces.ensure_lookup_table()
+        self._faces_idx = []
+        bad_edges = set()
+        for f in bm.faces:
+            vs = [v.index for v in f.verts]
+            n = len(vs)
+            ekeys = []
+            for i in range(n):
+                a, b = vs[i], vs[(i + 1) % n]
+                ekeys.append((a, b) if a < b else (b, a))
+            if len(set(vs)) < n or len(set(ekeys)) < n:
+                self._faces_idx.append(f.index)
+                bad_edges.update(e.index for e in f.edges)
+        self._count = len(self._faces_idx)
+        self._edges_idx = sorted(bad_edges)
+
+    def get_select_data(self):
+        return ('FACE', self._faces_idx)
+
+
+class ZeroLengthEdges(_EdgeOverlay, BaseCheck):
+    """Edges of (near-)zero length — degenerate geometry from merges/booleans."""
+
+    _TOL = 1e-8
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self._edges_idx: List[int] = []
+
+    def set_datas(self):
+        bm = self._parent.bm_object
+        bm.edges.ensure_lookup_table()
+        self._edges_idx = [e.index for e in bm.edges
+                           if e.calc_length() <= self._TOL]
+        self._count = len(self._edges_idx)
+
+    def get_select_data(self):
+        return ('EDGE', self._edges_idx)
+
+
+class SharpEdgesNotHard(_EdgeOverlay, BaseCheck):
+    """Sharp edges (dihedral angle >= 30°) that are NOT marked sharp.
+
+    Smooth shading across a sharp corner produces shading artifacts — such
+    edges must be marked sharp (or handled by custom normals).  Listing every
+    marked sharp edge is meaningless on hardsurf, so only the MISSED ones are
+    flagged.  Maya v1.1.0 HardEdges parity."""
+
+    ANGLE_THRESHOLD_DEG = 30.0
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self._edges_idx: List[int] = []
+
+    def set_datas(self):
+        bm = self._parent.bm_object
+        bm.edges.ensure_lookup_table()
+        threshold = math.radians(self.ANGLE_THRESHOLD_DEG)
+        self._edges_idx = []
+        for e in bm.edges:
+            if not e.smooth or not e.is_manifold:
+                continue
+            angle = e.calc_face_angle(0.0)
+            if angle >= threshold:
+                self._edges_idx.append(e.index)
+        self._count = len(self._edges_idx)
+
+    def get_select_data(self):
+        return ('EDGE', self._edges_idx)
+
+
+class Starlike(_EdgeOverlay, _FanFaceOverlay, BaseCheck):
+    """Non-starlike faces — polygon outline self-intersects.
+
+    Maya isStarlike() analog: the contour is projected onto the face plane
+    (dominant normal axis dropped) and non-adjacent segments are tested for
+    intersection.  Triangles cannot self-intersect and never flag."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self._faces_idx: List[int] = []
+        self._edges_idx: List[int] = []
+
+    @staticmethod
+    def _outline_crosses(pts):
+        """True if any two non-adjacent segments of the 2-D polygon intersect."""
+        n = len(pts)
+
+        def cross(o, a, b):
+            return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+        def on_seg(a, b, p):
+            return (min(a[0], b[0]) - 1e-12 <= p[0] <= max(a[0], b[0]) + 1e-12 and
+                    min(a[1], b[1]) - 1e-12 <= p[1] <= max(a[1], b[1]) + 1e-12)
+
+        for i in range(n):
+            a1, a2 = pts[i], pts[(i + 1) % n]
+            for j in range(i + 2, n):
+                if i == 0 and j == n - 1:
+                    continue   # ring-adjacent segments share a vertex legitimately
+                b1, b2 = pts[j], pts[(j + 1) % n]
+                d1 = cross(b1, b2, a1)
+                d2 = cross(b1, b2, a2)
+                d3 = cross(a1, a2, b1)
+                d4 = cross(a1, a2, b2)
+                if ((d1 > 0 and d2 < 0) or (d1 < 0 and d2 > 0)) and \
+                   ((d3 > 0 and d4 < 0) or (d3 < 0 and d4 > 0)):
+                    return True
+                # touching / collinear cases (pinch vertices, T-spikes)
+                if d1 == 0 and on_seg(b1, b2, a1):
+                    return True
+                if d2 == 0 and on_seg(b1, b2, a2):
+                    return True
+                if d3 == 0 and on_seg(a1, a2, b1):
+                    return True
+                if d4 == 0 and on_seg(a1, a2, b2):
+                    return True
+        return False
+
+    def set_datas(self):
+        bm = self._parent.bm_object
+        bm.faces.ensure_lookup_table()
+        self._faces_idx = []
+        self._edges_idx = []
+        for f in bm.faces:
+            if len(f.verts) < 4:
+                continue
+            n = f.normal
+            if n.length_squared < 1e-20:
+                # Degenerate Newell normal (symmetric bowtie cancels out) —
+                # project along the flattest vertex axis instead.  One ~zero
+                # spread = planar face (fine, axis == its normal); two = the
+                # contour is a line — zero-area, another check's domain.
+                spreads = [max(v.co[k] for v in f.verts) - min(v.co[k] for v in f.verts)
+                           for k in range(3)]
+                if sum(1 for s in spreads if s <= 1e-12) >= 2:
+                    continue
+                ax = min(range(3), key=lambda k: spreads[k])
+            else:
+                ax = max(range(3), key=lambda k: abs(n[k]))
+            keep = [k for k in range(3) if k != ax]
+            pts = [(v.co[keep[0]], v.co[keep[1]]) for v in f.verts]
+            if self._outline_crosses(pts):
+                self._faces_idx.append(f.index)
+                self._edges_idx.extend(e.index for e in f.edges)
+        self._count = len(self._faces_idx)
+        self._edges_idx = list(dict.fromkeys(self._edges_idx))
+
+    def get_select_data(self):
+        return ('FACE', self._faces_idx)
+
+
+class MissingUVs(_FanFaceOverlay, BaseCheck):
+    """Faces without usable UV mapping (Maya unmapped-face analog).
+
+    No UV layer at all flags every face; with a layer present, faces whose
+    loops all sit at (0, 0) are unmapped leftovers (geometry added after
+    the unwrap)."""
+
+    _ZERO_SQ = 1e-12
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self._faces_idx: List[int] = []
+
+    def set_datas(self):
+        bm = self._parent.bm_object
+        bm.faces.ensure_lookup_table()
+        uvl = bm.loops.layers.uv.active
+        if uvl is None and len(bm.loops.layers.uv):
+            uvl = bm.loops.layers.uv[0]
+        if uvl is None:
+            self._faces_idx = list(range(len(bm.faces)))
+        else:
+            zs = self._ZERO_SQ
+            self._faces_idx = [f.index for f in bm.faces
+                               if all(l[uvl].uv.length_squared <= zs for l in f.loops)]
+        self._count = len(self._faces_idx)
+
+    def get_edges(self, offset: float):
+        return ()
+
+    def get_select_data(self):
+        return ('FACE', self._faces_idx)
+
+
+class DuplicatedNames(BaseCheck):
+    """Exact object name used by more than one object in the scene.
+
+    Inside one .blend names are unique — duplicates appear with linked
+    libraries (same name from different sources) and break export and
+    pipeline collection.  Maya v1.1.0 DuplicatedNames parity."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self._metric = ""
+
+    def set_datas(self):
+        obj = self._parent._object
+        self._count = 0
+        self._metric = ""
+        try:
+            scene_objs = bpy.context.scene.objects
+        except Exception:
+            return
+        name = obj.name
+        n = sum(1 for o in scene_objs if o.name == name)
+        if n > 1:
+            self._count = 1
+            self._metric = f"'{name}' used by {n} objects"
+
+    @property
+    def metric_text(self) -> str:
+        return self._metric
+
+    def get_edges(self, offset: float):
+        return ()
+
+
+class TrailingNumbers(BaseCheck):
+    """Object name ends with digits (Cube.001-style leftovers)."""
+
+    _RE_TRAILING = re.compile(r'\d+$')
+
+    def set_datas(self):
+        obj = self._parent._object
+        self._count = 1 if self._RE_TRAILING.search(obj.name) else 0
+
+    def get_edges(self, offset: float):
+        return ()
+
+
+class UncenteredPivots(BaseCheck):
+    """Pivot further than 5% of the bbox diagonal from the bbox center.
+
+    Compared against the bbox CENTER — comparing against the world origin
+    was the Maya-version bug that flagged every placed object."""
+
+    _THRESHOLD = 0.05   # fraction of the bbox diagonal
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self._bbox: Tuple = ()
+        self._pct = 0.0
+
+    def set_datas(self):
+        obj = self._parent._object
+        self._count = 0
+        self._pct = 0.0
+        self._bbox = ()
+        mw = obj.matrix_world
+        corners = [mw @ mathutils.Vector(c) for c in obj.bound_box]
+        xs = [c.x for c in corners]
+        ys = [c.y for c in corners]
+        zs = [c.z for c in corners]
+        diag = math.sqrt((max(xs) - min(xs)) ** 2 + (max(ys) - min(ys)) ** 2 +
+                         (max(zs) - min(zs)) ** 2)
+        if diag < 1e-9:
+            return
+        pivot = mw.translation
+        dist = math.sqrt((pivot.x - (min(xs) + max(xs)) / 2) ** 2 +
+                         (pivot.y - (min(ys) + max(ys)) / 2) ** 2 +
+                         (pivot.z - (min(zs) + max(zs)) / 2) ** 2)
+        if dist > diag * self._THRESHOLD:
+            self._count = 1
+            self._pct = dist / diag * 100.0
+            edge_idx = [0, 1, 1, 2, 2, 3, 3, 0, 4, 5, 5, 6, 6, 7, 7, 4,
+                        0, 4, 1, 5, 2, 6, 3, 7]
+            self._bbox = tuple((corners[i].x, corners[i].y, corners[i].z)
+                               for i in edge_idx)
+
+    @property
+    def metric_text(self) -> str:
+        return f"pivot off-center by {self._pct:.1f}% of bbox" if self._count else ""
+
+    def get_edges(self, offset: float):
+        return self._bbox
+
+
+class ParentGeometry(BaseCheck):
+    """Object parented under another MESH object — breaks export hierarchies."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self._parent_name = ""
+
+    def set_datas(self):
+        p = self._parent._object.parent
+        bad = p is not None and p.type == 'MESH'
+        self._count = 1 if bad else 0
+        self._parent_name = p.name if bad else ""
+
+    @property
+    def metric_text(self) -> str:
+        return f"parented under mesh '{self._parent_name}'" if self._count else ""
+
+    def get_edges(self, offset: float):
+        return ()
+
+
 CHECK_TYPES = {
     "triangles":             Triangles,
     "ngons":                 Ngons,
@@ -3908,4 +4277,14 @@ CHECK_TYPES = {
     "symmetry_y":            SymmetryY,
     "symmetry_z":            SymmetryZ,
     "unused_data":           UnusedData,
+    # MAYA v1.1.0 parity
+    "lamina":                Lamina,
+    "zero_length_edges":     ZeroLengthEdges,
+    "sharp_edges_not_hard":  SharpEdgesNotHard,
+    "starlike":              Starlike,
+    "missing_uvs":           MissingUVs,
+    "duplicated_names":      DuplicatedNames,
+    "trailing_numbers":      TrailingNumbers,
+    "uncentered_pivots":     UncenteredPivots,
+    "parent_geometry":       ParentGeometry,
 }

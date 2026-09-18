@@ -15,13 +15,16 @@ CHECK_CATEGORIES = {
     "TOPOLOGY":   ("non_manifold", "boundary_edges", "isolated_verts", "duplicate_verts",
                    "face_aspect_ratio",
                    "triangles", "ngons", "poles",
-                   "zero_area", "z_fighting"),
-    "TRANSFORMS": ("non_applied_transform", "scale", "origin_at_zero", "modifier_stack"),
+                   "zero_area", "z_fighting",
+                   "lamina", "zero_length_edges", "starlike", "sharp_edges_not_hard"),
+    "TRANSFORMS": ("non_applied_transform", "scale", "origin_at_zero", "modifier_stack",
+                   "uncentered_pivots", "parent_geometry"),
     "SYMMETRY":   ("symmetry_x", "symmetry_y", "symmetry_z"),
     "UV":         ("uv_single_set", "uv_overlap", "uv_micro_shell",
                    "uv_texel_density", "uv_stretch", "uv_padding",
-                   "uv_udim_bounds", "uv_material_udim"),
-    "NAMING":     ("obj_naming", "col_naming", "mat_numbering", "mesh_data_naming"),
+                   "uv_udim_bounds", "uv_material_udim", "missing_uvs"),
+    "NAMING":     ("obj_naming", "col_naming", "mat_numbering", "mesh_data_naming",
+                   "duplicated_names", "trailing_numbers"),
     "MATERIALS":  ("mat_suffix", "mat_assignment", "missing_textures"),
     "CLEANUP":    ("unused_data",),
 }
@@ -65,6 +68,7 @@ _CHECK_LABELS: dict = {
     "face_aspect_ratio":  "Face Aspect Ratio",
     "uv_material_udim":   "Uv Material Udim",
     "mat_numbering":      "Mat Numbering",
+    "missing_uvs":        "Missing UVs",
 }
 
 
@@ -160,6 +164,9 @@ _PRESET_VALUE_KEYS = (
     'uv_stretch', 'uv_padding', 'uv_udim_bounds', 'uv_material_udim',
     'obj_naming', 'col_naming', 'mesh_data_naming',
     'mat_suffix', 'mat_assignment', 'missing_textures', 'unused_data',
+    'lamina', 'zero_length_edges', 'sharp_edges_not_hard', 'starlike',
+    'missing_uvs', 'duplicated_names', 'trailing_numbers',
+    'uncentered_pivots', 'parent_geometry',
     # inline naming policy
     'obj_required_prefix', 'obj_required_suffix',
     'col_required_prefix', 'col_required_suffix',
@@ -580,6 +587,8 @@ _FIX_OPERATORS: dict = {
     "mat_suffix":            "asset_checker.fix_mat_suffix",
     "unused_data":           "asset_checker.fix_unused_data",
     "mesh_data_naming":      "asset_checker.fix_mesh_data_naming",
+    "sharp_edges_not_hard":  "asset_checker.fix_sharp_edges",
+    "lamina":                "asset_checker.fix_lamina",
 }
 
 
@@ -986,6 +995,119 @@ class ASSET_CHECKER_OT_fix_zero_area(bpy.types.Operator):
 
         MeshCheck.update_mc_object_datas("zero_area")
         self.report({'INFO'}, f"Deleted zero-area faces on {fixed} object(s)")
+        return {'FINISHED'}
+
+
+# ── Fix: Lamina faces ─────────────────────────────────────────────────────────
+class ASSET_CHECKER_OT_fix_lamina(bpy.types.Operator):
+    """Delete lamina (zero-thickness) faces detected by the Lamina check"""
+    bl_idname  = "asset_checker.fix_lamina"
+    bl_label   = "Fix: Delete Lamina Faces"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        from .manager import MeshCheck
+        fixed = 0
+        prev_active = context.view_layer.objects.active
+        if context.mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
+
+        for obj, mc_obj in list(_problem_objects("lamina")):
+            checker = mc_obj._checks.get("lamina")
+            face_idx = set(getattr(checker, '_faces_idx', []) or [])
+            if not face_idx:
+                continue
+            state = _ensure_visible(obj)
+            try:
+                context.view_layer.objects.active = obj
+                obj.select_set(True)
+                bpy.ops.object.mode_set(mode='EDIT')
+                bm = bmesh.from_edit_mesh(obj.data)
+                bm.faces.ensure_lookup_table()
+                for f in bm.faces:
+                    f.select_set(f.index in face_idx)
+                bm.select_flush_mode()
+                bmesh.update_edit_mesh(obj.data)
+                bpy.ops.mesh.delete(type='FACE')
+                bpy.ops.object.mode_set(mode='OBJECT')
+                obj.select_set(False)
+                fixed += 1
+            except Exception as e:
+                alog(f"[AssetChecker] fix_lamina {obj.name}: {e}")
+                try:
+                    bpy.ops.object.mode_set(mode='OBJECT')
+                except Exception:
+                    pass
+            finally:
+                _restore_visible(obj, state)
+
+        try:
+            if prev_active:
+                context.view_layer.objects.active = prev_active
+        except Exception:
+            pass
+
+        MeshCheck.update_mc_object_datas("lamina")
+        self.report({'INFO'}, f"Deleted lamina faces on {fixed} object(s)")
+        return {'FINISHED'}
+
+
+# ── Fix: Mark sharp edges ─────────────────────────────────────────────────────
+class ASSET_CHECKER_OT_fix_sharp_edges(bpy.types.Operator):
+    """Mark flagged edges (dihedral >= 30° left smooth) as sharp"""
+    bl_idname  = "asset_checker.fix_sharp_edges"
+    bl_label   = "Fix: Mark Edges Sharp"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        from .manager import MeshCheck
+        fixed = 0
+        prev_active = context.view_layer.objects.active
+        if context.mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
+
+        for obj, mc_obj in list(_problem_objects("sharp_edges_not_hard")):
+            checker = mc_obj._checks.get("sharp_edges_not_hard")
+            edge_idx = set(getattr(checker, '_edges_idx', []) or [])
+            if not edge_idx:
+                continue
+            state = _ensure_visible(obj)
+            try:
+                context.view_layer.objects.active = obj
+                obj.select_set(True)
+                bpy.ops.object.mode_set(mode='EDIT')
+                bm = bmesh.from_edit_mesh(obj.data)
+                bm.edges.ensure_lookup_table()
+                for e in bm.edges:
+                    e.select_set(e.index in edge_idx)
+                bm.select_flush_mode()
+                bmesh.update_edit_mesh(obj.data)
+                bpy.ops.mesh.mark_sharp()
+                bpy.ops.object.mode_set(mode='OBJECT')
+                obj.select_set(False)
+                # Sharpness is an attribute — vert/edge/face counts are
+                # unchanged, so the cached object-mode BMesh would look fresh
+                # to the mesh-key dirty check and keep reporting the old count.
+                mc_obj._drop_cached_bm()
+                mc_obj._mesh_key = ()
+                fixed += 1
+            except Exception as e:
+                alog(f"[AssetChecker] fix_sharp_edges {obj.name}: {e}")
+                try:
+                    bpy.ops.object.mode_set(mode='OBJECT')
+                except Exception:
+                    pass
+            finally:
+                _restore_visible(obj, state)
+
+        try:
+            if prev_active:
+                context.view_layer.objects.active = prev_active
+        except Exception:
+            pass
+
+        MeshCheck.update_mc_object_datas("sharp_edges_not_hard")
+        self.report({'INFO'}, f"Marked sharp edges on {fixed} object(s)")
         return {'FINISHED'}
 
 
@@ -2419,6 +2541,14 @@ class MeshCheckProperties(PropertyGroup):
                                       description="Degenerate faces with near-zero area — NaN normals, broken UVs. Caused by boolean, knife, merge")
     z_fighting:          BoolProperty(name="Z-Fighting",              default=False, update=mc_object_datas_updater("z_fighting"),
                                       description="Coplanar face overlap within the mesh and between tracked objects")
+    lamina:              BoolProperty(name="Lamina",                  default=False, update=mc_object_datas_updater("lamina"),
+                                      description="Zero-thickness faces folded onto themselves (contour reuses an edge or vertex) — break booleans, subdivision and export")
+    zero_length_edges:   BoolProperty(name="Zero Length Edges",       default=False, update=mc_object_datas_updater("zero_length_edges"),
+                                      description="Edges of near-zero length (below 1e-8) — degenerate geometry from merges and booleans")
+    starlike:            BoolProperty(name="Starlike",                default=False, update=mc_object_datas_updater("starlike"),
+                                      description="Faces whose outline self-intersects when projected onto the face plane (non-starlike) — unpredictable triangulation and shading")
+    sharp_edges_not_hard: BoolProperty(name="Sharp Edges Not Hard",  default=False, update=mc_object_datas_updater("sharp_edges_not_hard"),
+                                      description="Edges with a dihedral angle of 30° or more that are NOT marked sharp — smooth shading across a sharp corner causes shading artifacts")
 
     # TRANSFORMS
     non_applied_transform: BoolProperty(name="Non-applied rotation", default=False, update=mc_object_datas_updater("non_applied_transform"),
@@ -2429,6 +2559,10 @@ class MeshCheckProperties(PropertyGroup):
                                         description="Object pivot point is not at world origin (0, 0, 0)")
     modifier_stack:        BoolProperty(name="Modifier Stack",       default=False, update=mc_object_datas_updater("modifier_stack"),
                                         description="Unapplied modifiers present on object (pipeline non-whitelisted)")
+    uncentered_pivots:     BoolProperty(name="Uncentered Pivots",    default=False, update=mc_object_datas_updater("uncentered_pivots"),
+                                        description="Pivot is further than 5% of the bbox diagonal from the bbox center — rotates around a wrong point, breaks rigging and mirroring")
+    parent_geometry:       BoolProperty(name="Parent Geometry",      default=False, update=mc_object_datas_updater("parent_geometry"),
+                                        description="Object parented under another mesh object — breaks export hierarchies")
 
     # SYMMETRY
     symmetry_x: BoolProperty(name="Symmetry X", default=False, update=mc_object_datas_updater("symmetry_x"),
@@ -2455,6 +2589,8 @@ class MeshCheckProperties(PropertyGroup):
                                    description="UV islands crossing UDIM tile boundaries — cannot assign a correct UDIM texture")
     uv_material_udim: BoolProperty(name="Uv Material Udim",         default=False, update=mc_object_datas_updater("uv_material_udim"),
                                    description="Each UDIM tile must contain shells from one material only (регламент: 1 UDIM = 1 material group)")
+    missing_uvs:      BoolProperty(name="Missing UVs",          default=False, update=mc_object_datas_updater("missing_uvs"),
+                                   description="Faces without UV mapping (no UV layer, or all loops at 0,0) — unpacked geometry, broken texel lookups in bake")
 
     # NAMING
     obj_naming:    BoolProperty(name="Object Name",   default=False, update=update_obj_naming,
@@ -2465,6 +2601,10 @@ class MeshCheckProperties(PropertyGroup):
                                 description="Mesh data block must not keep Blender auto-names ('Mesh.101') — rename to <object>_mesh. Suffix configurable in Preferences")
     mat_numbering: BoolProperty(name="Mat Numbering", default=False, update=mc_object_datas_updater("mat_numbering"),
                                 description="Material names must not contain Blender auto-numbering (.001, .002 ...)")
+    duplicated_names: BoolProperty(name="Duplicated Names", default=False, update=mc_object_datas_updater("duplicated_names"),
+                                description="Exact object name used by more than one object in the scene (linked-library collisions) — breaks export and pipeline collection")
+    trailing_numbers: BoolProperty(name="Trailing Numbers", default=False, update=mc_object_datas_updater("trailing_numbers"),
+                                description="Object name ends with digits (Cube.001-style leftovers) — rename with a proper suffix")
 
     # Inline naming policy fields — combined with prefs at validation time
     obj_required_prefix: StringProperty(name="Prefix", default="",
