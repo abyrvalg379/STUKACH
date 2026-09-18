@@ -536,10 +536,7 @@ def draw_hierarchy_block(layout, mc):
                 row = sev_col.row(align=True)
                 role_icon = _ROLE_ICONS.get(issue.role, "DOT")
                 nm = issue.obj_name
-                nm_short = nm if len(nm) <= 20 else nm[:17] + "…"
-                msg = (issue.message if len(issue.message) <= 36
-                       else issue.message[:33] + "…")
-                row.label(text=f"  {nm_short}  —  {msg}", icon=role_icon)
+                row.label(text=f"  {nm}  —  {issue.message}", icon=role_icon)
                 if nm != "[scene]" and bpy.data.objects.get(nm):
                     op = row.operator(
                         "asset_checker.select_object",
@@ -572,8 +569,6 @@ def draw_hierarchy_block(layout, mc):
                               else ("INFO" if n_iss else "BLANK1"))
                 indent = "   " * depth
                 label_text = f"{indent}{name}"
-                if len(label_text) > 34:
-                    label_text = label_text[:31] + "…"
                 r = col.row(align=True)
                 r.label(text=label_text, icon=node_icon)
                 if n_iss:
@@ -749,10 +744,8 @@ def draw_naming_audit_block(layout, mc) -> None:
         sev_col.label(text=sev, icon=SEVERITY_ICON[sev])
         for result in group:
             row = sev_col.row(align=True)
-            nm = result.object_name
-            nm_short = nm if len(nm) <= 22 else nm[:19] + "…"
-            msg = result.message if len(result.message) <= 30 else result.message[:27] + "…"
-            row.label(text=f"   {nm_short}  —  {msg}")
+            # Full name and reason — no hard truncation
+            row.label(text=f"{result.object_name}  —  {result.message}")
             if result.check == "obj_naming":
                 op = row.operator(
                     "asset_checker.select_object",
