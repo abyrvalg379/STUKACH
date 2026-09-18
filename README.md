@@ -62,7 +62,7 @@ The **STUKACH** tab appears in the N-Panel (View3D and UV Editor).
 | Scale | BLOCKER | Scale not (1,1,1) |
 | Origin at Zero | INFO | Object pivot not at world origin |
 | Modifier Stack | WARNING | Unapplied modifiers (only Armature excluded) |
-| Uncentered Pivots | WARNING | Pivot further than 5% of the bbox diagonal from the bbox center |
+| Uncentered Pivots | INFO | Pivot further than 5% of the bbox diagonal from the bbox center |
 | Parent Geometry | WARNING | Object parented under another mesh object |
 
 ### SYMMETRY
