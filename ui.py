@@ -75,7 +75,7 @@ CHECK_SEVERITY: dict = {
     "starlike":              "WARNING",   # self-intersecting polygon outlines
     "missing_uvs":           "WARNING",   # unmapped faces break baking
     "trailing_numbers":      "WARNING",   # Cube.001-style name leftovers
-    "uncentered_pivots":     "WARNING",   # pivot far from bbox center
+    "uncentered_pivots":     "INFO",      # convention check (like origin_at_zero) — bbox-center pivots are not universal, e.g. buildings pivot at world zero
     "parent_geometry":       "WARNING",   # mesh parented under mesh breaks hierarchies
 
     # ── INFO — artist awareness, no pipeline impact ───────────────────────────
