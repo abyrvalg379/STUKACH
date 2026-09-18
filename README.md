@@ -4,7 +4,7 @@
 
 Pipeline asset validation addon for Blender.
 
-**Blender 5.2 · v1.6.5 · Author: Maksim Kovalev**
+**Blender 5.2 · v1.6.6 · Author: Maksim Kovalev**
 
 ---
 

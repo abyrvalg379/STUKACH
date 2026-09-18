@@ -230,6 +230,13 @@ class MeshCheckPreferences(AddonPreferences):
     col_naming_color:  FloatVectorProperty(name="Col naming",    default=(0.5, 0.5, 0.5), min=0.0, max=1.0, size=3, subtype="COLOR")
     mat_numbering_color: FloatVectorProperty(name="Mat numbering", default=(1.0, 0.4, 0.1), min=0.0, max=1.0, size=3, subtype="COLOR")
 
+    # Validator identity — used in reports and the Copy Summary signature
+    validator_name: StringProperty(
+        name="Validator Name",
+        default="",
+        description="Name written into validation reports (empty = system login)",
+    )
+
     # NAMING POLICY — object prefixes / suffixes
     naming_prefixes: CollectionProperty(type=NamingEntry, name="Object Required Prefixes")
     naming_suffixes: CollectionProperty(type=NamingEntry, name="Object Required Suffixes")
@@ -362,6 +369,10 @@ class MeshCheckPreferences(AddonPreferences):
                 op = row.operator(op_rm_suf, text="", icon="X", emboss=False)
                 op.index = i
             c.operator(op_add_suf, text="Add", icon="ADD")
+
+        vrow = box.row(align=True)
+        vrow.prop(self, "validator_name", text="Validator", icon="USER")
+        vrow.enabled = True
 
         _draw_policy_domain(
             box, "Objects",

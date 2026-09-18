@@ -401,6 +401,11 @@ def draw_coordinator_panel(layout, mc, context) -> None:
     scope_row.operator("asset_checker.validate_collection", text="Collection", icon="OUTLINER_COLLECTION")
     scope_row.operator("asset_checker.clear_validation",    text="",           icon="X")
 
+    # Coordinator-facing report — verdict format when coordinator_mode is on
+    act_row = layout.row(align=True)
+    act_row.scale_y = 0.9
+    act_row.operator("asset_checker.copy_summary", text="Copy Report", icon="COPYDOWN")
+
     layout.separator(factor=0.3)
 
     # ── Filtered checkers (BLOCKER + WARNING only) ────────────────────────────
@@ -1054,8 +1059,8 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
             sev_col.label(text=sev, icon=SEVERITY_ICON[sev])
             for result in group:
                 row = sev_col.row(align=True)
-                msg = result.message if len(result.message) <= 42 else result.message[:39] + "…"
-                row.label(text=f"   {result.object_name}  —  {msg}")
+                # Full text — hard-truncating made long names/messages unreadable
+                row.label(text=f"{result.object_name}  —  {result.message}")
                 # select button only makes sense for object-level issues
                 if result.check == "obj_naming":
                     op = row.operator(
