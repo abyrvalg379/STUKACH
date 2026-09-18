@@ -47,6 +47,8 @@ classes = (
     properties.ASSET_CHECKER_OT_fix_modifier_stack,
     properties.ASSET_CHECKER_OT_fix_merge_by_distance,
     properties.ASSET_CHECKER_OT_fix_zero_area,
+    properties.ASSET_CHECKER_OT_fix_lamina,
+    properties.ASSET_CHECKER_OT_fix_sharp_edges,
     properties.ASSET_CHECKER_OT_fix_mat_numbering,
     properties.ASSET_CHECKER_OT_fix_uv_single_set,
     properties.ASSET_CHECKER_OT_fix_naming,
