@@ -15,6 +15,7 @@ Entry points
 
 import re
 import bpy
+from .manager import alog
 from dataclasses import dataclass
 from typing import List
 
@@ -438,7 +439,7 @@ class NamingMarker:
                 col.hide_render = True
                 bpy.context.scene.collection.children.link(col)
             except Exception as exc:
-                print(f"[AssetChecker] NamingMarker._get_or_create: {exc}")
+                alog(f"[AssetChecker] NamingMarker._get_or_create: {exc}")
                 return None
         return col
 

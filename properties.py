@@ -1,5 +1,6 @@
 # -*- coding:utf-8 -*-
 import bpy
+from .manager import alog
 import bmesh
 import csv
 import json
@@ -653,7 +654,7 @@ class ASSET_CHECKER_OT_fix_transforms(bpy.types.Operator):
                     bpy.ops.object.transform_apply(rotation=True)
                 fixed += 1
             except Exception as e:
-                print(f"[AssetChecker] fix_transforms {obj.name}: {e}")
+                alog(f"[AssetChecker] fix_transforms {obj.name}: {e}")
             finally:
                 _restore_accessible(obj, state)
         MeshCheck.update_mc_object_datas("non_applied_transform")
@@ -680,7 +681,7 @@ class ASSET_CHECKER_OT_fix_scale(bpy.types.Operator):
                     bpy.ops.object.transform_apply(scale=True)
                 fixed += 1
             except Exception as e:
-                print(f"[AssetChecker] fix_scale {obj.name}: {e}")
+                alog(f"[AssetChecker] fix_scale {obj.name}: {e}")
             finally:
                 _restore_accessible(obj, state)
         MeshCheck.update_mc_object_datas("scale")
@@ -721,7 +722,7 @@ class ASSET_CHECKER_OT_fix_merge_by_distance(bpy.types.Operator):
                 obj.select_set(False)
                 fixed += 1
             except Exception as e:
-                print(f"[AssetChecker] fix_merge {obj.name}: {e}")
+                alog(f"[AssetChecker] fix_merge {obj.name}: {e}")
                 try:
                     bpy.ops.object.mode_set(mode='OBJECT')
                 except Exception:
@@ -754,7 +755,7 @@ class ASSET_CHECKER_OT_fix_merge_by_distance(bpy.types.Operator):
                 obj.select_set(False)
                 merged_objs += 1
             except Exception as e:
-                print(f"[AssetChecker] fix_merge(dup) {obj.name}: {e}")
+                alog(f"[AssetChecker] fix_merge(dup) {obj.name}: {e}")
                 try:
                     bpy.ops.object.mode_set(mode='OBJECT')
                 except Exception:
@@ -830,7 +831,7 @@ class ASSET_CHECKER_OT_fix_origin(bpy.types.Operator):
                     bpy.ops.object.transform_apply(location=True)
                 fixed += 1
             except Exception as e:
-                print(f"[AssetChecker] fix_origin {obj.name}: {e}")
+                alog(f"[AssetChecker] fix_origin {obj.name}: {e}")
             finally:
                 _restore_accessible(obj, state)
         MeshCheck.update_mc_object_datas("origin_at_zero")
@@ -867,7 +868,7 @@ class ASSET_CHECKER_OT_fix_modifier_stack(bpy.types.Operator):
                         bpy.ops.object.modifier_apply(modifier=mod_name)
                 fixed += 1
             except Exception as e:
-                print(f"[AssetChecker] fix_modifier_stack {obj.name}: {e}")
+                alog(f"[AssetChecker] fix_modifier_stack {obj.name}: {e}")
             finally:
                 _restore_accessible(obj, state)
 
@@ -969,7 +970,7 @@ class ASSET_CHECKER_OT_fix_zero_area(bpy.types.Operator):
                 obj.select_set(False)
                 fixed += 1
             except Exception as e:
-                print(f"[AssetChecker] fix_zero_area {obj.name}: {e}")
+                alog(f"[AssetChecker] fix_zero_area {obj.name}: {e}")
                 try:
                     bpy.ops.object.mode_set(mode='OBJECT')
                 except Exception:
@@ -1083,7 +1084,7 @@ class ASSET_CHECKER_OT_fix_category(bpy.types.Operator):
                 getattr(getattr(bpy.ops, mod), op)()
                 ran += 1
             except Exception as e:
-                print(f"[AssetChecker] fix_category {check}: {e}")
+                alog(f"[AssetChecker] fix_category {check}: {e}")
 
         self.report({'INFO'}, f"Ran {ran} fix(es) in {self.category}")
         return {'FINISHED'}
@@ -1447,6 +1448,20 @@ class ASSET_CHECKER_OT_validate_collection(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class ASSET_CHECKER_OT_copy_debug_info(bpy.types.Operator):
+    """Copy diagnostic info to the clipboard: versions, session state,
+    active checks and the recent addon log. Attach it to bug reports."""
+    bl_idname  = "asset_checker.copy_debug_info"
+    bl_label   = "Copy Debug Info"
+    bl_options = {'REGISTER'}
+
+    def execute(self, context):
+        from .manager import get_debug_info
+        context.window_manager.clipboard = get_debug_info()
+        self.report({'INFO'}, "Debug info copied to clipboard")
+        return {'FINISHED'}
+
+
 class ASSET_CHECKER_OT_clear_validation(bpy.types.Operator):
     """Clear all validated objects and switch back to Selection mode"""
     bl_idname  = "asset_checker.clear_validation"
@@ -1732,7 +1747,7 @@ class ASSET_CHECKER_OT_fix_unused_data(bpy.types.Operator):
                         obj.vertex_groups.remove(vg)
                         removed_vgroups += 1
             except Exception as e:
-                print(f"[AssetChecker] fix_unused_data(vgroups) {obj.name}: {e}")
+                alog(f"[AssetChecker] fix_unused_data(vgroups) {obj.name}: {e}")
             finally:
                 _restore_visible(obj, state)
 
@@ -1750,7 +1765,7 @@ class ASSET_CHECKER_OT_fix_unused_data(bpy.types.Operator):
                         me.attributes.remove(attr)
                         removed_attrs += 1
             except Exception as e:
-                print(f"[AssetChecker] fix_unused_data {obj_name}: {e}")
+                alog(f"[AssetChecker] fix_unused_data {obj_name}: {e}")
             finally:
                 _restore_visible(obj, state)
             if me_users > 1:
@@ -1789,7 +1804,7 @@ class ASSET_CHECKER_OT_fix_mesh_data_naming(bpy.types.Operator):
             try:
                 obj.data.name = checker._target
             except Exception as e:
-                print(f"[AssetChecker] fix_mesh_data_naming {obj.name}: {e}")
+                alog(f"[AssetChecker] fix_mesh_data_naming {obj.name}: {e}")
                 continue
             renamed.append(f"{old} → {obj.data.name}")
 
@@ -2723,7 +2738,7 @@ class MeshCheckProperties(PropertyGroup):
                     from .ui import draw_hierarchy_block
                     draw_hierarchy_block(box, self)
                 except Exception as _he:
-                    print(f"[AssetChecker] hierarchy block draw error: {_he}")
+                    alog(f"[AssetChecker] hierarchy block draw error: {_he}")
 
                 # ── Naming Audit sub-section ────────────────────────────────
                 box.separator(factor=0.3)
@@ -2731,4 +2746,4 @@ class MeshCheckProperties(PropertyGroup):
                     from .ui import draw_naming_audit_block
                     draw_naming_audit_block(box, self)
                 except Exception as _ne:
-                    print(f"[AssetChecker] naming audit block draw error: {_ne}")
+                    alog(f"[AssetChecker] naming audit block draw error: {_ne}")

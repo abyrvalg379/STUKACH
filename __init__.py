@@ -52,6 +52,7 @@ classes = (
     properties.ASSET_CHECKER_OT_fix_naming,
     properties.ASSET_CHECKER_OT_fix_unused_data,
     properties.ASSET_CHECKER_OT_fix_mesh_data_naming,
+    properties.ASSET_CHECKER_OT_copy_debug_info,
     properties.ASSET_CHECKER_OT_fix_mat_suffix,
     properties.ASSET_CHECKER_OT_fix_category,
     properties.ASSET_CHECKER_OT_export_report,

@@ -1345,6 +1345,12 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
         if cp_exists:
             d_right.operator("asset_checker.clear_checkpoint", text="", icon="X", emboss=False)
 
+        dbg_row = exp_box.row(align=True)
+        dbg_row.scale_y = 0.8
+        dbg_row.alignment = "RIGHT"
+        dbg_row.operator("asset_checker.copy_debug_info",
+                         text="Debug Info", icon="CONSOLE", emboss=False)
+
 
 class ASSET_CHECKER_PT_UV_Panel(bpy.types.Panel):
     """STUKACH UV-панель в редакторе UV."""
