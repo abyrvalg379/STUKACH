@@ -46,6 +46,7 @@ def get_debug_info() -> str:
         f"STUKACH v{get_addon_version()}",
         f"Blender {bpy.app.version_string} | {_platform.system()} {_platform.release()} | Python {_platform.python_version()}",
         f"Mode: {bpy.context.object.mode if bpy.context.object else '?'} | Scope: {MeshCheck._scope} | Tracked: {len(MeshCheck.objects)}",
+        "Active validator: " + (__import__("getpass").getuser()),
         "Active checks: " + (", ".join(c for c in _AC_CHECK_PROPS
                                         if getattr(bpy.context.window_manager.mesh_check_props, c, False)) or "none"),
         "--- recent log ---",

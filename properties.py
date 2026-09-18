@@ -1534,6 +1534,14 @@ class ASSET_CHECKER_OT_uv_rename(bpy.types.Operator):
         return {'FINISHED'}
 
 
+def _validator_label() -> str:
+    """Display name for reports: Preferences field, fallback to OS login."""
+    import getpass
+    prefs = _get_addon_prefs(bpy.context)
+    name = (getattr(prefs, "validator_name", "") or "").strip() if prefs else ""
+    return name or getpass.getuser()
+
+
 class ASSET_CHECKER_OT_copy_summary(bpy.types.Operator):
     """Copy a compact validation summary to the clipboard"""
     bl_idname  = "asset_checker.copy_summary"
@@ -1542,6 +1550,7 @@ class ASSET_CHECKER_OT_copy_summary(bpy.types.Operator):
 
     def execute(self, context):
         from .manager import MeshCheck, get_addon_version
+        from .ui import CHECK_SEVERITY
         mc = context.window_manager.mesh_check_props
 
         lines = [f"STUKACH v{get_addon_version()} — validation summary"]
@@ -1555,7 +1564,6 @@ class ASSET_CHECKER_OT_copy_summary(bpy.types.Operator):
 
         rows = []
         total_b = total_w = 0
-        from .ui import CHECK_SEVERITY
         for o, mc_obj in MeshCheck.objects.items():
             try:
                 o.name
@@ -1581,14 +1589,47 @@ class ASSET_CHECKER_OT_copy_summary(bpy.types.Operator):
                 rows.append((b, w, o.name, worst))
         rows.sort(key=lambda t: (-t[0], -t[1], t[2]))
 
-        lines.append(f"issues: {total_b} blockers, {total_w} warnings")
-        for b, w, name, worst in rows[:10]:
-            line = f"  {name}: {b}B/{w}W"
-            if worst:
-                line += f" (top: {worst[1]})"
-            lines.append(line)
-        if len(rows) > 10:
-            lines.append(f"  …and {len(rows) - 10} more objects")
+        from datetime import datetime as _dt
+
+        if mc.coordinator_mode:
+            # Coordinator report — verdict for the rework task (Cerebro etc.)
+            status = "READY" if not total_b and not total_w else ("BLOCKED" if total_b else "REVIEW")
+            lines[0] = (f"STUKACH v{get_addon_version()} — VALIDATION: {status} "
+                        f"({total_b} blockers, {total_w} warnings)")
+            if total_b:
+                lines.append("")
+                lines.append("BLOCKERS (fix first):")
+                blockers = [r for r in rows if r[0] > 0]
+                for b, w, name, worst in blockers[:10]:
+                    line = f"  {name}: {b}B"
+                    if worst:
+                        line += f" (top: {worst[1]})"
+                    lines.append(line)
+                if len(blockers) > 10:
+                    lines.append(f"  …and {len(blockers) - 10} more objects")
+            if total_w:
+                lines.append("")
+                lines.append("WARNINGS:")
+                warns = [r for r in rows if r[0] == 0 and r[1] > 0]
+                for b, w, name, worst in warns[:10]:
+                    line = f"  {name}: {w}W"
+                    if worst:
+                        line += f" (top: {worst[1]})"
+                    lines.append(line)
+                if len(warns) > 10:
+                    lines.append(f"  …and {len(warns) - 10} more objects")
+        else:
+            lines.append(f"issues: {total_b} blockers, {total_w} warnings")
+            for b, w, name, worst in rows[:10]:
+                line = f"  {name}: {b}B/{w}W"
+                if worst:
+                    line += f" (top: {worst[1]})"
+                lines.append(line)
+            if len(rows) > 10:
+                lines.append(f"  …and {len(rows) - 10} more objects")
+
+        lines.append(f"Validated by: {_validator_label()} | "
+                     f"{_dt.now().strftime('%Y-%m-%d %H:%M')} | Blender {bpy.app.version_string}")
 
         context.window_manager.clipboard = "\n".join(lines)
         self.report({'INFO'}, f"Summary copied ({len(rows)} objects with issues)")
