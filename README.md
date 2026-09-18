@@ -126,6 +126,9 @@ The **STUKACH** tab appears in the N-Panel (View3D and UV Editor).
 - **Checkpoints** — save and restore validation state
 - **Ignore System** — suppress individual checks per object
 - **Scene Units Check** — validates METRIC / METERS / scale 1.0
+- **Session Log + Debug Info** — addon diagnostics go to `%TEMP%/stukach.log`; one button copies a diagnostic snapshot to the clipboard
+- **Validator Signature** — reports are signed with the validator name (Preferences → Validator)
+- **Mode-aware Reporting** — artist mode copies a compact summary, coordinator mode copies a formal verdict (READY / REVIEW / BLOCKED with fix-first sections)
 
 ---
 

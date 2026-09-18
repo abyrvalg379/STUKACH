@@ -52,6 +52,7 @@ def get_debug_info() -> str:
         "--- recent log ---",
     ]
     lines.extend(LOG_RING or ["(empty)"])
+    lines.append(f"Session log file: {_LOG_PATH}")
     return "\n".join(lines)
 
 

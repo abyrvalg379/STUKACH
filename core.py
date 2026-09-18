@@ -1384,7 +1384,7 @@ class NamingCheck(BaseCheck):
 
         # Build policy: addon prefs base + inline panel fields
         try:
-            addon_name = __name__.split(".")[0]
+            addon_name = __name__.rsplit(".", 1)[0]
             prefs = bpy.context.preferences.addons[addon_name].preferences
         except Exception:
             prefs = None
@@ -1513,7 +1513,7 @@ class ColNaming(BaseCheck):
 
         # Build policy: addon prefs base + inline panel fields
         try:
-            addon_name = __name__.split(".")[0]
+            addon_name = __name__.rsplit(".", 1)[0]
             prefs = bpy.context.preferences.addons[addon_name].preferences
         except Exception:
             prefs = None
@@ -1941,7 +1941,7 @@ class UVTexelDensity(BaseCheck):
         if self._world_area < 1e-10:
             return "Texel Density: N/A"
         try:
-            addon_name = __name__.split(".")[0]
+            addon_name = __name__.rsplit(".", 1)[0]
             prefs = bpy.context.preferences.addons[addon_name].preferences
             target_td = getattr(prefs, 'uv_td_target', 0.0)
         except Exception:
@@ -2034,7 +2034,7 @@ class UVTexelDensity(BaseCheck):
 
         # ── Preferences ─────────────────────────────────────────────────────
         try:
-            addon_name = __name__.split(".")[0]
+            addon_name = __name__.rsplit(".", 1)[0]
             prefs = bpy.context.preferences.addons[addon_name].preferences
             tex_size  = self._TD_TEX_SIZES.get(getattr(prefs, 'uv_td_texture_size', '2'), 2048)
             target_td = getattr(prefs, 'uv_td_target',    0.0)
@@ -2129,7 +2129,7 @@ class UVStretch(BaseCheck):
 
         # Threshold from preferences, fallback to default
         try:
-            addon_name = __name__.split(".")[0]
+            addon_name = __name__.rsplit(".", 1)[0]
             prefs = bpy.context.preferences.addons[addon_name].preferences
             threshold = getattr(prefs, 'uv_stretch_threshold', _UV_STRETCH_DEFAULT_THRESHOLD)
         except Exception:
@@ -3440,7 +3440,7 @@ class FaceAspectRatio(BaseCheck):
         wm  = obj.matrix_world
 
         try:
-            addon_name = __name__.split(".")[0]
+            addon_name = __name__.rsplit(".", 1)[0]
             prefs = bpy.context.preferences.addons[addon_name].preferences
             threshold = float(getattr(prefs, 'face_aspect_ratio_threshold',
                                       self._DEFAULT_THRESHOLD))

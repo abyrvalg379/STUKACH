@@ -516,7 +516,7 @@ class ASSET_CHECKER_OT_run_naming_audit(bpy.types.Operator):
     bl_options = {'REGISTER'}
 
     def execute(self, context):
-        addon_name = __name__.split(".")[0]
+        addon_name = __name__.rsplit(".", 1)[0]
         try:
             prefs  = context.preferences.addons[addon_name].preferences
             policy = get_active_policy(prefs)
@@ -951,7 +951,7 @@ class ASSET_CHECKER_OT_scan_hierarchy(bpy.types.Operator):
     bl_options = {'REGISTER'}
 
     def execute(self, context):
-        addon_name = __name__.split(".")[0]
+        addon_name = __name__.rsplit(".", 1)[0]
         try:
             prefs = context.preferences.addons[addon_name].preferences
         except Exception:
