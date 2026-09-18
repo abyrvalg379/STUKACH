@@ -7,6 +7,53 @@ from gpu_extras.batch import batch_for_shader
 from .core import CHECK_TYPES
 
 
+# ── Session log ──────────────────────────────────────────────────────────────
+# All addon diagnostics go here (print + in-memory ring + session file), so
+# post-mortem debugging does not depend on the console being open. The ring is
+# what 'Copy Debug Info' puts on the clipboard.
+
+import time as _time
+import os as _os
+import platform as _platform
+import tempfile as _tempfile
+from collections import deque as _deque
+
+LOG_RING: _deque = _deque(maxlen=40)
+_LOG_PATH: str = _os.path.join(_tempfile.gettempdir(), "stukach.log")
+
+
+def alog(msg: str) -> None:
+    """Report an addon diagnostic: console + ring buffer + session log file.
+
+    Never raises — logging must not be able to take the addon down."""
+    try:
+        line = f"[AssetChecker] {_time.strftime('%H:%M:%S')}  {msg}"
+        print(line)
+        LOG_RING.append(line)
+        path = _LOG_PATH
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+        if _os.path.getsize(path) > 262_144:   # crude rotation at ~256 KB
+            _os.replace(path, path + ".old")
+    except Exception:
+        pass
+
+
+def get_debug_info() -> str:
+    """One-clipboard diagnostic snapshot: versions, session state, recent log."""
+    import bpy
+    lines = [
+        f"STUKACH v{get_addon_version()}",
+        f"Blender {bpy.app.version_string} | {_platform.system()} {_platform.release()} | Python {_platform.python_version()}",
+        f"Mode: {bpy.context.object.mode if bpy.context.object else '?'} | Scope: {MeshCheck._scope} | Tracked: {len(MeshCheck.objects)}",
+        "Active checks: " + (", ".join(c for c in _AC_CHECK_PROPS
+                                        if getattr(bpy.context.window_manager.mesh_check_props, c, False)) or "none"),
+        "--- recent log ---",
+    ]
+    lines.extend(LOG_RING or ["(empty)"])
+    return "\n".join(lines)
+
+
 def _apply_obj_ignore(checker, obj, name: str) -> None:
     """Set or clear the ``_ignored`` flag on *checker* based on the object's ignore list.
 
@@ -171,7 +218,7 @@ class MeshCheckObject:
         try:
             self._mat_udim_map = build_material_udim_map(self._object, bm)
         except Exception as e:
-            print(f"[AssetChecker] mat_udim_map error: {e}")
+            alog(f"[AssetChecker] mat_udim_map error: {e}")
         UVCheckGPU._mat_highlight_dirty = True
 
         ran_uv_padding = False
@@ -194,14 +241,14 @@ class MeshCheckObject:
                 if name == 'uv_padding':
                     ran_uv_padding = True
             except Exception as e:
-                print(f"[AssetChecker] Error in {name}: {e}")
+                alog(f"[AssetChecker] Error in {name}: {e}")
 
         # Re-run global padding after this object's UV data is refreshed
         if ran_uv_padding:
             try:
                 MeshCheck._run_global_uv_padding()
             except Exception as e:
-                print(f"[AssetChecker] Global UV padding (live) error: {e}")
+                alog(f"[AssetChecker] Global UV padding (live) error: {e}")
 
     @property
     def bm_object(self):
@@ -372,7 +419,7 @@ class MeshCheckGPU:
                                 gpu.state.depth_test_set('LESS')
 
                     except Exception as e:
-                        print(f"[AssetChecker] Draw error in {check}: {e}")
+                        alog(f"[AssetChecker] Draw error in {check}: {e}")
         finally:
             # Always restore GPU state so Blender's own rendering is not affected.
             gpu.state.blend_set("NONE")
@@ -578,7 +625,7 @@ class MeshCheck:
                 try:
                     cls.objects[obj] = MeshCheckObject(obj)
                 except Exception as e:
-                    print(f"[AssetChecker] Error adding {obj.name}: {e}")
+                    alog(f"[AssetChecker] Error adding {obj.name}: {e}")
             if wm is not None:
                 wm.progress_update(i + 1)
         if wm is not None and total:
@@ -586,11 +633,11 @@ class MeshCheck:
         try:
             cls._run_inter_object_z_fighting()
         except Exception as e:
-            print(f"[AssetChecker] Inter-object Z-fighting error: {e}")
+            alog(f"[AssetChecker] Inter-object Z-fighting error: {e}")
         try:
             cls._run_global_uv_padding()
         except Exception as e:
-            print(f"[AssetChecker] Global UV padding error: {e}")
+            alog(f"[AssetChecker] Global UV padding error: {e}")
 
     @classmethod
     def add_collection_objects_from(cls, col, wm=None):
@@ -607,7 +654,7 @@ class MeshCheck:
                 try:
                     cls.objects[obj] = MeshCheckObject(obj)
                 except Exception as e:
-                    print(f"[AssetChecker] Error adding {obj.name}: {e}")
+                    alog(f"[AssetChecker] Error adding {obj.name}: {e}")
             if wm is not None:
                 wm.progress_update(i + 1)
         if wm is not None and total:
@@ -615,11 +662,11 @@ class MeshCheck:
         try:
             cls._run_inter_object_z_fighting()
         except Exception as e:
-            print(f"[AssetChecker] Inter-object Z-fighting error: {e}")
+            alog(f"[AssetChecker] Inter-object Z-fighting error: {e}")
         try:
             cls._run_global_uv_padding()
         except Exception as e:
-            print(f"[AssetChecker] Global UV padding error: {e}")
+            alog(f"[AssetChecker] Global UV padding error: {e}")
 
     @classmethod
     def set_mode(cls, s):
@@ -634,7 +681,7 @@ class MeshCheck:
         try:
             cls._run_inter_object_z_fighting()
         except Exception as e:
-            print(f"[AssetChecker] Inter-object Z-fighting error: {e}")
+            alog(f"[AssetChecker] Inter-object Z-fighting error: {e}")
 
     @classmethod
     def remove_mesh_check_object(cls, o):
@@ -848,21 +895,21 @@ class MeshCheck:
                     checker._gpu_dirty = True
                     checker._uv_gpu_dirty = True
                 except Exception as e:
-                    print(f"[AssetChecker] Update error in {name}: {e}")
+                    alog(f"[AssetChecker] Update error in {name}: {e}")
 
         # Inter-object Z-fighting (runs after all intra checks complete)
         if name == "z_fighting":
             try:
                 cls._run_inter_object_z_fighting()
             except Exception as e:
-                print(f"[AssetChecker] Inter-object Z-fighting error: {e}")
+                alog(f"[AssetChecker] Inter-object Z-fighting error: {e}")
 
         # Cross-object UV padding (runs after all per-object set_datas complete)
         if name == "uv_padding":
             try:
                 cls._run_global_uv_padding()
             except Exception as e:
-                print(f"[AssetChecker] Global UV padding error: {e}")
+                alog(f"[AssetChecker] Global UV padding error: {e}")
 
         # Sync the outliner quarantine collection after naming check
         if name == "obj_naming":
@@ -877,7 +924,7 @@ class MeshCheck:
                     ]
                     NamingMarker.update(problem_objs)
             except Exception as e:
-                print(f"[AssetChecker] NamingMarker update error: {e}")
+                alog(f"[AssetChecker] NamingMarker update error: {e}")
 
     @staticmethod
     def callback(scene):
@@ -968,7 +1015,7 @@ class MeshCheck:
                             transform_changed=True,
                         )
                 except Exception as e:
-                    print(f"[AssetChecker] transform dirty check {o.name}: {e}")
+                    alog(f"[AssetChecker] transform dirty check {o.name}: {e}")
 
         elif m == "EDIT" and MeshCheck.poll():
             # Only flag objects with geometry updates — the heavy BMesh work
@@ -1069,7 +1116,7 @@ class MeshCheck:
                 if mc is not None:
                     mc.validation_progress = 1.0
         except Exception as e:
-            print(f"[AssetChecker] validation flush error: {e}")
+            alog(f"[AssetChecker] validation flush error: {e}")
         return None
 
     @classmethod
@@ -1092,7 +1139,7 @@ class MeshCheck:
                         cls._repopulate_by_scope()
                         cls._scene_stale = False
                     except Exception as e:
-                        print(f"[AssetChecker] live repopulate: {e}")
+                        alog(f"[AssetChecker] live repopulate: {e}")
                 else:
                     cls._live_repopulate = True      # still throttled — retry
                     cls._scene_stale = True
@@ -1119,13 +1166,13 @@ class MeshCheck:
                     continue
                 except Exception as e:
                     name = getattr(mc_obj._object, 'name', '?')
-                    print(f"[AssetChecker] live flush {name}: {e}")
+                    alog(f"[AssetChecker] live flush {name}: {e}")
 
             # More left in the queue — keep the loop going on the next tick.
             if cls._live_dirty:
                 cls._schedule_live_flush()
         except Exception as e:
-            print(f"[AssetChecker] live flush error: {e}")
+            alog(f"[AssetChecker] live flush error: {e}")
         return None
 
 
@@ -1201,7 +1248,7 @@ def _ac_save_pre(*args):
         # Scope is intentionally NOT persisted — it always resets to SELECTED on Run.
         scene[_AC_STATE_KEY] = _json.dumps(state, ensure_ascii=False)
     except Exception as e:
-        print(f"[AssetChecker] save_pre error: {e}")
+        alog(f"[AssetChecker] save_pre error: {e}")
 
 
 @bpy.app.handlers.persistent
@@ -1233,9 +1280,9 @@ def _ac_load_post(*args):
                 pass
 
         MeshCheck._state_restored = True
-        print(f"[AssetChecker] Settings restored from '{scene.name}' ({restored} props).")
+        alog(f"[AssetChecker] Settings restored from '{scene.name}' ({restored} props).")
     except Exception as e:
-        print(f"[AssetChecker] load_post error: {e}")
+        alog(f"[AssetChecker] load_post error: {e}")
 
 
 def register_state_handlers() -> None:
