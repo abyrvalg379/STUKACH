@@ -3079,14 +3079,6 @@ class MeshCheckProperties(PropertyGroup):
                     icon="VIEWZOOM",
                 )
 
-                # ── Hierarchy validator sub-section ────────────────────────
-                box.separator(factor=0.3)
-                try:
-                    from .ui import draw_hierarchy_block
-                    draw_hierarchy_block(box, self)
-                except Exception as _he:
-                    alog(f"[AssetChecker] hierarchy block draw error: {_he}")
-
                 # ── Naming Audit sub-section ────────────────────────────────
                 box.separator(factor=0.3)
                 try:
