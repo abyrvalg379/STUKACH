@@ -1,7 +1,8 @@
 # -*- coding:utf-8 -*-
 import bpy
 from bpy.types import AddonPreferences, PropertyGroup
-from bpy.props import FloatVectorProperty, FloatProperty, StringProperty, CollectionProperty, IntProperty, EnumProperty
+from bpy.props import (FloatVectorProperty, FloatProperty, StringProperty,
+                       CollectionProperty, IntProperty, EnumProperty, BoolProperty)
 
 
 # ── Naming policy entry (one prefix or suffix) ────────────────────────────────
@@ -148,6 +149,33 @@ class ASSET_CHECKER_OT_mesh_naming_remove_suffix(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class ASSET_CHECKER_OT_hierarchy_layer_add(bpy.types.Operator):
+    """Add a functional layer name to the Hierarchy whitelist"""
+    bl_idname = "asset_checker.hierarchy_layer_add"
+    bl_label = "Add Layer"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        prefs = context.preferences.addons[__name__.rsplit(".", 1)[0]].preferences
+        prefs.hierarchy_layer_names.add()
+        return {'FINISHED'}
+
+
+class ASSET_CHECKER_OT_hierarchy_layer_remove(bpy.types.Operator):
+    """Remove the selected functional layer from the Hierarchy whitelist"""
+    bl_idname = "asset_checker.hierarchy_layer_remove"
+    bl_label = "Remove Layer"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    index: IntProperty()
+
+    def execute(self, context):
+        prefs = context.preferences.addons[__name__.rsplit(".", 1)[0]].preferences
+        if 0 <= self.index < len(prefs.hierarchy_layer_names):
+            prefs.hierarchy_layer_names.remove(self.index)
+        return {'FINISHED'}
+
+
 def _uv_padding_settings_update(self, context):
     """Re-run cross-object padding check when any threshold setting changes.
     Called automatically by Blender when uv_padding_shell_px / tile_px /
@@ -245,6 +273,19 @@ class MeshCheckPreferences(AddonPreferences):
     col_naming_suffixes: CollectionProperty(type=NamingEntry, name="Collection Required Suffixes")
     # NAMING POLICY — mesh datablock suffixes (data names like 'body_mesh')
     mesh_naming_suffixes: CollectionProperty(type=NamingEntry, name="Mesh Data Required Suffixes")
+
+    # HIERARCHY VALIDATOR — functional layer whitelist, group suffix, status contribution
+    hierarchy_in_status: BoolProperty(
+        name="Hierarchy in Asset Status",
+        default=True,
+        description="Hierarchy scan findings affect the asset status: errors escalate to CRITICAL, warnings to REVIEW",
+    )
+    hierarchy_grp_suffix: StringProperty(
+        name="Group Suffix",
+        default="_grp",
+        description="Required suffix for group empties in the Hierarchy validator (empty = '_grp')",
+    )
+    hierarchy_layer_names: CollectionProperty(type=NamingEntry, name="Functional Layer Whitelist")
 
     # UV PADDING settings
     uv_padding_texture_size: EnumProperty(
@@ -410,6 +451,25 @@ class MeshCheckPreferences(AddonPreferences):
             op = r.operator(op_rm, text="", icon="X", emboss=False)
             op.index = i
         box_m.operator(op_add, text="Add", icon="ADD")
+
+        # Hierarchy validator — layers whitelist + group suffix + status switch
+        box_h = box.box()
+        box_h.label(text="Hierarchy", icon="EMPTY_AXIS")
+        row = box_h.row(align=True)
+        row.label(text="Group suffix:")
+        row.prop(self, "hierarchy_grp_suffix", text="")
+        box_h.prop(self, "hierarchy_in_status", text="Findings affect Asset Status")
+        col = box_h.column(align=True)
+        col.label(text="Functional layer whitelist:")
+        for i, entry in enumerate(self.hierarchy_layer_names):
+            r = col.row(align=True)
+            r.prop(entry, "value", text="")
+            op = r.operator("asset_checker.hierarchy_layer_remove", text="", icon="X", emboss=False)
+            op.index = i
+        col.operator("asset_checker.hierarchy_layer_add", text="Add Layer", icon="ADD")
+        hint = box_h.row()
+        hint.enabled = False
+        hint.label(text="Adds to the 24 built-in layers (static, geo, …)", icon="INFO")
 
         hint = box.row()
         hint.enabled = False

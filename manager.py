@@ -1175,9 +1175,42 @@ class MeshCheck:
             # More left in the queue — keep the loop going on the next tick.
             if cls._live_dirty:
                 cls._schedule_live_flush()
+            else:
+                # Hierarchy auto-acceptance: while Live is on and a scan exists,
+                # re-scan as soon as the scene fingerprint changes — keeps the
+                # hierarchy report fresh after FBX imports, renames, reparents.
+                try:
+                    cls._rescan_hierarchy_if_stale(mc)
+                except Exception as e:
+                    alog(f"[AssetChecker] hierarchy auto-scan: {e}")
         except Exception as e:
             alog(f"[AssetChecker] live flush error: {e}")
         return None
+
+    @classmethod
+    def _rescan_hierarchy_if_stale(cls, mc) -> bool:
+        """Re-run the hierarchy scan in Live mode when the scene changed.
+
+        Cheap (O(N) name/type/parent tuples, no mesh access) and only fires
+        when a previous scan exists and live_update is enabled.  Returns True
+        when a re-scan happened.
+        """
+        if not getattr(mc, 'live_update', False):
+            return False
+        result = cls.hierarchy_result
+        if result is None:
+            return False
+        from .naming import HierarchyValidator
+        if not HierarchyValidator.is_stale(result):
+            return False
+
+        addon_name = __name__.rsplit(".", 1)[0]
+        try:
+            prefs = bpy.context.preferences.addons[addon_name].preferences
+        except Exception:
+            prefs = None
+        cls.hierarchy_result = HierarchyValidator.scan_scene(prefs=prefs)
+        return True
 
 
 # ── Session state persistence ─────────────────────────────────────────────────
