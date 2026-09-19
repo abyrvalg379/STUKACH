@@ -600,6 +600,7 @@ _ROLE_FUNCTIONAL_LAYER = "functional_layer"  # EMPTY, child of asset_root
 _ROLE_PART_GROUP       = "part_group"        # EMPTY, child of functional_layer / part_group
 _ROLE_MESH_UNDER_GROUP = "mesh_group"        # MESH, child of part_group
 _ROLE_MESH_DIRECT      = "mesh_direct"       # MESH, child of functional_layer / asset_root
+_ROLE_OTHER            = "other"             # ARMATURE / LIGHT / CAMERA inside the hierarchy — not a hierarchy concern
 _ROLE_ORPHAN_EMPTY     = "orphan_empty"      # EMPTY not reachable from any asset root
 _ROLE_ORPHAN_MESH      = "orphan_mesh"       # MESH not reachable from any asset root
 _ROLE_SCENE            = "scene"             # pseudo-role for scene-level issues
@@ -610,6 +611,7 @@ _ROLE_ICONS: dict = {
     _ROLE_PART_GROUP:       "OUTLINER_OB_EMPTY",
     _ROLE_MESH_UNDER_GROUP: "MESH_DATA",
     _ROLE_MESH_DIRECT:      "MESH_DATA",
+    _ROLE_OTHER:            "OBJECT_DATA",
     _ROLE_ORPHAN_EMPTY:     "QUESTION",
     _ROLE_ORPHAN_MESH:      "QUESTION",
     _ROLE_SCENE:            "WORLD",
@@ -621,6 +623,7 @@ _ROLE_LABELS: dict = {
     _ROLE_PART_GROUP:       "Part Group",
     _ROLE_MESH_UNDER_GROUP: "Mesh (grouped)",
     _ROLE_MESH_DIRECT:      "Mesh (direct)",
+    _ROLE_OTHER:            "Other (armature, light, camera…)",
     _ROLE_ORPHAN_EMPTY:     "Orphan Empty",
     _ROLE_ORPHAN_MESH:      "Orphan Mesh",
 }
@@ -819,8 +822,10 @@ class HierarchyValidator:
                     # MESH directly under functional_layer or asset_root
                     role = _ROLE_MESH_DIRECT
             else:
-                # ARMATURE, CAMERA, LIGHT, … — not a hierarchy concern
-                role = _ROLE_ORPHAN_MESH
+                # ARMATURE, CAMERA, LIGHT, … inside the hierarchy — not a
+                # hierarchy concern (user: lights/cameras don't participate
+                # in asset creation; armatures are legit under rig layers).
+                role = _ROLE_OTHER
 
             node_roles[name] = role
             for child in _children_raw.get(obj, []):
