@@ -277,8 +277,11 @@ class MeshCheckPreferences(AddonPreferences):
     # HIERARCHY VALIDATOR — functional layer whitelist, group suffix, status contribution
     hierarchy_in_status: BoolProperty(
         name="Hierarchy in Asset Status",
-        default=True,
-        description="Hierarchy scan findings affect the asset status: errors escalate to CRITICAL, warnings to REVIEW",
+        default=False,
+        description="Hierarchy scan findings affect the asset status: errors escalate to CRITICAL, "
+                    "warnings to REVIEW. Off by default — the hierarchy is assembled AFTER the asset "
+                    "is finished, so on work-in-progress scenes this gate would always fail. "
+                    "Enable it at the assembly / acceptance stage",
     )
     hierarchy_grp_suffix: StringProperty(
         name="Group Suffix",
