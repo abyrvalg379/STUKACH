@@ -868,7 +868,10 @@ class HierarchyValidator:
         # Per-object validation
         for obj in scene_objects:
             role = node_roles.get(obj.name, _ROLE_ORPHAN_MESH)
-            issues.extend(cls._validate_node(obj, role, layer_names, grp_suffix))
+            issues.extend(cls._validate_node(
+                obj, role, layer_names, grp_suffix,
+                has_children=bool(_children_raw.get(obj)),
+            ))
 
         # A fresh scan invalidates the staleness cache — the UI badge must
         # clear immediately, not after the 1 s throttle window.
@@ -887,7 +890,8 @@ class HierarchyValidator:
     # ── Node validator ─────────────────────────────────────────────────────────
 
     @classmethod
-    def _validate_node(cls, obj, role: str, layer_names: set, grp_suffix: str = "_grp") -> list:
+    def _validate_node(cls, obj, role: str, layer_names: set, grp_suffix: str = "_grp",
+                       has_children: bool = True) -> list:
         """Return HierarchyIssue list for a single object."""
         issues  = []
         name    = obj.name
@@ -942,6 +946,18 @@ class HierarchyValidator:
                     obj_name=name, severity=ERROR,
                     rule="missing_grp_suffix",
                     message=f"Empty must end with '{grp_suffix}': '{name}'",
+                    role=role,
+                ))
+
+            # ERROR: group empty with no children — unfilled Maya locator or a
+            # leftover after restructuring.  Group roles only: orphan empties
+            # already carry their own warning.
+            if (role in (_ROLE_ASSET_ROOT, _ROLE_FUNCTIONAL_LAYER, _ROLE_PART_GROUP)
+                    and not has_children):
+                issues.append(HierarchyIssue(
+                    obj_name=name, severity=ERROR,
+                    rule="empty_group",
+                    message=f"Empty group has no children: '{name}'",
                     role=role,
                 ))
 
