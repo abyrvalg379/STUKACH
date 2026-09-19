@@ -4067,7 +4067,20 @@ class Starlike(_EdgeOverlay, _FanFaceOverlay, BaseCheck):
         bm.faces.ensure_lookup_table()
         self._faces_idx = []
         self._edges_idx = []
+        # Ownership: more specific degenerate checks claim the face first
+        # (both run earlier in CHECK_TYPES, so their indices are fresh).
+        # Starlike reports only what they left — one defect, one finding.
+        claimed = set()
+        mc_props = bpy.context.window_manager.mesh_check_props
+        for key in ("zero_area", "lamina"):
+            if not getattr(mc_props, key, False):
+                continue
+            other = self._parent._checks.get(key)
+            if other is not None:
+                claimed.update(getattr(other, "_faces_idx", []) or [])
         for f in bm.faces:
+            if f.index in claimed:
+                continue
             if len(f.verts) < 4:
                 continue
             n = f.normal
