@@ -1746,21 +1746,23 @@ def _validator_label() -> str:
 
 
 def _hierarchy_report_block():
-    """Hierarchy scan snapshot for reports — None when never scanned."""
+    """Hierarchy scan snapshot for reports — None when never scanned.
+    Respects per-node ignores (single source of truth for all consumers)."""
     from .manager import MeshCheck
+    from .naming import hierarchy_effective_issues
     hier = MeshCheck.hierarchy_result
     if hier is None:
         return None
+    eff = hierarchy_effective_issues(hier)
     return {
         "roots":   len(hier.asset_roots),
         "scanned": hier.objects_scanned,
-        "errors":   hier.error_count,
-        "warnings": hier.warning_count,
+        "errors":   sum(1 for i in eff if i.severity == "ERROR"),
+        "warnings": sum(1 for i in eff if i.severity == "WARNING"),
         "issues": [
             {"object": i.obj_name, "severity": i.severity,
              "rule": i.rule, "message": i.message}
-            for i in hier.issues
-            if i.severity in ("WARNING", "ERROR")
+            for i in eff
         ],
     }
 
@@ -1935,11 +1937,13 @@ class ASSET_CHECKER_OT_next_issue(bpy.types.Operator):
 
         # Hierarchy findings participate too — objects whose ONLY problems are
         # hierarchy issues (they may not even be tracked by the checker).
+        # Per-node ignores respected.
         hier = MeshCheck.hierarchy_result
         if hier is not None:
+            from .naming import hierarchy_effective_issues
             hier_by_obj: dict = {}
-            for issue in hier.issues:
-                if issue.severity in ("WARNING", "ERROR") and issue.obj_name != "[scene]":
+            for issue in hierarchy_effective_issues(hier):
+                if issue.obj_name != "[scene]":
                     hier_by_obj[issue.obj_name] = hier_by_obj.get(issue.obj_name, 0) + 1
             known = {name for _, name, _, _ in problems}
             for name, n in hier_by_obj.items():
@@ -2880,11 +2884,11 @@ class MeshCheckProperties(PropertyGroup):
         default=False,
         description="Expand / collapse the Hierarchy validator block",
     )
-    # Hierarchy block — tree section toggle
-    hierarchy_tree_open: BoolProperty(
-        name="Hierarchy Tree",
+    # Hierarchy block — flat list of problem objects instead of full tree
+    hierarchy_issues_only: BoolProperty(
+        name="Issues Only",
         default=False,
-        description="Show object hierarchy tree",
+        description="Show only objects with hierarchy findings (off = full tree per asset root)",
     )
 
     # Naming Audit block — section collapse toggle
