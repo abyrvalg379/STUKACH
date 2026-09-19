@@ -4085,11 +4085,25 @@ class Starlike(_EdgeOverlay, _FanFaceOverlay, BaseCheck):
                 ax = max(range(3), key=lambda k: abs(n[k]))
             keep = [k for k in range(3) if k != ax]
             pts = [(v.co[keep[0]], v.co[keep[1]]) for v in f.verts]
-            if self._outline_crosses(pts) or not self._centroid_sees_all(pts):
+            if (self._outline_crosses(pts)
+                    or self._has_zero_edge(pts)
+                    or not self._centroid_sees_all(pts)):
                 self._faces_idx.append(f.index)
                 self._edges_idx.extend(e.index for e in f.edges)
         self._count = len(self._faces_idx)
         self._edges_idx = list(dict.fromkeys(self._edges_idx))
+
+    @staticmethod
+    def _has_zero_edge(pts):
+        """Zero-length edge in the contour (consecutive coincident verts —
+        a 'stitched' face).  Maya treats such faces as non-starlike."""
+        n = len(pts)
+        for i in range(n):
+            x1, y1 = pts[i]
+            x2, y2 = pts[(i + 1) % n]
+            if (x2 - x1) ** 2 + (y2 - y1) ** 2 <= 1e-12:
+                return True
+        return False
 
     @staticmethod
     def _centroid_sees_all(pts):
