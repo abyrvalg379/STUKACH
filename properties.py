@@ -2982,9 +2982,15 @@ class MeshCheckProperties(PropertyGroup):
             )
             op.category = cat_name
 
-
-
+            # Hierarchy follows Naming even when the category is collapsed
             if not is_open:
+                if cat_name == "NAMING":
+                    hier_box = layout.box()
+                    try:
+                        from .ui import draw_hierarchy_block
+                        draw_hierarchy_block(hier_box, self)
+                    except Exception as _he:
+                        alog(f"[AssetChecker] hierarchy block draw error: {_he}")
                 continue
 
             # ── Check grid ─────────────────────────────────────────────────
@@ -3086,3 +3092,12 @@ class MeshCheckProperties(PropertyGroup):
                     draw_naming_audit_block(box, self)
                 except Exception as _ne:
                     alog(f"[AssetChecker] naming audit block draw error: {_ne}")
+
+            # ── Hierarchy validator — standalone block right after Naming ──────
+            if cat_name == "NAMING":
+                hier_box = layout.box()
+                try:
+                    from .ui import draw_hierarchy_block
+                    draw_hierarchy_block(hier_box, self)
+                except Exception as _he:
+                    alog(f"[AssetChecker] hierarchy block draw error: {_he}")

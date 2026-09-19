@@ -453,14 +453,6 @@ def draw_coordinator_panel(layout, mc, context) -> None:
     checks_box.label(text="Critical & Warning Checks:", icon="ERROR")
     mc.draw_options(checks_box, severity_filter={'BLOCKER', 'WARNING'})
 
-    # ── Hierarchy validator — acceptance gate, standalone block ──────────────
-    hier_box = layout.box()
-    try:
-        draw_hierarchy_block(hier_box, mc)
-    except Exception as _he:
-        from .manager import alog
-        alog(f"[AssetChecker] hierarchy block draw error: {_he}")
-
     if prefs := _get_prefs():
         off_row = checks_box.row(align=True)
         off_row.scale_y = 0.8
@@ -1288,14 +1280,6 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
             off_row.scale_y = 0.8
             off_row.prop(prefs, "faces_offset", text="Face Offset")
             off_row.prop(prefs, "points_offset", text="Point Offset")
-
-        # ── Hierarchy validator — standalone block, sibling of the categories ──
-        hier_box = layout.box()
-        try:
-            draw_hierarchy_block(hier_box, mc)
-        except Exception as _he:
-            from .manager import alog
-            alog(f"[AssetChecker] hierarchy block draw error: {_he}")
 
         if not _manager_mod.MeshCheck.objects:
             return
