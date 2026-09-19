@@ -4085,11 +4085,52 @@ class Starlike(_EdgeOverlay, _FanFaceOverlay, BaseCheck):
                 ax = max(range(3), key=lambda k: abs(n[k]))
             keep = [k for k in range(3) if k != ax]
             pts = [(v.co[keep[0]], v.co[keep[1]]) for v in f.verts]
-            if self._outline_crosses(pts):
+            if self._outline_crosses(pts) or not self._centroid_sees_all(pts):
                 self._faces_idx.append(f.index)
                 self._edges_idx.extend(e.index for e in f.edges)
         self._count = len(self._faces_idx)
         self._edges_idx = list(dict.fromkeys(self._edges_idx))
+
+    @staticmethod
+    def _centroid_sees_all(pts):
+        """Maya isStarlike() parity: the vertex-averaged centroid must lie
+        inside the polygon AND on the inner side of every edge (i.e. the
+        whole outline is visible from it).  Concave faces whose centroid
+        falls outside — or that it cannot fully see — are non-starlike,
+        exactly like Maya flags them."""
+        n = len(pts)
+        area2 = 0.0
+        for i in range(n):
+            x1, y1 = pts[i]
+            x2, y2 = pts[(i + 1) % n]
+            area2 += x1 * y2 - x2 * y1
+        if abs(area2) < 1e-12:
+            return True   # degenerate projection — the crossing test decides
+        orient = 1.0 if area2 > 0 else -1.0
+        cx = sum(p[0] for p in pts) / n
+        cy = sum(p[1] for p in pts) / n
+
+        # centroid must be inside the polygon (ray casting)
+        inside = False
+        j = n - 1
+        for i in range(n):
+            xi, yi = pts[i]
+            xj, yj = pts[j]
+            if (yi > cy) != (yj > cy) and \
+                    cx < (xj - xi) * (cy - yi) / (yj - yi) + xi:
+                inside = not inside
+            j = i
+        if not inside:
+            return False
+
+        # centroid must see every edge: inner side of each edge line
+        for i in range(n):
+            x1, y1 = pts[i]
+            x2, y2 = pts[(i + 1) % n]
+            cr = (x2 - x1) * (cy - y1) - (y2 - y1) * (cx - x1)
+            if cr * orient < -1e-12:
+                return False
+        return True
 
     def get_select_data(self):
         return ('FACE', self._faces_idx)
