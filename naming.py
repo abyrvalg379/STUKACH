@@ -1089,6 +1089,44 @@ def hierarchy_ignored_pairs(result) -> list:
     return out
 
 
+# Human-readable rule names for the aggregated view
+HIER_RULE_LABELS: dict = {
+    "blender_numbering":       "Blender numbering (.001)",
+    "missing_grp_suffix":      "Missing group suffix",
+    "forbidden_chars":         "Forbidden characters",
+    "forbidden_base_name":     "Default DCC name",
+    "lowercase":               "Uppercase in name",
+    "unknown_functional_layer": "Unknown functional layer",
+    "orphan_empty":            "Orphan empty",
+    "orphan_mesh":             "Orphan mesh",
+    "parent_mismatch":         "Name mismatch in group",
+    "mesh_under_mesh":         "Mesh under mesh",
+    "empty_group":             "Empty group",
+    "no_asset_root":           "No asset root",
+    "multiple_asset_roots":    "Multiple asset roots",
+}
+
+
+def hierarchy_rule_summary(eff_issues) -> list:
+    """Aggregate blocking issues into one row per rule — anti-wall-of-text.
+
+    Returns ERROR groups first, then WARNING, each sorted by count desc:
+    [(rule, severity, count, sample_obj_names), …]
+    """
+    agg: dict = {}
+    for issue in eff_issues:
+        if issue.severity not in (WARNING, ERROR):
+            continue
+        entry = agg.setdefault(issue.rule,
+                               {"sev": issue.severity, "count": 0, "samples": []})
+        entry["count"] += 1
+        if issue.obj_name != "[scene]" and len(entry["samples"]) < 3:
+            entry["samples"].append(issue.obj_name)
+    out = [(rule, e["sev"], e["count"], e["samples"]) for rule, e in agg.items()]
+    out.sort(key=lambda t: (0 if t[1] == ERROR else 1, -t[2]))
+    return out
+
+
 # ── Operators ──────────────────────────────────────────────────────────────────
 
 class ASSET_CHECKER_OT_scan_hierarchy(bpy.types.Operator):
@@ -1149,6 +1187,24 @@ class ASSET_CHECKER_OT_hierarchy_toggle_root(bpy.types.Operator):
             collapsed.discard(self.root_name)
         else:
             collapsed.add(self.root_name)
+        return {'FINISHED'}
+
+
+class ASSET_CHECKER_OT_hierarchy_toggle_rule(bpy.types.Operator):
+    """Show / hide the individual objects behind this rule group"""
+    bl_idname  = "asset_checker.hierarchy_toggle_rule"
+    bl_label   = "Toggle Rule Group"
+    bl_options = {'REGISTER'}
+
+    rule: bpy.props.StringProperty()
+
+    def execute(self, context):
+        from .manager import MeshCheck
+        expanded = MeshCheck._hier_expanded_rules
+        if self.rule in expanded:
+            expanded.discard(self.rule)
+        else:
+            expanded.add(self.rule)
         return {'FINISHED'}
 
 

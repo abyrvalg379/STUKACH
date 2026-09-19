@@ -584,6 +584,7 @@ class MeshCheck:
     objects = {}
     hierarchy_result = None            # HierarchyResult | None — set by scan_hierarchy operator
     _hier_collapsed_roots: set = set() # root names collapsed in the per-asset section view
+    _hier_expanded_rules: set = set()  # rule groups expanded in the Issues-only view
     _state_restored: bool = False      # True after load_post restores settings; cleared on Run
     _scene_stale:   bool = False       # True when SCENE/COLLECTION has untracked objects
     _last_live_populate: float = 0.0   # monotonic timestamp — throttle for Live auto-add

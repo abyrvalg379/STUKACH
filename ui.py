@@ -503,6 +503,8 @@ def draw_hierarchy_block(layout, mc):
         HierarchyValidator,
         hierarchy_effective_issues,
         hierarchy_ignored_count,
+        hierarchy_rule_summary,
+        HIER_RULE_LABELS,
         _ROLE_ASSET_ROOT,
         _ROLE_ICONS,
         INFO, WARNING, ERROR, SEVERITY_ICON,
@@ -643,9 +645,42 @@ def draw_hierarchy_block(layout, mc):
         for issue in scene_issues:
             _issue_row(col, issue)
 
+    # ── Issues only — aggregated one row per rule (anti-wall-of-text) ────────
+    if mc.hierarchy_issues_only:
+        expanded = MeshCheck._hier_expanded_rules
+        for rule, sev, count, samples in hierarchy_rule_summary(eff):
+            is_open_rule = rule in expanded
+            grp = layout.row(align=True)
+            grp.operator("asset_checker.hierarchy_toggle_rule",
+                         text="",
+                         icon="TRIA_DOWN" if is_open_rule else "TRIA_RIGHT",
+                         emboss=False).rule = rule
+            grp.label(text=HIER_RULE_LABELS.get(rule, rule),
+                      icon=SEVERITY_ICON[ERROR if sev == ERROR else WARNING])
+            cnt = grp.row()
+            cnt.alignment = "RIGHT"
+            cnt.label(text=f"× {count}")
+            if not is_open_rule:
+                if samples:
+                    grp.label(text="·  " + ", ".join(samples), icon="BLANK1")
+                continue
+            detail = layout.column(align=True)
+            shown = 0
+            for issue in eff:
+                if issue.rule != rule:
+                    continue
+                if shown >= 10:
+                    detail.label(text=f"  …and {count - shown} more",
+                                 icon="BLANK1")
+                    break
+                _issue_row(detail, issue)
+                shown += 1
+        return
+
     # ── Per-asset root sections (lazy: subtree drawn only when expanded) ─────
     collapsed = MeshCheck._hier_collapsed_roots
     names_in_roots: set = set()
+    _SUBTREE_CAP = 40
     for root_name in result.asset_roots:
         names = _subtree_names(root_name)
         names_in_roots |= names
@@ -669,29 +704,40 @@ def draw_hierarchy_block(layout, mc):
             continue
 
         sec = layout.column(align=True)
-        if mc.hierarchy_issues_only:
-            for issue in eff:
-                if issue.obj_name in names:
-                    _issue_row(sec, issue)
-            if not any(i.obj_name in names for i in eff):
-                sec.label(text="  clean", icon="CHECKMARK")
-        else:
-            def _draw_subtree(col, name, depth, role):
-                _tree_row(col, name, depth, role)
-                for child in sorted(result.children_of.get(name, [])):
-                    _draw_subtree(col, child, depth + 1,
-                                  result.node_roles.get(child, ""))
-            _draw_subtree(sec, root_name, 0, _ROLE_ASSET_ROOT)
+        drawn = [0]
 
-    # ── Orphans (outside every root) — mesh/empty strays ─────────────────────
+        def _draw_subtree(col, name, depth, role):
+            if drawn[0] >= _SUBTREE_CAP:
+                return
+            _tree_row(col, name, depth, role)
+            drawn[0] += 1
+            for child in sorted(result.children_of.get(name, [])):
+                _draw_subtree(col, child, depth + 1,
+                              result.node_roles.get(child, ""))
+
+        _draw_subtree(sec, root_name, 0, _ROLE_ASSET_ROOT)
+        extra = len(names) - drawn[0]
+        if extra > 0:
+            sec.label(text=f"  …and {extra} more nodes — use Issues only",
+                      icon="BLANK1")
+
+    # ── Orphans (outside every root) — dedup by object, capped ───────────────
     orphan_issues = [i for i in eff
                      if i.obj_name != "[scene]"
                      and i.obj_name not in names_in_roots]
-    if orphan_issues and not mc.hierarchy_issues_only:
-        hdr2 = layout.row(align=True)
-        hdr2.label(text="Not connected to any root", icon="QUESTION")
-        col = layout.column(align=True)
+    if orphan_issues:
+        orphan_objs: dict = {}
         for issue in orphan_issues:
+            orphan_objs.setdefault(issue.obj_name, issue)
+        hdr2 = layout.row(align=True)
+        hdr2.label(text=f"Not connected to any root  ·  {len(orphan_objs)} object(s)",
+                   icon="QUESTION")
+        col = layout.column(align=True)
+        for n, (obj_name, issue) in enumerate(orphan_objs.items()):
+            if n >= 5:
+                col.label(text=f"  …and {len(orphan_objs) - 5} more",
+                          icon="BLANK1")
+                break
             _issue_row(col, issue)
 
 
