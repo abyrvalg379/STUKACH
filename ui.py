@@ -321,7 +321,10 @@ def _get_asset_status(mc) -> str:
     if mc.coordinator_mode:
         hier = _manager_mod.MeshCheck.hierarchy_result
         if hier is not None:
-            e, w = hier.error_count, hier.warning_count
+            from .naming import hierarchy_effective_issues
+            eff = hierarchy_effective_issues(hier)
+            e = sum(1 for i in eff if i.severity == "ERROR")
+            w = sum(1 for i in eff if i.severity == "WARNING")
             if e or w:
                 has_any_active = True
                 if e:
@@ -498,6 +501,8 @@ def draw_hierarchy_block(layout, mc):
     from .naming import (
         HierarchyResult,
         HierarchyValidator,
+        hierarchy_effective_issues,
+        hierarchy_ignored_count,
         _ROLE_ASSET_ROOT,
         _ROLE_ICONS,
         INFO, WARNING, ERROR, SEVERITY_ICON,
@@ -526,11 +531,13 @@ def draw_hierarchy_block(layout, mc):
         if result is not None:
             badge = layout.row(align=True)
             badge.scale_y = 0.75
-            e, w = result.error_count, result.warning_count
+            eff = hierarchy_effective_issues(result)
+            e = sum(1 for i in eff if i.severity == ERROR)
+            w = sum(1 for i in eff if i.severity == WARNING)
             if HierarchyValidator.is_stale(result):
                 badge.label(text="  Stale — hierarchy changed, re-scan",
                             icon="FILE_REFRESH")
-            elif result.is_clean():
+            elif not eff:
                 badge.label(text=f"  Clean  ·  {len(result.asset_roots)} root(s)", icon="CHECKMARK")
             else:
                 if e:
@@ -545,9 +552,11 @@ def draw_hierarchy_block(layout, mc):
         layout.label(text="Press Scan to validate hierarchy", icon="INFO")
         return
 
-    # Summary row
-    e, w = result.error_count, result.warning_count
+    eff = hierarchy_effective_issues(result)
+    e = sum(1 for i in eff if i.severity == ERROR)
+    w = sum(1 for i in eff if i.severity == WARNING)
     n_roots = len(result.asset_roots)
+    n_ignored = hierarchy_ignored_count(result)
 
     if HierarchyValidator.is_stale(result):
         stale = layout.row(align=True)
@@ -555,7 +564,7 @@ def draw_hierarchy_block(layout, mc):
                     icon="FILE_REFRESH")
 
     summ = layout.row(align=True)
-    if result.is_clean():
+    if not eff:
         summ.label(
             text=f"Clean  ·  {n_roots} root(s)  ·  {result.objects_scanned} obj",
             icon="CHECKMARK",
@@ -569,69 +578,121 @@ def draw_hierarchy_block(layout, mc):
         right2.alignment = "RIGHT"
         right2.label(text=f"{n_roots} root(s)  ·  {result.objects_scanned} obj")
 
-    # ── Issue list ────────────────────────────────────────────────────────────
-    if not result.is_clean():
-        for sev in (ERROR, WARNING):
-            group = [i for i in result.issues if i.severity == sev]
-            if not group:
-                continue
-            sev_col = layout.column(align=True)
-            sev_col.alert = (sev == ERROR)
-            sev_col.label(text=sev, icon=SEVERITY_ICON[sev])
-            for issue in group:
-                row = sev_col.row(align=True)
-                role_icon = _ROLE_ICONS.get(issue.role, "DOT")
-                nm = issue.obj_name
-                row.label(text=f"  {nm}  —  {issue.message}", icon=role_icon)
-                if nm != "[scene]" and bpy.data.objects.get(nm):
-                    op = row.operator(
-                        "asset_checker.select_object",
-                        text="", icon="RESTRICT_SELECT_OFF", emboss=False,
-                    )
-                    op.object_name = nm
+    # Controls: issues-only filter + suppressed findings restore
+    ctrl = layout.row(align=True)
+    ctrl.prop(mc, "hierarchy_issues_only", text="Issues only", icon="FILTER",
+              toggle=True, emboss=False)
+    if n_ignored:
+        right3 = ctrl.row(align=True)
+        right3.alignment = "RIGHT"
+        right3.operator("asset_checker.hierarchy_clear_ignores",
+                        text=f"{n_ignored} ignored — clear", icon="LOOP_BACK", emboss=False)
 
-    # ── Hierarchy Tree (collapsible) ──────────────────────────────────────────
-    MAX_TREE_NODES = 150
+    # ── Helpers ───────────────────────────────────────────────────────────────
+    issues_by_obj: dict = {}
+    for issue in eff:
+        issues_by_obj.setdefault(issue.obj_name, []).append(issue)
 
-    tree_hdr = layout.row(align=True)
-    tria2 = "TRIA_DOWN" if mc.hierarchy_tree_open else "TRIA_RIGHT"
-    tree_hdr.prop(mc, "hierarchy_tree_open", text="", icon=tria2, emboss=False)
-    tree_hdr.label(text="Hierarchy Tree", icon="OUTLINER")
+    def _subtree_names(root_name):
+        out = set()
+        stack = [root_name]
+        while stack:
+            n = stack.pop()
+            out.add(n)
+            stack.extend(result.children_of.get(n, []))
+        return out
 
-    if mc.hierarchy_tree_open:
-        if result.objects_scanned > MAX_TREE_NODES:
-            layout.label(
-                text=f"Tree disabled: {result.objects_scanned} objects (limit {MAX_TREE_NODES})",
-                icon="INFO",
-            )
-        elif not result.asset_roots:
-            layout.label(text="No asset roots found", icon="QUESTION")
+    def _issue_row(col, issue):
+        row = col.row(align=True)
+        role_icon = _ROLE_ICONS.get(issue.role, "DOT")
+        nm = issue.obj_name
+        row.label(text=f"  {nm}  —  {issue.message}", icon=role_icon)
+        if nm != "[scene]" and bpy.data.objects.get(nm):
+            op = row.operator("asset_checker.select_object", text="",
+                              icon="RESTRICT_SELECT_OFF", emboss=False)
+            op.object_name = nm
+            op2 = row.operator("asset_checker.hierarchy_ignore_toggle", text="",
+                               icon="HIDE_ON", emboss=False)
+            op2.object_name = nm
+            op2.rule = issue.rule
+
+    def _tree_row(col, name, depth, role):
+        obj_issues = issues_by_obj.get(name, [])
+        n_iss = len(obj_issues)
+        node_icon = _ROLE_ICONS.get(role, "DOT")
+        issue_icon = ("ERROR" if any(i.severity == ERROR for i in obj_issues)
+                      else ("INFO" if n_iss else "BLANK1"))
+        r = col.row(align=True)
+        r.label(text=f"{'   ' * depth}{name}", icon=node_icon)
+        if n_iss:
+            r.label(text="", icon=issue_icon)
+        if bpy.data.objects.get(name):
+            op = r.operator("asset_checker.select_object", text="",
+                            icon="RESTRICT_SELECT_OFF", emboss=False)
+            op.object_name = name
+            if any(i.severity in (WARNING, ERROR) for i in obj_issues):
+                op2 = r.operator("asset_checker.hierarchy_ignore_toggle", text="",
+                                 icon="HIDE_ON", emboss=False)
+                op2.object_name = name
+                op2.rule = obj_issues[0].rule
+
+    # ── Scene-level findings (no/multiple roots) ─────────────────────────────
+    scene_issues = issues_by_obj.get("[scene]", [])
+    if scene_issues:
+        col = layout.column(align=True)
+        for issue in scene_issues:
+            _issue_row(col, issue)
+
+    # ── Per-asset root sections (lazy: subtree drawn only when expanded) ─────
+    collapsed = MeshCheck._hier_collapsed_roots
+    names_in_roots: set = set()
+    for root_name in result.asset_roots:
+        names = _subtree_names(root_name)
+        names_in_roots |= names
+        r_err = sum(1 for i in eff if i.obj_name in names and i.severity == ERROR)
+        r_warn = sum(1 for i in eff if i.obj_name in names and i.severity == WARNING)
+        is_collapsed = root_name in collapsed
+
+        hdr = layout.row(align=True)
+        hdr.operator("asset_checker.hierarchy_toggle_root",
+                     text="", icon="TRIA_RIGHT" if is_collapsed else "TRIA_DOWN",
+                     emboss=False).root_name = root_name
+        hdr.label(text=root_name, icon=_ROLE_ICONS.get(_ROLE_ASSET_ROOT, "DOT"))
+        if r_err:
+            hdr.label(text=f"{r_err}E", icon=SEVERITY_ICON[ERROR])
+        if r_warn:
+            hdr.label(text=f"{r_warn}W", icon=SEVERITY_ICON[WARNING])
+        if not r_err and not r_warn:
+            hdr.label(text="", icon="CHECKMARK")
+
+        if is_collapsed:
+            continue
+
+        sec = layout.column(align=True)
+        if mc.hierarchy_issues_only:
+            for issue in eff:
+                if issue.obj_name in names:
+                    _issue_row(sec, issue)
+            if not any(i.obj_name in names for i in eff):
+                sec.label(text="  clean", icon="CHECKMARK")
         else:
             def _draw_subtree(col, name, depth, role):
-                obj_issues = result.issues_for(name)
-                n_iss = sum(1 for i in obj_issues if i.severity in (WARNING, ERROR))
-                node_icon  = _ROLE_ICONS.get(role, "DOT")
-                issue_icon = ("ERROR" if any(i.severity == ERROR for i in obj_issues)
-                              else ("INFO" if n_iss else "BLANK1"))
-                indent = "   " * depth
-                label_text = f"{indent}{name}"
-                r = col.row(align=True)
-                r.label(text=label_text, icon=node_icon)
-                if n_iss:
-                    r.label(text="", icon=issue_icon)
-                if bpy.data.objects.get(name):
-                    op = r.operator(
-                        "asset_checker.select_object",
-                        text="", icon="RESTRICT_SELECT_OFF", emboss=False,
-                    )
-                    op.object_name = name
+                _tree_row(col, name, depth, role)
                 for child in sorted(result.children_of.get(name, [])):
                     _draw_subtree(col, child, depth + 1,
                                   result.node_roles.get(child, ""))
+            _draw_subtree(sec, root_name, 0, _ROLE_ASSET_ROOT)
 
-            tree_col = layout.column(align=True)
-            for root_name in result.asset_roots:
-                _draw_subtree(tree_col, root_name, 0, _ROLE_ASSET_ROOT)
+    # ── Orphans (outside every root) — mesh/empty strays ─────────────────────
+    orphan_issues = [i for i in eff
+                     if i.obj_name != "[scene]"
+                     and i.obj_name not in names_in_roots]
+    if orphan_issues and not mc.hierarchy_issues_only:
+        hdr2 = layout.row(align=True)
+        hdr2.label(text="Not connected to any root", icon="QUESTION")
+        col = layout.column(align=True)
+        for issue in orphan_issues:
+            _issue_row(col, issue)
 
 
 def _draw_ignore_list_block(layout, mc) -> None:

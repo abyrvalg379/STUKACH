@@ -1001,28 +1001,92 @@ class HierarchyValidator:
                     role=role,
                 ))
 
-            # WARNING: mesh name doesn't match parent group base name
+            # WARNING: mesh name doesn't match parent group base name.
+            # Numbered siblings must use TWO digits (bolt_01, bolt_02) —
+            # single-digit bolt_1 is a violation (user convention).
             if role == _ROLE_MESH_UNDER_GROUP and obj.parent is not None:
                 parent_lo = obj.parent.name.lower()
                 # strip the group suffix to get the shared base
                 parent_base = (parent_lo[:-len(grp_suffix)]
                                if parent_lo.endswith(grp_suffix) else parent_lo)
-                # Valid: parent_base  OR  parent_base_<digits>
+                # Valid: parent_base  OR  parent_base_<two digits>
                 pat = _re.compile(
-                    r'^' + _re.escape(parent_base) + r'(_\d+)?$'
+                    r'^' + _re.escape(parent_base) + r'(_\d{2})?$'
                 )
                 if not pat.match(name_lo):
                     issues.append(HierarchyIssue(
                         obj_name=name, severity=WARNING,
                         rule="parent_mismatch",
                         message=(
-                            f"Expected '{parent_base}' or '{parent_base}_NN', "
-                            f"got '{name}'"
+                            f"Expected '{parent_base}' or '{parent_base}_NN' "
+                            f"(two digits), got '{name}'"
                         ),
                         role=role,
                     ))
 
+            # WARNING: mesh parented under another mesh — breaks export
+            # hierarchies (parity with the parent_geometry mesh check)
+            if obj.parent is not None and obj.parent.type == 'MESH':
+                issues.append(HierarchyIssue(
+                    obj_name=name, severity=WARNING,
+                    rule="mesh_under_mesh",
+                    message=f"Mesh parented under another mesh: '{obj.parent.name}'",
+                    role=role,
+                ))
+
         return issues
+
+
+# ── Per-node ignores for hierarchy findings ───────────────────────────────────
+# Stored as an object custom property (list of rule names), saved with the
+# scene.  Ignored findings disappear from the block, status, reports and
+# Next Issue until cleared.
+
+HIER_IGNORE_KEY = "_ac_hier_ignore"
+
+
+def _hierarchy_ignored_rules(obj_name: str) -> set:
+    """Set of ignored rule names for one object (empty when none)."""
+    obj = bpy.data.objects.get(obj_name)
+    if obj is None:
+        return set()
+    try:
+        return set(obj.get(HIER_IGNORE_KEY, []))
+    except Exception:
+        return set()
+
+
+def hierarchy_ignored_count(result) -> int:
+    """How many blocking findings are currently suppressed by ignores."""
+    n = 0
+    for issue in result.issues:
+        if issue.severity in (WARNING, ERROR) and \
+                issue.rule in _hierarchy_ignored_rules(issue.obj_name):
+            n += 1
+    return n
+
+
+def hierarchy_effective_issues(result) -> list:
+    """Blocking issues minus per-node ignores — single source of truth for
+    the panel, the asset status, reports and Next Issue."""
+    return [
+        i for i in result.issues
+        if not (i.severity in (WARNING, ERROR)
+                and i.rule in _hierarchy_ignored_rules(i.obj_name))
+    ]
+
+
+def hierarchy_ignored_pairs(result) -> list:
+    """Suppressed findings as (obj_name, rule) — for the 'Ignored' list."""
+    out = []
+    seen = set()
+    for issue in result.issues:
+        if issue.severity in (WARNING, ERROR):
+            key = (issue.obj_name, issue.rule)
+            if key not in seen and issue.rule in _hierarchy_ignored_rules(issue.obj_name):
+                seen.add(key)
+                out.append(key)
+    return out
 
 
 # ── Operators ──────────────────────────────────────────────────────────────────
@@ -1067,4 +1131,65 @@ class ASSET_CHECKER_OT_clear_hierarchy(bpy.types.Operator):
     def execute(self, context):
         from .manager import MeshCheck
         MeshCheck.hierarchy_result = None
+        return {'FINISHED'}
+
+
+class ASSET_CHECKER_OT_hierarchy_toggle_root(bpy.types.Operator):
+    """Expand / collapse this asset root section"""
+    bl_idname  = "asset_checker.hierarchy_toggle_root"
+    bl_label   = "Toggle Root"
+    bl_options = {'REGISTER'}
+
+    root_name: bpy.props.StringProperty()
+
+    def execute(self, context):
+        from .manager import MeshCheck
+        collapsed = MeshCheck._hier_collapsed_roots
+        if self.root_name in collapsed:
+            collapsed.discard(self.root_name)
+        else:
+            collapsed.add(self.root_name)
+        return {'FINISHED'}
+
+
+class ASSET_CHECKER_OT_hierarchy_ignore_toggle(bpy.types.Operator):
+    """Suppress / restore this hierarchy finding for the object"""
+    bl_idname  = "asset_checker.hierarchy_ignore_toggle"
+    bl_label   = "Ignore Finding"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    object_name: bpy.props.StringProperty()
+    rule:       bpy.props.StringProperty()
+
+    def execute(self, context):
+        obj = bpy.data.objects.get(self.object_name)
+        if obj is None:
+            return {'CANCELLED'}
+        ignored = list(obj.get(HIER_IGNORE_KEY, []))
+        if self.rule in ignored:
+            ignored.remove(self.rule)
+        else:
+            ignored.append(self.rule)
+        if ignored:
+            obj[HIER_IGNORE_KEY] = ignored
+        elif HIER_IGNORE_KEY in obj:
+            del obj[HIER_IGNORE_KEY]
+        return {'FINISHED'}
+
+
+class ASSET_CHECKER_OT_hierarchy_clear_ignores(bpy.types.Operator):
+    """Restore all suppressed hierarchy findings"""
+    bl_idname  = "asset_checker.hierarchy_clear_ignores"
+    bl_label   = "Clear Hierarchy Ignores"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        n = 0
+        for obj in bpy.context.scene.objects:
+            if HIER_IGNORE_KEY in obj:
+                del obj[HIER_IGNORE_KEY]
+                n += 1
+        if n:
+            from .manager import alog
+            alog(f"[AssetChecker] cleared hierarchy ignores on {n} object(s)")
         return {'FINISHED'}
