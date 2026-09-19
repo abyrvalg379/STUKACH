@@ -287,37 +287,38 @@ def _get_asset_status(mc) -> str:
     CRITICAL requires at least one BLOCKER check to have count > 0.
     WARNING checks (triangles, ngons, etc.) never escalate to CRITICAL.
     """
-    if not _manager_mod.MeshCheck.objects:
-        return "none"
-
     has_any_active = False
     has_blocker    = False
     has_warning    = False
 
-    for cat_checks in CHECK_CATEGORIES.values():
-        for check in cat_checks:
-            if not getattr(mc, check, False):
-                continue
-            has_any_active = True
-            total = sum(
-                _get_check_count(mc_obj, check)
-                for mc_obj in _manager_mod.MeshCheck.objects.values()
-            )
-            if total == 0:
-                continue
-            sev = CHECK_SEVERITY.get(check, "WARNING")
-            if sev == "BLOCKER":
-                has_blocker = True
-            elif sev != "INFO":
-                has_warning = True
-
-    if not has_any_active:
+    if not _manager_mod.MeshCheck.objects and not mc.coordinator_mode:
         return "none"
 
-    # Hierarchy validator (manual/auto scan) — folds into the asset status.
-    # Scene-level findings: errors escalate to CRITICAL, warnings to REVIEW.
-    prefs = _get_prefs()
-    if prefs is None or getattr(prefs, "hierarchy_in_status", True):
+    if _manager_mod.MeshCheck.objects:
+        for cat_checks in CHECK_CATEGORIES.values():
+            for check in cat_checks:
+                if not getattr(mc, check, False):
+                    continue
+                has_any_active = True
+                total = sum(
+                    _get_check_count(mc_obj, check)
+                    for mc_obj in _manager_mod.MeshCheck.objects.values()
+                )
+                if total == 0:
+                    continue
+                sev = CHECK_SEVERITY.get(check, "WARNING")
+                if sev == "BLOCKER":
+                    has_blocker = True
+                elif sev != "INFO":
+                    has_warning = True
+
+    # Hierarchy validator — acceptance gate.  Findings count ONLY in
+    # Coordinator Mode: the hierarchy is assembled AFTER the asset is
+    # finished, so an artist mid-production must not see a failed status
+    # because of it.  In Coordinator Mode errors escalate to CRITICAL,
+    # warnings to REVIEW.  A scan alone can produce a verdict even when
+    # no mesh checks have been run.
+    if mc.coordinator_mode:
         hier = _manager_mod.MeshCheck.hierarchy_result
         if hier is not None:
             e, w = hier.error_count, hier.warning_count
@@ -327,6 +328,9 @@ def _get_asset_status(mc) -> str:
                     has_blocker = True
                 else:
                     has_warning = True
+
+    if not has_any_active:
+        return "none"
 
     if has_blocker:
         return "critical"

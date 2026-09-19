@@ -2,7 +2,7 @@
 import bpy
 from bpy.types import AddonPreferences, PropertyGroup
 from bpy.props import (FloatVectorProperty, FloatProperty, StringProperty,
-                       CollectionProperty, IntProperty, EnumProperty, BoolProperty)
+                       CollectionProperty, IntProperty, EnumProperty)
 
 
 # ── Naming policy entry (one prefix or suffix) ────────────────────────────────
@@ -274,15 +274,8 @@ class MeshCheckPreferences(AddonPreferences):
     # NAMING POLICY — mesh datablock suffixes (data names like 'body_mesh')
     mesh_naming_suffixes: CollectionProperty(type=NamingEntry, name="Mesh Data Required Suffixes")
 
-    # HIERARCHY VALIDATOR — functional layer whitelist, group suffix, status contribution
-    hierarchy_in_status: BoolProperty(
-        name="Hierarchy in Asset Status",
-        default=False,
-        description="Hierarchy scan findings affect the asset status: errors escalate to CRITICAL, "
-                    "warnings to REVIEW. Off by default — the hierarchy is assembled AFTER the asset "
-                    "is finished, so on work-in-progress scenes this gate would always fail. "
-                    "Enable it at the assembly / acceptance stage",
-    )
+    # HIERARCHY VALIDATOR — functional layer whitelist, group suffix
+    # (findings affect Asset Status only in Coordinator Mode — acceptance gate)
     hierarchy_grp_suffix: StringProperty(
         name="Group Suffix",
         default="_grp",
@@ -455,13 +448,15 @@ class MeshCheckPreferences(AddonPreferences):
             op.index = i
         box_m.operator(op_add, text="Add", icon="ADD")
 
-        # Hierarchy validator — layers whitelist + group suffix + status switch
+        # Hierarchy validator — layers whitelist + group suffix
         box_h = box.box()
         box_h.label(text="Hierarchy", icon="EMPTY_AXIS")
         row = box_h.row(align=True)
         row.label(text="Group suffix:")
         row.prop(self, "hierarchy_grp_suffix", text="")
-        box_h.prop(self, "hierarchy_in_status", text="Findings affect Asset Status")
+        hint = box_h.row()
+        hint.enabled = False
+        hint.label(text="Findings affect Asset Status in Coordinator Mode", icon="INFO")
         col = box_h.column(align=True)
         col.label(text="Functional layer whitelist:")
         for i, entry in enumerate(self.hierarchy_layer_names):
