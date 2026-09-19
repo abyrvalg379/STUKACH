@@ -34,6 +34,8 @@ classes = (
     preferences.ASSET_CHECKER_OT_col_naming_remove_suffix,
     preferences.ASSET_CHECKER_OT_mesh_naming_add_suffix,
     preferences.ASSET_CHECKER_OT_mesh_naming_remove_suffix,
+    preferences.ASSET_CHECKER_OT_hierarchy_layer_add,
+    preferences.ASSET_CHECKER_OT_hierarchy_layer_remove,
     preferences.MeshCheckPreferences,
     properties.MESH_CHECK_OT_toggle_category,
     properties.ASSET_CHECKER_OT_select_check_elements,

@@ -1346,6 +1346,7 @@ class ASSET_CHECKER_OT_export_report(bpy.types.Operator):
             "scope":   MeshCheck._scope,
             "preset":  preset_name,
             "ignored": ignored_lines,
+            "hierarchy": _hierarchy_report_block(),
             "summary": {
                 "status":       status_str,
                 "objects":      summary_data["obj_count"],
@@ -1385,6 +1386,23 @@ class ASSET_CHECKER_OT_export_report(bpy.types.Operator):
                         ch.get("detail", ""),
                     ])
 
+            # Hierarchy scan issues (same tabular shape, category = HIERARCHY)
+            h = report.get("hierarchy")
+            if h:
+                w.writerow([])
+                w.writerow(["hierarchy scan", "", "", "",
+                            f"{h['errors']} errors / {h['warnings']} warnings",
+                            f"{h['roots']} root(s), {h['scanned']} object(s) scanned"])
+                for issue in h["issues"]:
+                    w.writerow([
+                        issue["object"],
+                        "HIERARCHY",
+                        issue["rule"],
+                        issue["severity"],
+                        1,
+                        issue["message"],
+                    ])
+
     @staticmethod
     def _write_html(report: dict, path: str) -> None:
         s = report["summary"]
@@ -1408,6 +1426,36 @@ class ASSET_CHECKER_OT_export_report(bpy.types.Operator):
                 )
         if not rows_html:
             rows_html = "<tr><td colspan='6' style='color:#40c070;text-align:center'>No issues found — pipeline clean ✓</td></tr>"
+
+        # ── Hierarchy scan section (separate table under the checks) ──────
+        h = report.get("hierarchy")
+        hierarchy_html = ""
+        if h:
+            if h["issues"]:
+                h_rows = ""
+                for issue in h["issues"]:
+                    sev_color = "#e84040" if issue["severity"] == "ERROR" else "#e8a040"
+                    h_rows += (
+                        f"<tr>"
+                        f"<td>{issue['object']}</td>"
+                        f"<td style='color:{sev_color};font-weight:bold'>{issue['severity']}</td>"
+                        f"<td>{issue['rule']}</td>"
+                        f"<td>{issue['message']}</td>"
+                        f"</tr>\n"
+                    )
+                hierarchy_html = (
+                    "<h2 style='color:#fff;font-size:15px;margin-top:24px'>Hierarchy Scan</h2>"
+                    f"<div class='subtitle'>{h['roots']} root(s) · {h['scanned']} object(s) · "
+                    f"{h['errors']} error(s) · {h['warnings']} warning(s)</div>"
+                    "<table><thead><tr><th>Object</th><th>Severity</th><th>Rule</th><th>Detail</th></tr></thead>"
+                    f"<tbody>{h_rows}</tbody></table>"
+                )
+            else:
+                hierarchy_html = (
+                    "<h2 style='color:#fff;font-size:15px;margin-top:24px'>Hierarchy Scan</h2>"
+                    f"<div class='subtitle' style='color:#40c070'>Clean — {h['roots']} root(s), "
+                    f"{h['scanned']} object(s) ✓</div>"
+                )
 
         # ── Fix-first verdict section (blockers/warnings by priority) ──────
         flat = []
@@ -1498,6 +1546,8 @@ class ASSET_CHECKER_OT_export_report(bpy.types.Operator):
 {rows_html}
 </tbody>
 </table>
+
+{hierarchy_html}
 
 <div class="footer">
   File: {report['file']}<br>
@@ -1695,6 +1745,38 @@ def _validator_label() -> str:
     return name or getpass.getuser()
 
 
+def _hierarchy_report_block():
+    """Hierarchy scan snapshot for reports — None when never scanned."""
+    from .manager import MeshCheck
+    hier = MeshCheck.hierarchy_result
+    if hier is None:
+        return None
+    return {
+        "roots":   len(hier.asset_roots),
+        "scanned": hier.objects_scanned,
+        "errors":   hier.error_count,
+        "warnings": hier.warning_count,
+        "issues": [
+            {"object": i.obj_name, "severity": i.severity,
+             "rule": i.rule, "message": i.message}
+            for i in hier.issues
+            if i.severity in ("WARNING", "ERROR")
+        ],
+    }
+
+
+def _hierarchy_verdict() -> str:
+    """'BLOCKED' / 'REVIEW' / 'CLEAN' / '' (no scan)."""
+    block = _hierarchy_report_block()
+    if block is None:
+        return ""
+    if block["errors"]:
+        return "BLOCKED"
+    if block["warnings"]:
+        return "REVIEW"
+    return "CLEAN"
+
+
 class ASSET_CHECKER_OT_copy_summary(bpy.types.Operator):
     """Copy a compact validation summary to the clipboard"""
     bl_idname  = "asset_checker.copy_summary"
@@ -1746,9 +1828,16 @@ class ASSET_CHECKER_OT_copy_summary(bpy.types.Operator):
 
         from datetime import datetime as _dt
 
+        hier_verdict = _hierarchy_verdict()
+        hier_block = _hierarchy_report_block()
+
         if mc.coordinator_mode:
             # Coordinator report — verdict for the rework task (Cerebro etc.)
             status = "READY" if not total_b and not total_w else ("BLOCKED" if total_b else "REVIEW")
+            if hier_verdict == "BLOCKED":
+                status = "BLOCKED"
+            elif hier_verdict == "REVIEW" and status == "READY":
+                status = "REVIEW"
             b_word = "blocker" if total_b == 1 else "blockers"
             w_word = "warning" if total_w == 1 else "warnings"
             lines[0] = (f"STUKACH v{get_addon_version()} — VALIDATION: {status} "
@@ -1787,6 +1876,25 @@ class ASSET_CHECKER_OT_copy_summary(bpy.types.Operator):
             if len(rows) > 10:
                 lines.append(f"  …and {len(rows) - 10} more objects")
 
+        # Hierarchy scan — one compact line (artist), full section (coordinator)
+        if hier_block is not None:
+            if mc.coordinator_mode:
+                lines.append("")
+                lines.append(f"HIERARCHY: {hier_verdict} "
+                             f"({hier_block['errors']} errors, {hier_block['warnings']} warnings, "
+                             f"{hier_block['roots']} root(s), {hier_block['scanned']} obj)")
+                if hier_block["issues"]:
+                    for i in hier_block["issues"][:5]:
+                        lines.append(f"  {i['object']}: {i['message']}")
+                    if len(hier_block["issues"]) > 5:
+                        lines.append(f"  …and {len(hier_block['issues']) - 5} more")
+            elif hier_block["errors"] or hier_block["warnings"]:
+                lines.append(f"hierarchy: {hier_block['errors']} errors, "
+                             f"{hier_block['warnings']} warnings")
+            else:
+                lines.append(f"hierarchy: clean ({hier_block['roots']} roots, "
+                             f"{hier_block['scanned']} obj)")
+
         lines.append(f"Validated by: {_validator_label()} | "
                      f"{_dt.now().strftime('%Y-%m-%d %H:%M')} | Blender {bpy.app.version_string}")
 
@@ -1824,6 +1932,23 @@ class ASSET_CHECKER_OT_next_issue(bpy.types.Operator):
                         worst = (c, chk_name)
             if total > 0:
                 problems.append((-total, o.name, o, worst))
+
+        # Hierarchy findings participate too — objects whose ONLY problems are
+        # hierarchy issues (they may not even be tracked by the checker).
+        hier = MeshCheck.hierarchy_result
+        if hier is not None:
+            hier_by_obj: dict = {}
+            for issue in hier.issues:
+                if issue.severity in ("WARNING", "ERROR") and issue.obj_name != "[scene]":
+                    hier_by_obj[issue.obj_name] = hier_by_obj.get(issue.obj_name, 0) + 1
+            known = {name for _, name, _, _ in problems}
+            for name, n in hier_by_obj.items():
+                if name in known:
+                    continue
+                obj = bpy.data.objects.get(name)
+                if obj is not None:
+                    problems.append((-n, name, obj, (n, "hierarchy")))
+
         if not problems:
             self.report({'INFO'}, "No issues found — mesh is clean")
             return {'CANCELLED'}

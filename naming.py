@@ -647,6 +647,7 @@ class HierarchyResult:
     node_roles:      dict   # {obj_name: role_str}
     children_of:     dict   # {obj_name: [child_name, ...]} — for tree rendering
     objects_scanned: int
+    scene_key:       tuple = ()   # cheap scene fingerprint at scan time (staleness check)
 
     @property
     def error_count(self) -> int:
@@ -689,6 +690,58 @@ class HierarchyValidator:
     _pat_forbidden_chars = NamingValidator._pat_forbidden_chars
     _pat_trailing_digits = NamingValidator._pat_trailing_digits
 
+    DEFAULT_GRP_SUFFIX = "_grp"
+
+    # ── Scene fingerprint & staleness ──────────────────────────────────────────
+
+    @staticmethod
+    def scene_key() -> tuple:
+        """Cheap scene fingerprint: (name, type, parent name) per scene object.
+
+        Any hierarchy-relevant change (rename, reparent, add, delete, type
+        swap) produces a different tuple, so comparing keys detects stale
+        scan results without touching transforms or mesh data.
+        """
+        try:
+            objs = bpy.context.scene.objects
+        except Exception:
+            return ()
+        entries = []
+        for o in objs:
+            try:
+                p = o.parent.name if o.parent is not None else ""
+            except Exception:
+                p = "?"
+            entries.append((o.name, o.type, p))
+        entries.sort()
+        return tuple(entries)
+
+    _stale_cache: tuple = (0.0, False)   # (monotonic timestamp, is_stale)
+
+    @classmethod
+    def is_stale(cls, result) -> bool:
+        """True when the scene changed after *result* was produced.
+
+        Throttled to once per second — safe to call from UI draw code.
+        """
+        if result is None:
+            return False
+        import time as _time
+        now = _time.monotonic()
+        ts, cached = cls._stale_cache
+        if now - ts > 1.0:
+            cached = bool(result.scene_key) and result.scene_key != cls.scene_key()
+            cls._stale_cache = (now, cached)
+        return cached
+
+    @classmethod
+    def _grp_suffix(cls, prefs) -> str:
+        """Configured group suffix ('_grp' default, never empty)."""
+        v = ""
+        if prefs is not None:
+            v = str(getattr(prefs, "hierarchy_grp_suffix", "") or "").strip().lower()
+        return v or cls.DEFAULT_GRP_SUFFIX
+
     # ── Public API ─────────────────────────────────────────────────────────────
 
     @classmethod
@@ -716,6 +769,8 @@ class HierarchyValidator:
 
         # Ensure NamingValidator forbidden-name cache is warm
         NamingValidator._ensure_cache()
+
+        grp_suffix = cls._grp_suffix(prefs)
 
         # ── Phase 1: classify roles via BFS ──────────────────────────────────
         node_roles: dict  = {}   # {obj_name: role}
@@ -813,7 +868,12 @@ class HierarchyValidator:
         # Per-object validation
         for obj in scene_objects:
             role = node_roles.get(obj.name, _ROLE_ORPHAN_MESH)
-            issues.extend(cls._validate_node(obj, role, layer_names))
+            issues.extend(cls._validate_node(obj, role, layer_names, grp_suffix))
+
+        # A fresh scan invalidates the staleness cache — the UI badge must
+        # clear immediately, not after the 1 s throttle window.
+        import time as _time
+        cls._stale_cache = (_time.monotonic(), False)
 
         return HierarchyResult(
             issues=issues,
@@ -821,12 +881,13 @@ class HierarchyValidator:
             node_roles=node_roles,
             children_of=children_of,
             objects_scanned=len(scene_objects),
+            scene_key=cls.scene_key(),
         )
 
     # ── Node validator ─────────────────────────────────────────────────────────
 
     @classmethod
-    def _validate_node(cls, obj, role: str, layer_names: set) -> list:
+    def _validate_node(cls, obj, role: str, layer_names: set, grp_suffix: str = "_grp") -> list:
         """Return HierarchyIssue list for a single object."""
         issues  = []
         name    = obj.name
@@ -875,18 +936,18 @@ class HierarchyValidator:
 
         # ── EMPTY-specific rules ──────────────────────────────────────────────
         if obj.type == 'EMPTY':
-            # ERROR: every Empty in the hierarchy must end with _grp
-            if not name_lo.endswith('_grp'):
+            # ERROR: every Empty in the hierarchy must end with the group suffix
+            if not name_lo.endswith(grp_suffix):
                 issues.append(HierarchyIssue(
                     obj_name=name, severity=ERROR,
                     rule="missing_grp_suffix",
-                    message=f"Empty must end with '_grp': '{name}'",
+                    message=f"Empty must end with '{grp_suffix}': '{name}'",
                     role=role,
                 ))
 
             # WARNING: functional layer name not in whitelist
             if role == _ROLE_FUNCTIONAL_LAYER:
-                layer_base = name_lo[:-4] if name_lo.endswith('_grp') else name_lo
+                layer_base = name_lo[:-len(grp_suffix)] if name_lo.endswith(grp_suffix) else name_lo
                 if layer_base not in layer_names:
                     known_sorted = sorted(layer_names)[:5]
                     issues.append(HierarchyIssue(
@@ -922,8 +983,9 @@ class HierarchyValidator:
             # WARNING: mesh name doesn't match parent group base name
             if role == _ROLE_MESH_UNDER_GROUP and obj.parent is not None:
                 parent_lo = obj.parent.name.lower()
-                # strip _grp to get the shared base
-                parent_base = parent_lo[:-4] if parent_lo.endswith('_grp') else parent_lo
+                # strip the group suffix to get the shared base
+                parent_base = (parent_lo[:-len(grp_suffix)]
+                               if parent_lo.endswith(grp_suffix) else parent_lo)
                 # Valid: parent_base  OR  parent_base_<digits>
                 pat = _re.compile(
                     r'^' + _re.escape(parent_base) + r'(_\d+)?$'

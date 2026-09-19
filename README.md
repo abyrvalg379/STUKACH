@@ -4,7 +4,7 @@
 
 Pipeline asset validation addon for Blender.
 
-**Blender 5.2 · v1.6.9 · Author: Maksim Kovalev**
+**Blender 5.2 · v1.7.0 · Author: Maksim Kovalev**
 
 ---
 
@@ -134,6 +134,7 @@ The **STUKACH** tab appears in the N-Panel (View3D and UV Editor).
 - **Pre-flight Export** — FBX and USD validation before export
 - **Checkpoints** — save and restore validation state
 - **Ignore System** — suppress individual checks per object
+- **Hierarchy Validator** — pipeline structure scan (asset roots, functional layers, `_grp` groups, orphan detection) with a tree view; findings feed the Asset Status, reports and Next Issue; auto re-scan in Live mode; functional-layer whitelist and group suffix configurable in Preferences
 - **Scene Units Check** — validates METRIC / METERS / scale 1.0
 - **Session Log + Debug Info** — addon diagnostics go to `%TEMP%/stukach.log`; one button copies a diagnostic snapshot to the clipboard
 - **Validator Signature** — reports are signed with the validator name (Preferences → Validator)

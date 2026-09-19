@@ -313,6 +313,21 @@ def _get_asset_status(mc) -> str:
 
     if not has_any_active:
         return "none"
+
+    # Hierarchy validator (manual/auto scan) — folds into the asset status.
+    # Scene-level findings: errors escalate to CRITICAL, warnings to REVIEW.
+    prefs = _get_prefs()
+    if prefs is None or getattr(prefs, "hierarchy_in_status", True):
+        hier = _manager_mod.MeshCheck.hierarchy_result
+        if hier is not None:
+            e, w = hier.error_count, hier.warning_count
+            if e or w:
+                has_any_active = True
+                if e:
+                    has_blocker = True
+                else:
+                    has_warning = True
+
     if has_blocker:
         return "critical"
     if has_warning:
@@ -478,6 +493,7 @@ def draw_hierarchy_block(layout, mc):
     """
     from .naming import (
         HierarchyResult,
+        HierarchyValidator,
         _ROLE_ASSET_ROOT,
         _ROLE_ICONS,
         INFO, WARNING, ERROR, SEVERITY_ICON,
@@ -507,7 +523,10 @@ def draw_hierarchy_block(layout, mc):
             badge = layout.row(align=True)
             badge.scale_y = 0.75
             e, w = result.error_count, result.warning_count
-            if result.is_clean():
+            if HierarchyValidator.is_stale(result):
+                badge.label(text="  Stale — hierarchy changed, re-scan",
+                            icon="FILE_REFRESH")
+            elif result.is_clean():
                 badge.label(text=f"  Clean  ·  {len(result.asset_roots)} root(s)", icon="CHECKMARK")
             else:
                 if e:
@@ -525,6 +544,11 @@ def draw_hierarchy_block(layout, mc):
     # Summary row
     e, w = result.error_count, result.warning_count
     n_roots = len(result.asset_roots)
+
+    if HierarchyValidator.is_stale(result):
+        stale = layout.row(align=True)
+        stale.label(text="Stale — hierarchy changed since this scan",
+                    icon="FILE_REFRESH")
 
     summ = layout.row(align=True)
     if result.is_clean():
