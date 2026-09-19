@@ -453,6 +453,14 @@ def draw_coordinator_panel(layout, mc, context) -> None:
     checks_box.label(text="Critical & Warning Checks:", icon="ERROR")
     mc.draw_options(checks_box, severity_filter={'BLOCKER', 'WARNING'})
 
+    # ── Hierarchy validator — acceptance gate, standalone block ──────────────
+    hier_box = layout.box()
+    try:
+        draw_hierarchy_block(hier_box, mc)
+    except Exception as _he:
+        from .manager import alog
+        alog(f"[AssetChecker] hierarchy block draw error: {_he}")
+
     if prefs := _get_prefs():
         off_row = checks_box.row(align=True)
         off_row.scale_y = 0.8
@@ -491,7 +499,7 @@ def draw_coordinator_panel(layout, mc, context) -> None:
 def draw_hierarchy_block(layout, mc):
     """Pipeline hierarchy validator — collapsible sub-section.
 
-    Renders inside the Naming category box (called from draw_options()).
+    Renders as a standalone top-level panel block (sibling of the category boxes).
     *mc* is MeshCheckProperties (WindowManager.mesh_check_props).
 
     Sections:
@@ -781,7 +789,7 @@ def _draw_ignore_list_block(layout, mc) -> None:
 def draw_naming_audit_block(layout, mc) -> None:
     """Naming Audit block — scene-wide check, collapsible.
 
-    Renders inside the Naming category box (called from draw_options()).
+    Renders as a standalone top-level panel block (sibling of the category boxes).
     *mc* is MeshCheckProperties (WindowManager.mesh_check_props).
 
     Sections:
@@ -1280,6 +1288,14 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
             off_row.scale_y = 0.8
             off_row.prop(prefs, "faces_offset", text="Face Offset")
             off_row.prop(prefs, "points_offset", text="Point Offset")
+
+        # ── Hierarchy validator — standalone block, sibling of the categories ──
+        hier_box = layout.box()
+        try:
+            draw_hierarchy_block(hier_box, mc)
+        except Exception as _he:
+            from .manager import alog
+            alog(f"[AssetChecker] hierarchy block draw error: {_he}")
 
         if not _manager_mod.MeshCheck.objects:
             return
