@@ -1249,3 +1249,272 @@ class ASSET_CHECKER_OT_hierarchy_clear_ignores(bpy.types.Operator):
             from .manager import alog
             alog(f"[AssetChecker] cleared hierarchy ignores on {n} object(s)")
         return {'FINISHED'}
+
+
+# ── Hierarchy fix operators (phase 3) ─────────────────────────────────────────
+
+def _get_addon_prefs_h():
+    addon_name = __name__.rsplit(".", 1)[0]
+    try:
+        return bpy.context.preferences.addons[addon_name].preferences
+    except Exception:
+        return None
+
+
+def _hierarchy_rescan(prefs=None):
+    """Re-run the hierarchy scan and refresh the panel result."""
+    from .manager import MeshCheck
+    MeshCheck.hierarchy_result = HierarchyValidator.scan_scene(prefs=prefs)
+
+
+def _hierarchy_fix_targets(rule) -> list:
+    """Objects with an effective finding of *rule* (ignores respected)."""
+    from .manager import MeshCheck
+    result = MeshCheck.hierarchy_result
+    if result is None:
+        return []
+    names = {i.obj_name for i in hierarchy_effective_issues(result)
+             if i.rule == rule and i.obj_name != "[scene]"}
+    return [bpy.data.objects[n] for n in names if bpy.data.objects.get(n)]
+
+
+def _name_taken(name: str, exclude) -> bool:
+    existing = bpy.data.objects.get(name)
+    return existing is not None and existing not in exclude
+
+
+class ASSET_CHECKER_OT_hierarchy_fix_grp_suffix(bpy.types.Operator):
+    """Append the group suffix to flagged empties ('wheel' -> 'wheel_grp')"""
+    bl_idname  = "asset_checker.hierarchy_fix_grp_suffix"
+    bl_label   = "Fix: Add Group Suffix"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        suffix = HierarchyValidator._grp_suffix(_get_addon_prefs_h())
+        objs = _hierarchy_fix_targets("missing_grp_suffix")
+        renamed = skipped = 0
+        for obj in objs:
+            old = obj.name
+            base = re.sub(r"\.\d{3,}$", "", old)   # drop Blender numbering
+            for candidate in (base + suffix, old + suffix):
+                if candidate == old:
+                    continue
+                if not _name_taken(candidate, (obj,)):
+                    obj.name = candidate
+                    renamed += 1
+                    break
+            else:
+                skipped += 1
+        _hierarchy_rescan(_get_addon_prefs_h())
+        msg = f"Renamed {renamed} emptie(s)"
+        if skipped:
+            msg += f", skipped {skipped} (name taken)"
+        self.report({'INFO'}, msg)
+        return {'FINISHED'}
+
+
+class ASSET_CHECKER_OT_hierarchy_fix_renumber(bpy.types.Operator):
+    """Renumber meshes inside their groups: legal names are kept, violators
+    receive the first free two-digit slots in order of their old number"""
+    bl_idname  = "asset_checker.hierarchy_fix_renumber"
+    bl_label   = "Fix: Renumber Groups"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        suffix = HierarchyValidator._grp_suffix(_get_addon_prefs_h())
+        violators = _hierarchy_fix_targets("parent_mismatch")
+        groups: dict = {}
+        for obj in violators:
+            if obj.parent is not None:
+                groups.setdefault(obj.parent, []).append(obj)
+
+        renamed = 0
+        for parent, children in groups.items():
+            p_lo = parent.name.lower()
+            base = p_lo[:-len(suffix)] if p_lo.endswith(suffix) else p_lo
+            pat = re.compile(r'^' + re.escape(base) + r'(_\d{2})?$')
+            legal_nums = set()
+            for ch in children:
+                if pat.match(ch.name.lower()):
+                    m = re.search(r'_(\d{2})$', ch.name.lower())
+                    if m:
+                        legal_nums.add(int(m.group(1)))
+            # violators ordered by their current trailing number (0 if none)
+            viol = [ch for ch in children if not pat.match(ch.name.lower())]
+            viol.sort(key=lambda ch: (lambda m: int(m.group(1)) if m else 0)(
+                re.search(r'_(\d+)$', ch.name.lower())))
+            slot = 1
+            for ch in viol:
+                while True:
+                    candidate = f"{base}_{slot:02d}"
+                    if slot in legal_nums or _name_taken(candidate, tuple(children)):
+                        slot += 1
+                        continue
+                    break
+                tmp = ch.name
+                ch.name = f"{base}__rn"
+                ch.name = candidate or tmp
+                legal_nums.add(slot)
+                renamed += 1
+                slot += 1
+
+        _hierarchy_rescan(_get_addon_prefs_h())
+        self.report({'INFO'},
+                    f"Renumbered {renamed} object(s) in {len(groups)} group(s)")
+        return {'FINISHED'}
+
+
+class ASSET_CHECKER_OT_hierarchy_fix_adopt(bpy.types.Operator):
+    """Connect orphan objects to an asset root (keeps world transform)"""
+    bl_idname  = "asset_checker.hierarchy_fix_adopt"
+    bl_label   = "Fix: Connect Orphans"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    root_name: bpy.props.StringProperty(name="Target root")
+
+    def invoke(self, context, _event):
+        from .manager import MeshCheck
+        result = MeshCheck.hierarchy_result
+        self._roots = list(result.asset_roots) if result else []
+        if len(self._roots) == 1:
+            self.root_name = self._roots[0]
+            return self.execute(context)
+        if not self._roots:
+            self.report({'WARNING'}, "No asset roots found — create one first")
+            return {'CANCELLED'}
+        return context.window_manager.invoke_props_dialog(self, width=320)
+
+    def draw(self, _context):
+        col = self.layout.column()
+        col.prop(self, "root_name")
+        hint = self.layout.row()
+        hint.enabled = False
+        hint.scale_y = 0.75
+        hint.label(text="Roots: " + ", ".join(self._roots[:4]) +
+                   ("…" if len(self._roots) > 4 else ""), icon="INFO")
+
+    def execute(self, context):
+        root = bpy.data.objects.get(self.root_name)
+        if root is None:
+            self.report({'WARNING'}, "Target root not found")
+            return {'CANCELLED'}
+        n = 0
+        for obj in _hierarchy_fix_targets("orphan_empty") + \
+                   _hierarchy_fix_targets("orphan_mesh"):
+            if obj is root:
+                continue
+            obj.parent = root
+            obj.matrix_parent_inverse = root.matrix_world.inverted()
+            n += 1
+        _hierarchy_rescan(_get_addon_prefs_h())
+        self.report({'INFO'}, f"Connected {n} object(s) to '{self.root_name}'")
+        return {'FINISHED'}
+
+
+class ASSET_CHECKER_OT_hierarchy_fix_create_root(bpy.types.Operator):
+    """Create an asset root and optionally connect the orphans to it"""
+    bl_idname  = "asset_checker.hierarchy_fix_create_root"
+    bl_label   = "Fix: Create Asset Root"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    root_name: bpy.props.StringProperty(
+        name="Root name", default="asset_grp")
+    connect_orphans: bpy.props.BoolProperty(
+        name="Connect orphan objects", default=True)
+
+    def draw(self, _context):
+        col = self.layout.column()
+        col.prop(self, "root_name")
+        col.prop(self, "connect_orphans")
+
+    def invoke(self, context, _event):
+        return context.window_manager.invoke_props_dialog(self, width=300)
+
+    def execute(self, context):
+        suffix = HierarchyValidator._grp_suffix(_get_addon_prefs_h())
+        name = self.root_name.strip().replace(" ", "_")
+        if name and not name.lower().endswith(suffix):
+            name += suffix
+        if not name or bpy.data.objects.get(name):
+            self.report({'WARNING'}, f"Name '{name}' is empty or already taken")
+            return {'CANCELLED'}
+        root = bpy.data.objects.new(name, None)
+        context.scene.collection.objects.link(root)
+        n = 0
+        if self.connect_orphans:
+            for obj in _hierarchy_fix_targets("orphan_empty") + \
+                       _hierarchy_fix_targets("orphan_mesh"):
+                obj.parent = root
+                obj.matrix_parent_inverse = root.matrix_world.inverted()
+                n += 1
+        _hierarchy_rescan(_get_addon_prefs_h())
+        msg = f"Created root '{name}'"
+        if n:
+            msg += f", connected {n} object(s)"
+        self.report({'INFO'}, msg)
+        return {'FINISHED'}
+
+
+class ASSET_CHECKER_OT_hierarchy_create_skeleton(bpy.types.Operator):
+    """Generate a legal asset skeleton: root + selected functional layers"""
+    bl_idname  = "asset_checker.hierarchy_create_skeleton"
+    bl_label   = "Create Asset Skeleton"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    asset_name: bpy.props.StringProperty(name="Asset name", default="asset")
+    layer_static:    bpy.props.BoolProperty(name="static",    default=True)
+    layer_animated:  bpy.props.BoolProperty(name="animated",  default=False)
+    layer_geo:       bpy.props.BoolProperty(name="geo",       default=False)
+    layer_lod:       bpy.props.BoolProperty(name="lod",       default=False)
+    layer_collision: bpy.props.BoolProperty(name="collision", default=False)
+    layer_proxy:     bpy.props.BoolProperty(name="proxy",     default=False)
+
+    def draw(self, _context):
+        col = self.layout.column(align=True)
+        col.prop(self, "asset_name")
+        col.label(text="Functional layers:")
+        for attr in ("layer_static", "layer_animated", "layer_geo",
+                     "layer_lod", "layer_collision", "layer_proxy"):
+            col.prop(self, attr)
+
+    def invoke(self, context, _event):
+        if bpy.data.filepath:
+            import os
+            base = os.path.splitext(bpy.path.basename(bpy.data.filepath))[0]
+            self.asset_name = re.sub(r"[^a-z0-9_]+", "_", base.lower()).strip("_") or "asset"
+        else:
+            self.asset_name = "asset"
+        return context.window_manager.invoke_props_dialog(self, width=280)
+
+    def execute(self, context):
+        suffix = HierarchyValidator._grp_suffix(_get_addon_prefs_h())
+        root_name = re.sub(r"[^a-z0-9_]+", "_", self.asset_name.strip().lower()).strip("_")
+        if not root_name:
+            self.report({'WARNING'}, "Empty asset name")
+            return {'CANCELLED'}
+        if not root_name.endswith(suffix):
+            root_name += suffix
+        if bpy.data.objects.get(root_name):
+            self.report({'WARNING'}, f"'{root_name}' already exists")
+            return {'CANCELLED'}
+        root = bpy.data.objects.new(root_name, None)
+        context.scene.collection.objects.link(root)
+        n_layers = skipped_layers = 0
+        for attr in ("layer_static", "layer_animated", "layer_geo",
+                     "layer_lod", "layer_collision", "layer_proxy"):
+            if not getattr(self, attr):
+                continue
+            layer_name = attr[len("layer_"):] + suffix
+            if bpy.data.objects.get(layer_name):
+                skipped_layers += 1   # auto-suffix would create .001 — illegal
+                continue
+            layer = bpy.data.objects.new(layer_name, None)
+            layer.parent = root
+            context.scene.collection.objects.link(layer)
+            n_layers += 1
+        _hierarchy_rescan(_get_addon_prefs_h())
+        msg = f"Created '{root_name}' with {n_layers} layer(s)"
+        if skipped_layers:
+            msg += f", skipped {skipped_layers} (name taken)"
+        self.report({'INFO'}, msg)
+        return {'FINISHED'}

@@ -580,7 +580,7 @@ def draw_hierarchy_block(layout, mc):
         right2.alignment = "RIGHT"
         right2.label(text=f"{n_roots} root(s)  ·  {result.objects_scanned} obj")
 
-    # Controls: issues-only filter + suppressed findings restore
+    # Controls: issues-only filter + suppressed findings restore + skeleton
     ctrl = layout.row(align=True)
     ctrl.prop(mc, "hierarchy_issues_only", text="Issues only", icon="FILTER",
               toggle=True, emboss=False)
@@ -589,6 +589,26 @@ def draw_hierarchy_block(layout, mc):
         right3.alignment = "RIGHT"
         right3.operator("asset_checker.hierarchy_clear_ignores",
                         text=f"{n_ignored} ignored — clear", icon="LOOP_BACK", emboss=False)
+
+    # ── One-click fixes for aggregated findings ──────────────────────────────
+    fix_counts: dict = {}
+    for i in eff:
+        fix_counts[i.rule] = fix_counts.get(i.rule, 0) + 1
+    fx = layout.row(align=True)
+    if fix_counts.get("missing_grp_suffix"):
+        fx.operator("asset_checker.hierarchy_fix_grp_suffix",
+                    text=f"Add _grp ({fix_counts['missing_grp_suffix']})")
+    if fix_counts.get("parent_mismatch"):
+        fx.operator("asset_checker.hierarchy_fix_renumber",
+                    text=f"Renumber ({fix_counts['parent_mismatch']})")
+    if fix_counts.get("orphan_empty") or fix_counts.get("orphan_mesh"):
+        n_orph = fix_counts.get("orphan_empty", 0) + fix_counts.get("orphan_mesh", 0)
+        fx.operator("asset_checker.hierarchy_fix_adopt",
+                    text=f"Connect orphans ({n_orph})")
+    if fix_counts.get("no_asset_root"):
+        fx.operator("asset_checker.hierarchy_fix_create_root", text="Create root")
+    fx.operator("asset_checker.hierarchy_create_skeleton", text="Skeleton",
+                icon="ADD")
 
     # ── Helpers ───────────────────────────────────────────────────────────────
     issues_by_obj: dict = {}
