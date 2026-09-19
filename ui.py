@@ -1432,6 +1432,9 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
             # ── Object list ───────────────────────────────────────────────────
             _BADGE = {"critical": "ERROR", "warning": "INFO", "clean": "CHECKMARK"}
 
+            if not visible and not filter_text:
+                sec_box.label(text="All objects clean", icon="CHECKMARK")
+
             from .properties import get_obj_ignore_list
 
             for obj, mc_obj, obj_name, obj_status in visible:

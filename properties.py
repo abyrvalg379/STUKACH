@@ -2804,8 +2804,10 @@ class MeshCheckProperties(PropertyGroup):
     )
     obj_filter_errors_only: BoolProperty(
         name="Issues Only",
-        default=False,
-        description="Show only objects that have at least one active issue",
+        default=True,
+        description="Show only objects that have at least one active issue. "
+                    "ON by default — with Scene/Collection scope the full list is a wall of objects; "
+                    "toggle off to browse every validated object",
     )
     uv_rename_target: EnumProperty(
         name="Rename To",
