@@ -91,6 +91,11 @@ classes = (
     naming.ASSET_CHECKER_OT_hierarchy_toggle_rule,
     naming.ASSET_CHECKER_OT_hierarchy_ignore_toggle,
     naming.ASSET_CHECKER_OT_hierarchy_clear_ignores,
+    naming.ASSET_CHECKER_OT_hierarchy_fix_grp_suffix,
+    naming.ASSET_CHECKER_OT_hierarchy_fix_renumber,
+    naming.ASSET_CHECKER_OT_hierarchy_fix_adopt,
+    naming.ASSET_CHECKER_OT_hierarchy_fix_create_root,
+    naming.ASSET_CHECKER_OT_hierarchy_create_skeleton,
 )
 
 
