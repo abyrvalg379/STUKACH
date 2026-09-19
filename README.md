@@ -52,7 +52,7 @@ The **STUKACH** tab appears in the N-Panel (View3D and UV Editor).
 | Z-Fighting | BLOCKER | Coplanar overlapping geometry |
 | Lamina | BLOCKER | Zero-thickness faces folded onto themselves |
 | Zero Length Edges | BLOCKER | Edges of near-zero length (below 1e-8) |
-| Starlike | WARNING | Faces whose outline self-intersects (non-starlike) |
+| Starlike | WARNING | Non-starlike faces: self-intersecting outline, or the centroid cannot see the whole boundary (Maya `isStarlike` parity) |
 | Sharp Edges Not Hard | WARNING | Edges with a dihedral angle ≥ 30° that are NOT marked sharp — only the missed ones are flagged |
 
 ### TRANSFORMS

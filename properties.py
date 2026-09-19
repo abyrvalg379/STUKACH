@@ -2675,7 +2675,7 @@ class MeshCheckProperties(PropertyGroup):
     zero_length_edges:   BoolProperty(name="Zero Length Edges",       default=False, update=mc_object_datas_updater("zero_length_edges"),
                                       description="Edges of near-zero length (below 1e-8) — degenerate geometry from merges and booleans")
     starlike:            BoolProperty(name="Starlike",                default=False, update=mc_object_datas_updater("starlike"),
-                                      description="Faces whose outline self-intersects when projected onto the face plane (non-starlike) — unpredictable triangulation and shading")
+                                      description="Non-starlike faces (Maya isStarlike parity): self-intersecting outline, or the centroid cannot see the whole boundary — unpredictable triangulation and shading")
     sharp_edges_not_hard: BoolProperty(name="Sharp Edges Not Hard",  default=False, update=mc_object_datas_updater("sharp_edges_not_hard"),
                                       description="Edges with a dihedral angle of 30° or more that are NOT marked sharp — smooth shading across a sharp corner causes shading artifacts")
 
