@@ -196,5 +196,5 @@ GPL-3.0-or-later
 | [LAMPOCHKA](https://github.com/abyrvalg379/LAMPOCHKA) | Менеджер света сцены |
 | [Switch_UDIM](https://github.com/abyrvalg379/Switch_UDIM) | Переключатель текстур Single ↔ UDIM |
 | [FLOMASTER](https://github.com/abyrvalg379/FLOMASTER) | OCIO-лаунчер для DCC |
-| [FILTER](https://github.com/abyrvalg379/FILTER) | Видимость/выделение по типу, имени, коллекции |
+| [FILTER](https://github.com/abyrvalg379/FILTER) | Видимость/выделение по типу, имени, коллекции + массовое управление модификаторами |
 | [KARUSELKA](https://github.com/abyrvalg379/karuselka) | Быстрый турнтейбл-риг: орбита или спин объекта |
