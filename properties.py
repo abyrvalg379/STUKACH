@@ -2923,6 +2923,10 @@ class MeshCheckProperties(PropertyGroup):
             addon_prefs = bpy.context.preferences.addons[addon_name].preferences
         except Exception:
             addon_prefs = None
+        # Coordinator Lock — in Coordinator Mode the curator reviews and
+        # reports; every scene-mutating action (fixes) is hidden.
+        coordinator_lock = (self.coordinator_mode and bool(
+            getattr(addon_prefs, "coordinator_lock", False)))
 
         for cat_name, checks in CHECK_CATEGORIES.items():
             # Apply severity filter — skip categories where nothing passes
@@ -2957,7 +2961,7 @@ class MeshCheckProperties(PropertyGroup):
             header.label(text="")
 
             # Fix button — only when at least one fixable check in the category has issues
-            if MeshCheck.objects:
+            if MeshCheck.objects and not coordinator_lock:
                 cat_has_fix = any(
                     _FIX_OPERATORS.get(c)
                     and getattr(self, c, False)
@@ -3033,12 +3037,13 @@ class MeshCheckProperties(PropertyGroup):
                     )
                     _rn = box.row(align=True)
                     _rn.prop(self, "uv_rename_target", text="")
-                    _rn.operator("asset_checker.uv_rename", text="Rename")
+                    if not coordinator_lock:
+                        _rn.operator("asset_checker.uv_rename", text="Rename")
                     box.prop(self, "uv_rename_all_scene", text="All Scene Objects",
                              icon="OUTLINER_OB_MESH")
 
             # ── Inline CLEANUP actions ─────────────────────────────────────
-            if cat_name == "CLEANUP":
+            if cat_name == "CLEANUP" and not coordinator_lock:
                 box.separator(factor=0.3)
                 col = box.column(align=True)
                 col.operator(

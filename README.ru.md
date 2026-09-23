@@ -134,6 +134,7 @@ Edit → Preferences → Get Extensions → ⚙️ → Install from Disk → в�
 - **Оверлеи в UV Editor** — подсветка шеллов в Image Editor
 - **Выделение в Edit Mode** — клик Sel выделяет проблемную геометрию
 - **Coordinator Mode** — отфильтрованный вид только с BLOCKER + WARNING проверками
+- **Флаги координаторской станции** — «Start in Coordinator Mode» открывает панель сразу в координаторском виде при загрузке аддона/файла; «Coordinator Lock» прячет все фиксы в Coordinator Mode (куратор смотрит и пишет вердикт, чинит артист)
 - **Экспорт отчётов** — форматы JSON, CSV, HTML
 - **Pre-flight Export** — валидация FBX и USD перед экспортом
 - **Чекпоинты** — сохранение и восстановление состояния валидации

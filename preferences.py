@@ -2,7 +2,8 @@
 import bpy
 from bpy.types import AddonPreferences, PropertyGroup
 from bpy.props import (FloatVectorProperty, FloatProperty, StringProperty,
-                       CollectionProperty, IntProperty, EnumProperty)
+                       CollectionProperty, IntProperty, EnumProperty,
+                       BoolProperty)
 
 
 # ── Naming policy entry (one prefix or suffix) ────────────────────────────────
@@ -265,6 +266,21 @@ class MeshCheckPreferences(AddonPreferences):
         description="Name written into validation reports (empty = system login)",
     )
 
+    # Coordinator workstation flags
+    start_in_coordinator: BoolProperty(
+        name="Start in Coordinator Mode",
+        default=False,
+        description="Open STUKACH in Coordinator Mode on addon load and after "
+                    "every file load — for curator/lead workstations",
+    )
+    coordinator_lock: BoolProperty(
+        name="Coordinator Lock",
+        default=False,
+        description="In Coordinator Mode hide fix actions (category Fix, "
+                    "hierarchy fixes, UV rename, cleanup tools) — coordinator "
+                    "reviews and reports, artist fixes",
+    )
+
     # NAMING POLICY — object prefixes / suffixes
     naming_prefixes: CollectionProperty(type=NamingEntry, name="Object Required Prefixes")
     naming_suffixes: CollectionProperty(type=NamingEntry, name="Object Required Suffixes")
@@ -389,6 +405,12 @@ class MeshCheckPreferences(AddonPreferences):
         box.label(text="Points", icon="VERTEXSEL")
         box.prop(self, "point_size")
         box.prop(self, "points_offset")
+
+        # ── Interface — coordinator workstation flags ──────────────────────
+        box = layout.box()
+        box.label(text="Interface", icon="WINDOW")
+        box.prop(self, "start_in_coordinator")
+        box.prop(self, "coordinator_lock")
 
         # ── Naming Policy ──────────────────────────────────────────────────
         box = layout.box()

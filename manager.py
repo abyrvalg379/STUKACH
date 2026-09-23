@@ -1296,6 +1296,7 @@ def _ac_save_pre(*args):
 @bpy.app.handlers.persistent
 def _ac_load_post(*args):
     """Restore check-enable flags + scope from scene["_ac_state"] after load."""
+    apply_startup_mode()
     try:
         scene = getattr(bpy.context, 'scene', None)
         if scene is None:
@@ -1322,13 +1323,33 @@ def _ac_load_post(*args):
                 pass
 
         MeshCheck._state_restored = True
+        apply_startup_mode()   # the startup pref wins over the saved mode
         alog(f"[AssetChecker] Settings restored from '{scene.name}' ({restored} props).")
     except Exception as e:
         alog(f"[AssetChecker] load_post error: {e}")
 
 
+def apply_startup_mode() -> None:
+    """Force the 'Start in Coordinator Mode' preference onto live session
+    state. Runs at register and on every file load — a curator workstation
+    opens in Coordinator Mode regardless of what the file had saved."""
+    try:
+        from .properties import _get_addon_prefs   # local: avoid import cycle
+        prefs = _get_addon_prefs(bpy.context)
+        if prefs is None:
+            return
+        wm = getattr(bpy.context, "window_manager", None)
+        if wm is None or not hasattr(wm, "mesh_check_props"):
+            return
+        wm.mesh_check_props.coordinator_mode = bool(
+            getattr(prefs, "start_in_coordinator", False))
+    except Exception as e:
+        alog(f"apply_startup_mode: {e}")
+
+
 def register_state_handlers() -> None:
     """Register save_pre / load_post handlers (idempotent)."""
+    apply_startup_mode()
     if _ac_save_pre not in bpy.app.handlers.save_pre:
         bpy.app.handlers.save_pre.append(_ac_save_pre)
     if _ac_load_post not in bpy.app.handlers.load_post:
