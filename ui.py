@@ -594,21 +594,26 @@ def draw_hierarchy_block(layout, mc):
     fix_counts: dict = {}
     for i in eff:
         fix_counts[i.rule] = fix_counts.get(i.rule, 0) + 1
+    # Coordinator Lock: fixes and skeleton are artist tools — the curator
+    # still gets the summary and the issue tree below.
+    _hier_lock = bool(mc.coordinator_mode
+                      and getattr(_get_prefs(), "coordinator_lock", False))
     fx = layout.row(align=True)
-    if fix_counts.get("missing_grp_suffix"):
+    if not _hier_lock and fix_counts.get("missing_grp_suffix"):
         fx.operator("asset_checker.hierarchy_fix_grp_suffix",
                     text=f"Add _grp ({fix_counts['missing_grp_suffix']})")
-    if fix_counts.get("parent_mismatch"):
+    if not _hier_lock and fix_counts.get("parent_mismatch"):
         fx.operator("asset_checker.hierarchy_fix_renumber",
                     text=f"Renumber ({fix_counts['parent_mismatch']})")
-    if fix_counts.get("orphan_empty") or fix_counts.get("orphan_mesh"):
+    if not _hier_lock and (fix_counts.get("orphan_empty") or fix_counts.get("orphan_mesh")):
         n_orph = fix_counts.get("orphan_empty", 0) + fix_counts.get("orphan_mesh", 0)
         fx.operator("asset_checker.hierarchy_fix_adopt",
                     text=f"Connect orphans ({n_orph})")
-    if fix_counts.get("no_asset_root"):
+    if not _hier_lock and fix_counts.get("no_asset_root"):
         fx.operator("asset_checker.hierarchy_fix_create_root", text="Create root")
-    fx.operator("asset_checker.hierarchy_create_skeleton", text="Skeleton",
-                icon="ADD")
+    if not _hier_lock:
+        fx.operator("asset_checker.hierarchy_create_skeleton", text="Skeleton",
+                    icon="ADD")
 
     # ── Helpers ───────────────────────────────────────────────────────────────
     issues_by_obj: dict = {}

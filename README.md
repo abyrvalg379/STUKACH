@@ -134,6 +134,7 @@ The **STUKACH** tab appears in the N-Panel (View3D and UV Editor).
 - **UV Editor Overlays** — highlighted shells in the Image Editor
 - **Select in Edit Mode** — click Sel to select problem geometry
 - **Coordinator Mode** — filtered view showing only BLOCKER + WARNING checks
+- **Coordinator Workstation Flags** — «Start in Coordinator Mode» opens the panel in coordinator view on addon/file load; «Coordinator Lock» hides all fix actions in Coordinator Mode (curator reviews and reports, artist fixes)
 - **Export Reports** — JSON, CSV, HTML formats
 - **Pre-flight Export** — FBX and USD validation before export
 - **Checkpoints** — save and restore validation state
