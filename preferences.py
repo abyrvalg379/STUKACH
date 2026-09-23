@@ -281,6 +281,19 @@ class MeshCheckPreferences(AddonPreferences):
                     "reviews and reports, artist fixes",
     )
 
+    # Preferences tab pages — the full settings sheet is far too tall as one scroll
+    prefs_section: EnumProperty(
+        name="Section",
+        items=(
+            ('OVERLAY', "Overlay", "Viewport overlay style: faces, edges, points"),
+            ('UV', "UV", "UV thresholds: texel density, padding, stretch, aspect ratio, count thresholds"),
+            ('NAMING', "Naming", "Naming policy: prefixes, suffixes, hierarchy whitelist"),
+            ('COLORS', "Colors", "Per-check overlay colors"),
+        ),
+        default='OVERLAY',
+        options={'HIDDEN'},
+    )
+
     # NAMING POLICY — object prefixes / suffixes
     naming_prefixes: CollectionProperty(type=NamingEntry, name="Object Required Prefixes")
     naming_suffixes: CollectionProperty(type=NamingEntry, name="Object Required Suffixes")
@@ -394,6 +407,28 @@ class MeshCheckPreferences(AddonPreferences):
     def draw(self, context):
         layout = self.layout
 
+        # Interface — always visible; the flags people actually need to find
+        box = layout.box()
+        box.label(text="Interface", icon="WINDOW")
+        box.prop(self, "start_in_coordinator")
+        box.prop(self, "coordinator_lock")
+        vrow = box.row(align=True)
+        vrow.prop(self, "validator_name", text="Validator", icon="USER")
+
+        # Section tabs — the full sheet as one scroll was far too tall
+        row = layout.row(align=True)
+        row.prop(self, "prefs_section", expand=True)
+
+        if self.prefs_section == 'OVERLAY':
+            self._draw_section_overlay(layout)
+        elif self.prefs_section == 'UV':
+            self._draw_section_uv(layout)
+        elif self.prefs_section == 'NAMING':
+            self._draw_section_naming(layout)
+        elif self.prefs_section == 'COLORS':
+            self._draw_section_colors(layout)
+
+    def _draw_section_overlay(self, layout):
         box = layout.box()
         box.label(text="Faces / Edges", icon="FACESEL")
         box.prop(self, "edges_width")
@@ -406,13 +441,69 @@ class MeshCheckPreferences(AddonPreferences):
         box.prop(self, "point_size")
         box.prop(self, "points_offset")
 
-        # ── Interface — coordinator workstation flags ──────────────────────
+    def _draw_section_uv(self, layout):
         box = layout.box()
-        box.label(text="Interface", icon="WINDOW")
-        box.prop(self, "start_in_coordinator")
-        box.prop(self, "coordinator_lock")
+        box.label(text="Texel Density", icon="UV")
+        row = box.row(align=True)
+        row.label(text="Texture Size:")
+        row.prop(self, "uv_td_texture_size", text="")
+        row = box.row(align=True)
+        row.label(text="Target TD (px/cm):")
+        row.prop(self, "uv_td_target", text="")
+        row = box.row(align=True)
+        row.label(text="Tolerance:")
+        row.prop(self, "uv_td_tolerance", text="")
+        hint = box.row()
+        hint.enabled = False
+        hint.label(text="Target TD = 0 \u2192 display only, no error flagging", icon="INFO")
 
-        # ── Naming Policy ──────────────────────────────────────────────────
+        box = layout.box()
+        box.label(text="UV Padding", icon="UV_FACESEL")
+        row = box.row(align=True)
+        row.label(text="Shell padding (px):")
+        row.prop(self, "uv_padding_shell_px", text="")
+        row = box.row(align=True)
+        row.label(text="Tile border (px):")
+        row.prop(self, "uv_padding_tile_px", text="")
+        hint = box.row()
+        hint.enabled = False
+        hint.label(text="Pixel thresholds scale with Texture Size setting", icon="INFO")
+
+        box = layout.box()
+        box.label(text="UV Stretch", icon="UV_DATA")
+        row = box.row(align=True)
+        row.label(text="Threshold (rad):")
+        row.prop(self, "uv_stretch_threshold", text="")
+        hint = box.row()
+        hint.enabled = False
+        hint.label(text="Angle diff > threshold \u2192 face flagged as stretched", icon="INFO")
+
+        box = layout.box()
+        box.label(text="Face Aspect Ratio", icon="MESH_GRID")
+        row = box.row(align=True)
+        row.label(text="Threshold (ratio):")
+        row.prop(self, "face_aspect_ratio_threshold", text="")
+        hint = box.row()
+        hint.enabled = False
+        hint.label(text="Quads above this ratio are flagged (default 6:1)", icon="INFO")
+
+        box = layout.box()
+        box.label(text="Check Thresholds", icon="SETTINGS")
+        hint = box.row()
+        hint.enabled = False
+        hint.label(text="Count \u2264 threshold \u2192 yellow  \u00b7  above \u2192 red  \u00b7  0 = always red",
+                   icon="INFO")
+        col = box.column(align=True)
+        for attr, label in (
+            ("threshold_triangles", "Triangles"),
+            ("threshold_ngons",     "Ngons"),
+            ("threshold_poles",     "Poles"),
+        ):
+            row = col.row(align=True)
+            row.label(text=label + ":")
+            row.prop(self, attr, text="")
+
+    def _draw_section_naming(self, layout):
         box = layout.box()
         box.label(text="Naming Policy", icon="FILE_TEXT")
 
@@ -440,10 +531,6 @@ class MeshCheckPreferences(AddonPreferences):
                 op.index = i
             c.operator(op_add_suf, text="Add", icon="ADD")
 
-        vrow = box.row(align=True)
-        vrow.prop(self, "validator_name", text="Validator", icon="USER")
-        vrow.enabled = True
-
         _draw_policy_domain(
             box, "Objects",
             self.naming_prefixes,    self.naming_suffixes,
@@ -460,7 +547,6 @@ class MeshCheckPreferences(AddonPreferences):
         # Mesh data — suffix only (checked by mesh_data_naming)
         box_m = box.box()
         box_m.label(text="Mesh Data (data block suffix)")
-        row = box_m.row(align=True)
         op_add = "asset_checker.mesh_naming_add_suffix"
         op_rm = "asset_checker.mesh_naming_remove_suffix"
         for i, entry in enumerate(self.mesh_naming_suffixes):
@@ -489,82 +575,21 @@ class MeshCheckPreferences(AddonPreferences):
         col.operator("asset_checker.hierarchy_layer_add", text="Add Layer", icon="ADD")
         hint = box_h.row()
         hint.enabled = False
-        hint.label(text="Adds to the 24 built-in layers (static, geo, …)", icon="INFO")
+        hint.label(text="Adds to the 24 built-in layers (static, geo, ...)", icon="INFO")
 
         hint = box.row()
         hint.enabled = False
         hint.label(text="Empty list = no requirement enforced", icon="INFO")
 
-        # ── Texel Density settings ─────────────────────────────────────────
-        box = layout.box()
-        box.label(text="Texel Density", icon="UV")
-        row = box.row(align=True)
-        row.label(text="Texture Size:")
-        row.prop(self, "uv_td_texture_size", text="")
-        row = box.row(align=True)
-        row.label(text="Target TD (px/cm):")
-        row.prop(self, "uv_td_target", text="")
-        row = box.row(align=True)
-        row.label(text="Tolerance:")
-        row.prop(self, "uv_td_tolerance", text="")
-        hint = box.row()
-        hint.enabled = False
-        hint.label(text="Target TD = 0 → display only, no error flagging", icon="INFO")
-
-        # ── UV Padding settings ────────────────────────────────────────────
-        box = layout.box()
-        box.label(text="UV Padding", icon="UV_FACESEL")
-        row = box.row(align=True)
-        row.label(text="Shell padding (px):")
-        row.prop(self, "uv_padding_shell_px", text="")
-        row = box.row(align=True)
-        row.label(text="Tile border (px):")
-        row.prop(self, "uv_padding_tile_px", text="")
-        hint = box.row()
-        hint.enabled = False
-        hint.label(text="Pixel thresholds scale with Texture Size setting", icon="INFO")
-
-        # ── UV Stretch settings ────────────────────────────────────────────
-        box = layout.box()
-        box.label(text="UV Stretch", icon="UV_DATA")
-        row = box.row(align=True)
-        row.label(text="Threshold (rad):")
-        row.prop(self, "uv_stretch_threshold", text="")
-        hint = box.row()
-        hint.enabled = False
-        hint.label(text="Angle diff > threshold → face flagged as stretched", icon="INFO")
-
-        # ── Face Aspect Ratio ─────────────────────────────────────────────
-        box = layout.box()
-        box.label(text="Face Aspect Ratio", icon="MESH_GRID")
-        row = box.row(align=True)
-        row.label(text="Threshold (ratio):")
-        row.prop(self, "face_aspect_ratio_threshold", text="")
-        hint = box.row()
-        hint.enabled = False
-        hint.label(text="Quads above this ratio are flagged (default 6:1)", icon="INFO")
-
-        # ── Check Thresholds ───────────────────────────────────────────────
-        box = layout.box()
-        box.label(text="Check Thresholds", icon="SETTINGS")
-        hint = box.row()
-        hint.enabled = False
-        hint.label(text="Count ≤ threshold → yellow  ·  above → red  ·  0 = always red",
-                   icon="INFO")
-        col = box.column(align=True)
-        for attr, label in (
-            ("threshold_triangles", "Triangles"),
-            ("threshold_ngons",     "Ngons"),
-            ("threshold_poles",     "Poles"),
-        ):
-            row = col.row(align=True)
-            row.label(text=label + ":")
-            row.prop(self, attr, text="")
-
-        # ── Pipeline check colors ──────────────────────────────────────────
+    def _draw_section_colors(self, layout):
         box = layout.box()
         box.label(text="Pipeline check colors", icon="MODIFIER")
-        for attr in (
+        # a ROW holding two columns — sibling columns inside a box stack
+        # vertically, side-by-side needs the row wrapper
+        pair = box.row(align=True)
+        left = pair.column(align=True)
+        right = pair.column(align=True)
+        colors = (
             "triangles_color", "ngons_color", "non_manifold_color", "boundary_edges_color",
             "isolated_verts_color", "duplicate_verts_color", "poles_color", "zero_area_color",
             "z_fighting_color",
@@ -583,10 +608,12 @@ class MeshCheckPreferences(AddonPreferences):
             "sharp_edges_not_hard_color", "missing_uvs_color",
             "duplicated_names_color", "trailing_numbers_color",
             "uncentered_pivots_color", "parent_geometry_color",
-        ):
+        )
+        for i, attr in enumerate(colors):
+            col = left if i % 2 == 0 else right
             prop_def = self.bl_rna.properties.get(attr)
             label = prop_def.name if prop_def else attr
-            row = box.row(align=True)
+            row = col.row(align=True)
             split = row.split(factor=0.55)
             split.label(text=label + ":")
             split.prop(self, attr, text="")
