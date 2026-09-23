@@ -454,6 +454,9 @@ def draw_coordinator_panel(layout, mc, context) -> None:
     mc.draw_options(checks_box, severity_filter={'BLOCKER', 'WARNING'})
 
     if prefs := _get_prefs():
+        xr_row = checks_box.row(align=True)
+        xr_row.scale_y = 0.8
+        xr_row.prop(prefs, "overlay_xray", text="X-Ray", toggle=True, icon='XRAY')
         off_row = checks_box.row(align=True)
         off_row.scale_y = 0.8
         off_row.prop(prefs, "faces_offset", text="Face Offset")
@@ -1347,6 +1350,9 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
         preset_row.operator("asset_checker.preset_import", text="", icon="IMPORT", emboss=False)
 
         if prefs:
+            xr_row = box.row(align=True)
+            xr_row.scale_y = 0.8
+            xr_row.prop(prefs, "overlay_xray", text="X-Ray", toggle=True, icon='XRAY')
             off_row = box.row(align=True)
             off_row.scale_y = 0.8
             off_row.prop(prefs, "faces_offset", text="Face Offset")
