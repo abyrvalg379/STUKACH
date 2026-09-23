@@ -213,6 +213,9 @@ class MeshCheckPreferences(AddonPreferences):
     faces_alpha:   FloatProperty(name="Faces Alpha",  default=0.4,  min=0.0, max=1.0,  precision=3)
     point_size:    FloatProperty(name="Vertex Size",  default=10.0, min=0.1, max=20.0, subtype="PIXEL")
     points_offset: FloatProperty(name="Points Offset",default=0.03, min=0.0, max=5.0,  precision=3)
+    overlay_xray:  BoolProperty(name="X-Ray Overlay", default=True,
+                                description="Draw marks through the mesh: faces and points stay visible behind walls. "
+                                            "Turn off to make solid walls hide marks on far-side geometry")
 
     # TOPOLOGY
     non_manifold_color:         FloatVectorProperty(name="Non manifold",         default=(0.02, 1.0,  0.02), min=0.0, max=1.0, size=3, subtype="COLOR")
@@ -431,6 +434,7 @@ class MeshCheckPreferences(AddonPreferences):
     def _draw_section_overlay(self, layout):
         box = layout.box()
         box.label(text="Faces / Edges", icon="FACESEL")
+        box.prop(self, "overlay_xray")
         box.prop(self, "edges_width")
         box.prop(self, "faces_offset")
         box.prop(self, "edges_alpha")

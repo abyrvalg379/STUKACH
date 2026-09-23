@@ -131,6 +131,7 @@ The **STUKACH** tab appears in the N-Panel (View3D and UV Editor).
 - **Health Strip** — per-category colored status dots in the score block
 - **Progress Bar** — segmented bar while Scene/Collection validation runs
 - **GPU Overlays** — colored face fills, edge outlines, and vertex markers in 3D viewport
+- **X-Ray Overlay** — toggle in the checks box; when off, solid walls occlude overlay marks on far-side geometry instead of showing them through the mesh
 - **UV Editor Overlays** — highlighted shells in the Image Editor
 - **Select in Edit Mode** — click Sel to select problem geometry
 - **Coordinator Mode** — filtered view showing only BLOCKER + WARNING checks

@@ -351,8 +351,6 @@ class MeshCheckGPU:
         ctx = bpy.context
         if not ctx.object:
             return
-        if not ctx.space_data.shading.show_xray:
-            gpu.state.depth_test_set('LESS')
 
         mc = ctx.window_manager.mesh_check_props
         addon_name = __name__.rsplit(".", 1)[0]
@@ -363,6 +361,13 @@ class MeshCheckGPU:
         if not prefs or not MeshCheck.objects:
             gpu.state.depth_test_set('NONE')
             return
+
+        # Viewport x-ray makes the walls themselves transparent — occlusion
+        # against them is meaningless, overlay stays see-through there.
+        xray_vp = bool(ctx.space_data.shading.show_xray)
+        # prefs.overlay_xray (default ON): faces/points always visible through
+        # walls.  OFF: solid walls occlude marks on far-side geometry.
+        xray_marks = xray_vp or getattr(prefs, 'overlay_xray', True)
 
         offset = prefs.faces_offset
         pt_offset = prefs.points_offset
@@ -392,8 +397,8 @@ class MeshCheckGPU:
                         if cached['face']:
                             shader.uniform_float("color", (*color[:3], prefs.faces_alpha))
                             gpu.state.blend_set("ALPHA")
-                            gpu.state.depth_test_set('NONE')
                             gpu.state.face_culling_set('NONE')
+                            gpu.state.depth_test_set('NONE' if xray_marks else 'LESS')
                             cached['face'].draw(shader)
 
                         if cached['edge']:
@@ -401,26 +406,21 @@ class MeshCheckGPU:
                             shader.uniform_float("color", color)
                             gpu.state.blend_set("ALPHA")
                             gpu.state.line_width_set(w)
-                            # Z-fighting faces can be buried inside a mesh (interior
-                            # duplicates hidden by outer skin).  Draw them with NONE
-                            # depth test so they are always visible through surfaces.
+                            # Set explicitly per batch: a previous face batch
+                            # must not leak its NONE state into edges.
                             if check == 'z_fighting':
-                                gpu.state.depth_test_set('NONE')
+                                # Interior duplicates are buried between
+                                # coplanar walls — x-ray marks keep them visible.
+                                gpu.state.depth_test_set('NONE' if xray_marks else 'LESS')
+                            else:
+                                gpu.state.depth_test_set('NONE' if xray_vp else 'LESS')
                             cached['edge'].draw(shader)
-                            if check == 'z_fighting' and not ctx.space_data.shading.show_xray:
-                                gpu.state.depth_test_set('LESS')
 
                         if cached['point']:
                             shader.uniform_float("color", color)
                             gpu.state.point_size_set(prefs.point_size)
-                            # Points mark specific problem vertices/centroids and must
-                            # always be visible regardless of camera distance.
-                            # Switch off depth test so surface geometry never occludes them,
-                            # then restore the per-viewport setting for subsequent batches.
-                            gpu.state.depth_test_set('NONE')
+                            gpu.state.depth_test_set('NONE' if xray_marks else 'LESS')
                             cached['point'].draw(shader)
-                            if not ctx.space_data.shading.show_xray:
-                                gpu.state.depth_test_set('LESS')
 
                     except Exception as e:
                         alog(f"[AssetChecker] Draw error in {check}: {e}")
