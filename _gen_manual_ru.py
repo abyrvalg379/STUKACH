@@ -278,7 +278,7 @@ r.font.color.rgb = BLUE_H1
 sub = doc.add_paragraph()
 sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
 sub.paragraph_format.space_after = Pt(4)
-r = sub.add_run('Пайплайн-валидатор ассетов для кино- и game-производства')
+r = sub.add_run('Пайплайн-валидатор ассетов')
 r.font.name = 'Arial'; r.font.size = Pt(11); r.font.color.rgb = GREY
 
 sub2 = doc.add_paragraph()
@@ -293,8 +293,7 @@ p(doc, 'STUKACH проверяет сцену на типовые ошибки �
        'Документ описывает работу с обеими версиями: основная часть - про Blender-версию, '
        'раздел 11 - про Maya.', grey=False)
 
-kv_note(doc, 'Автор: Maksim Kovalev. Лицензия GPL-3.0. '
-             'Blender: github.com/abyrvalg379/STUKACH  ·  Maya: github.com/abyrvalg379/STUKACH_Maya')
+kv_note(doc, 'Blender: github.com/abyrvalg379/STUKACH  ·  Maya: github.com/abyrvalg379/STUKACH_Maya')
 
 # ════════════════════════════════════════════════════════════════════════════
 # ОГЛАВЛЕНИЕ
@@ -372,7 +371,8 @@ h1(doc, '2. Установка')
 h2(doc, '2.1 Blender 5.1+')
 for b in [
     'Скачайте zip последнего релиза: github.com/abyrvalg379/STUKACH → Releases → ассет STUKACH.zip.',
-    'Blender → Edit → Preferences → Get Extensions → стрелка-меню в правом верхнем углу → Install from Disk → выберите zip.',
+    'Blender → Edit → Preferences → Get Extensions → стрелка-меню в правом верхнем углу → Install from Disk → выберите zip. '
+    'Так же возможна установка через drag-and-drop.',
     'Убедитесь, что расширение STUKACH включено (галочка).',
     'Панель появится в N-панели 3D-вьюпорта (клавиша N) → вкладка STUKACH.',
     'Обновление: скачайте новый zip и установите его тем же способом - поверх старой версии. Настройки и пресеты сохраняются.',
@@ -974,7 +974,7 @@ add_table(doc, [
 p(doc, ' ')
 kv_note(doc, 'Баг-репорты и пожелания: github.com/abyrvalg379/STUKACH/issues (Blender), '
              'github.com/abyrvalg379/STUKACH_Maya/issues (Maya). Прикладывайте Debug Info и сценарий '
-             'воспроизведения.  © Maksim Kovalev, 2026. Лицензия GPL-3.0.')
+             'воспроизведения.')
 
 add_footer_pagenum(doc)
 doc.save(OUT)
