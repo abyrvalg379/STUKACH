@@ -1009,21 +1009,24 @@ class MeshCheck:
             # Transform dirty check — cheap matrix reads, safe to run inline.
             # Re-run origin/rotation/scale checks when the object's
             # location/rotation/scale changes without topology change.
-            for o, mc_obj in MeshCheck.objects.items():
-                try:
-                    new_tk = MeshCheckObject._sample_transform_key(o)
-                    if new_tk != mc_obj._transform_key:
-                        mc_obj._transform_key = new_tk
-                        mc_obj.update_datas(
-                            mc_obj.bm_object,
-                            uv_changed=False,
-                            topo_changed=False,
-                            transform_changed=True,
-                        )
-                except Exception as e:
-                    alog(f"[AssetChecker] transform dirty check {o.name}: {e}")
+            # Guarded by Live: with Live off results stay as of the last RUN
+            # (the panel shows the "Scene changed" hint instead).
+            if getattr(mc, 'live_update', False):
+                for o, mc_obj in MeshCheck.objects.items():
+                    try:
+                        new_tk = MeshCheckObject._sample_transform_key(o)
+                        if new_tk != mc_obj._transform_key:
+                            mc_obj._transform_key = new_tk
+                            mc_obj.update_datas(
+                                mc_obj.bm_object,
+                                uv_changed=False,
+                                topo_changed=False,
+                                transform_changed=True,
+                            )
+                    except Exception as e:
+                        alog(f"[AssetChecker] transform dirty check {o.name}: {e}")
 
-        elif m == "EDIT" and MeshCheck.poll():
+        elif m == "EDIT" and MeshCheck.poll() and getattr(mc, 'live_update', False):
             # Only flag objects with geometry updates — the heavy BMesh work
             # runs in the deferred timer (_live_flush).  Building/reading
             # edit-BMeshes and re-running checks inside the depsgraph callback
