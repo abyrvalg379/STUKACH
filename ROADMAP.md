@@ -1,29 +1,34 @@
 # STUKACH — Roadmap
 
-## In main since v1.8.0 (waiting for the next release)
+> Политика версий до 2.0: небольшие частые релизы, фокус на удобстве и
+> комфорте работы; попутно — поиск и фикс багов.  ИИ — отдельная большая
+> тема, внедряем постепенно, когда созреет.
+
+## v1.8.1 — готово в main, ждёт релиза
 Category switches in Preferences, category issue counters, Next Issue hotkey
 (Shift+N, toggleable), stale-badge fix, crash fix (Live + Auto Merge modal
 guard), Sel context fix, Hard Edges: angle threshold knob (default 60) +
 bevel-aware + custom-normals skip, Blender 4.2+ support, manuals v1.8.0.
-Release candidate: **v1.9.0**.
 
-## v1.9.x — UX pass
+## v1.8.2 — комфорт
 - **HUD in the viewport**: validation status (`WARNING · 3B / 12W`) and, on
   focusing a finding (Sel / Next Issue), **what the finding is** — check name,
   count, object — because small defects are hard to see even with overlays.
-- **Objects panel redesign**: current list is noisy (search + toggles +
-  dropdown + Collapse All + V/E/F/T + 3-button rows in one stack). Redesign
-  mockup first, approval by the author, then implementation.
-- **Profiles in Preferences > Checks**: quick buttons ("All", "Modeler" =
-  Topology + Transforms) driving the category switches in one click.
 - **Auto-advance after Fix**: a successful fix jumps to the next issue
   (toggleable) — long fix lists become Fix / Fix / Fix.
-- **Skip hidden objects** option for Scene scope (big assemblies).
 - **Status-bar report** when RUN completes ("STUKACH: 5 issues in 38 objects").
+- **Profiles in Preferences > Checks**: quick buttons ("All", "Modeler" =
+  Topology + Transforms) driving the category switches in one click.
+
+## v1.9.x — панели и масштаб
+- **Objects panel redesign**: the list is noisy (search + toggles + dropdown +
+  Collapse All + V/E/F/T + 3-button rows in one stack).  Redesign mockup
+  first, approval by the author, then implementation.
+- **Skip hidden objects** option for Scene scope (big assemblies).
 - **Default preset**: one preset marked to auto-apply on new scenes.
 - **Check search field**; "?" on a finding opens its manual section.
 
-## v2.0 — STUKACH AI (local, Ollama)
+## v2.0 — STUKACH AI (локальный Ollama) — когда созреет
 Principles: validation stays deterministic; the AI explains, plans and
 propagates — the human approves; everything local (localhost), zero telemetry;
 every AI-assisted edit is previewable and one-shot undoable.
@@ -33,7 +38,7 @@ every AI-assisted edit is previewable and one-shot undoable.
   the answer streams into a floating panel.  Read-only, no geometry access.
 - **B. Chat with context** — "build a fix plan from this report", questions
   about rules, thresholds and the manual, grounded on the check registry.
-- **C. Fix propagation — "do the same elsewhere"** (the flagship):
+- **C. Fix propagation — "do the same elsewhere"**:
   1. the artist fixes one defect manually in Edit Mode;
   2. STUKACH captures the fix as a before/after BMesh diff (elements moved /
      merged / deleted / dissolved);
