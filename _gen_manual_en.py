@@ -284,9 +284,7 @@ p(doc, 'With Coordinator Mode on, the panel shows the verdict plate (ASSET STATU
 h1(doc, '5. Checkers (Blender)')
 p(doc, '42 checks in 7 categories + Scene Units. The set and severity match the v1.8.0 code; '
        'thresholds of some checks are configurable in Preferences (the UV tab, the Checks tab - '
-       'the Hard Edges chamfer width).')
-p(doc, 'Preferences - Updates: checks for a new version (a button plus an optional daily '
-       'auto-check). When a newer release exists, a badge in the panel links to the download.')
+       'the Hard Edges chamfer width). Update checking is described in section 9.1.')
 
 h2(doc, '5.1 Scene Units (scene)')
 add_table(doc, [
@@ -586,7 +584,7 @@ for b in [
     p(doc, b, bullet=True)
 
 h1(doc, '9. Preferences')
-p(doc, 'Preferences - Add-ons - STUKACH. Tabs: Interface, Overlay, UV, Naming, Colors.')
+p(doc, 'Preferences - Add-ons - STUKACH. Tabs: Interface, Overlay, UV, Naming, Checks, Colors.')
 add_table(doc, [
     ['Tab', 'Settings'],
     ['Interface', 'Start in Coordinator Mode - the panel opens right in the acceptance mode; '
@@ -600,9 +598,24 @@ add_table(doc, [
     ['Naming', 'Objects and Groups: prefix/suffix lists (+/-); Mesh Data: the datablock '
      'suffix (_mesh by default); Hierarchy: the group suffix (_grp) and the functional '
      'whitelist (extends the 24 built-in layers).'],
+    ['Checks', 'Hard Edges: the chamfer width threshold. An edge hugging a strip thinner than '
+     'this percentage of the object size is a chamfer and is not flagged.'],
     ['Colors', 'The overlay color of every check, a two-column grid; applied to the viewport '
      'instantly.'],
 ], [3, 16])
+
+h2(doc, '9.1 Updates')
+p(doc, 'The Updates block: the Check for updates button compares the installed version with '
+       'the latest GitHub release (one anonymous request, the UI never blocks).')
+for b in [
+    'The Check for updates daily toggle (on by default) - a silent auto-check once a day; '
+    'when there is nothing new, nothing appears anywhere.',
+    'When an update exists: the Update available: X.Y.Z line in the Preferences becomes a '
+    'link to the release page, and a badge appears at the top of the STUKACH panel.',
+    'Install the update the usual way: download the zip from the release page and install it '
+    'via Install from Disk (section 2); the badge goes away afterwards.',
+]:
+    p(doc, b, bullet=True)
 
 h1(doc, '10. How to use')
 
