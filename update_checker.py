@@ -1,9 +1,10 @@
 """Update checker — compare the installed version with the latest GitHub release.
 
-Manual, user-initiated check (button in Preferences): one anonymous GET to the
-public GitHub API in a background thread, result polled back on the main
-thread via bpy.app.timers.  No telemetry, no auto-install — the button only
-reports and offers the releases page.
+Manual button in Preferences plus an optional silent daily auto-check
+(Preferences toggle, default ON).  One anonymous GET to the public GitHub API
+runs in a background thread, the result is polled back on the main thread via
+bpy.app.timers.  No telemetry, no auto-install — on a newer release a badge
+appears in the panel linking to the releases page.
 """
 
 import json
@@ -16,6 +17,9 @@ import bpy
 _REPO = "abyrvalg379/STUKACH"
 _RELEASES_URL = f"https://github.com/{_REPO}/releases"
 _API_URL = f"https://api.github.com/repos/{_REPO}/releases/latest"
+_DAY = 24 * 3600
+
+_busy = False
 
 
 def _prefs():
@@ -54,6 +58,30 @@ def _parse_tag(tag):
     return tuple(parts[:3])
 
 
+def _stamp_path():
+    import os
+    import tempfile
+    return os.path.join(tempfile.gettempdir(), "stukach_update_check.txt")
+
+
+def _last_check_age():
+    import time
+    try:
+        with open(_stamp_path()) as fh:
+            return time.time() - float(fh.read().strip())
+    except Exception:
+        return None
+
+
+def _write_stamp():
+    import time
+    try:
+        with open(_stamp_path(), "w") as fh:
+            fh.write(str(time.time()))
+    except Exception:
+        pass
+
+
 def _fetch_latest():
     req = urllib.request.Request(_API_URL, headers={"User-Agent": "STUKACH-update-check"})
     with urllib.request.urlopen(req, timeout=6) as resp:
@@ -61,11 +89,20 @@ def _fetch_latest():
     return data.get("tag_name", ""), data.get("html_url", _RELEASES_URL)
 
 
-def start_check():
-    """Spawn the background request; results land in the preferences via timer."""
+def start_check(silent=False):
+    """Spawn the background request; results land in the preferences via timer.
+
+    silent=True (the daily auto-check) never touches the button state or the
+    result line — it only raises the panel badge when an update exists.
+    """
+    global _busy
     prefs = _prefs()
-    if prefs is None or prefs.update_checking:
+    if prefs is None or _busy:
         return
+    _busy = True
+    if not silent:
+        prefs.update_checking = True
+        prefs.update_result = "Checking..."
     box = {"done": False, "tag": "", "url": "", "error": ""}
 
     def worker():
@@ -76,28 +113,39 @@ def start_check():
         box["done"] = True
 
     threading.Thread(target=worker, daemon=True).start()
-    prefs.update_checking = True
-    prefs.update_result = "Checking..."
 
     def poll():
+        global _busy
         if not box["done"]:
             return 0.2
+        _busy = False
         prefs = _prefs()
-        if prefs is not None:
-            prefs.update_checking = False
-            if box["error"]:
-                prefs.update_result = "Check failed (offline?)"
-                prefs.update_url = ""
-                print(f"[AssetChecker] update check failed: {box['error']}")
-            elif _parse_tag(box["tag"]) > _local_version_tuple():
+        if prefs is not None and not box["error"]:
+            _write_stamp()
+            if _parse_tag(box["tag"]) > _local_version_tuple():
                 prefs.update_result = f"Update available: {box['tag']}"
                 prefs.update_url = box["url"]
-            else:
+            elif not silent:
                 prefs.update_result = f"Up to date ({box['tag']})"
                 prefs.update_url = ""
+        elif prefs is not None:
+            if not silent:
+                prefs.update_result = "Check failed (offline?)"
+                prefs.update_url = ""
+            print(f"[AssetChecker] update check failed: {box['error']}")
         return None  # unregister
 
     bpy.app.timers.register(poll, first_interval=0.2)
+
+
+def _auto_tick():
+    """Hourly lightweight re-arm: fires the silent check at most once a day."""
+    prefs = _prefs()
+    if prefs is not None and prefs.update_auto_check:
+        age = _last_check_age()
+        if age is None or age >= _DAY:
+            start_check(silent=True)
+    return 3600.0
 
 
 def open_releases(context):
@@ -129,3 +177,17 @@ class ASSET_CHECKER_OT_open_releases(bpy.types.Operator):
 
 
 classes = (ASSET_CHECKER_OT_check_updates, ASSET_CHECKER_OT_open_releases)
+
+
+def register():
+    for cls in classes:
+        bpy.utils.register_class(cls)
+    if not bpy.app.timers.is_registered(_auto_tick):
+        bpy.app.timers.register(_auto_tick, first_interval=10.0)
+
+
+def unregister():
+    if bpy.app.timers.is_registered(_auto_tick):
+        bpy.app.timers.unregister(_auto_tick)
+    for cls in reversed(classes):
+        bpy.utils.unregister_class(cls)
