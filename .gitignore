@@ -21,3 +21,4 @@ Thumbs.db
 # Local dev materials (Maya version, references, backups)
 /ref/
 /maya/
+*.h1.json
