@@ -80,6 +80,9 @@ def _apply_obj_ignore(checker, obj, name: str) -> None:
 class MeshCheckObject:
     MESH_DATAS = ('verts', 'edges', 'faces')
 
+    # A single check slower than this logs a SLOW line (stall diagnostics)
+    _SLOW_CHECK_WARN: float = 0.3
+
     # Checks whose results depend only on UV data, not 3-D topology.
     # update_datas() skips these when topo changed but UV didn't, and vice-versa.
     _UV_CHECKS = frozenset({
@@ -225,6 +228,9 @@ class MeshCheckObject:
         UVCheckGPU._mat_highlight_dirty = True
 
         ran_uv_padding = False
+        # Stall diagnostics: name the exact check that burns the main thread
+        # (a >=5s total block gets the window closed by Windows).
+        import time as _time
         for name, checker in self._checks.items():
             if not getattr(mc, name, False):
                 continue
@@ -236,6 +242,7 @@ class MeshCheckObject:
                 continue
             if not is_uv and not is_transform and not topo_changed:
                 continue
+            _t0 = _time.monotonic()
             try:
                 checker.set_datas()
                 _apply_obj_ignore(checker, self._object, name)
@@ -245,6 +252,9 @@ class MeshCheckObject:
                     ran_uv_padding = True
             except Exception as e:
                 alog(f"[AssetChecker] Error in {name}: {e}")
+            _dt = _time.monotonic() - _t0
+            if _dt >= self._SLOW_CHECK_WARN:
+                alog(f"[AssetChecker] SLOW check: {name} on {self._object.name} {_dt:.2f}s")
 
         # Re-run global padding after this object's UV data is refreshed
         if ran_uv_padding:
@@ -1115,6 +1125,12 @@ class MeshCheck:
     # single action touches many tracked objects (e.g. join of a large scene).
     _LIVE_FLUSH_BATCH: int = 8
 
+    # Stall diagnostics: an object pass / whole batch slower than these logs a
+    # SLOW line.  Windows closes the window after >=5s without message pump —
+    # these thresholds flag the burners long before that.
+    _SLOW_PASS_WARN: float = 0.5
+    _SLOW_BATCH_WARN: float = 1.0
+
     # ── Progressive validation (Scene / Collection scope) ─────────────────────
     # Scene-wide RUN used to build every MeshCheckObject synchronously — the
     # UI froze for the whole pass.  Instead the objects are queued and built
@@ -1198,6 +1214,8 @@ class MeshCheck:
                     cls._schedule_live_flush()
 
             processed = 0
+            import time as _time
+            _batch_t0 = _time.monotonic()
             for mc_obj in list(cls._live_dirty):
                 if processed >= cls._LIVE_FLUSH_BATCH:
                     break
@@ -1208,6 +1226,7 @@ class MeshCheck:
                     o.name    # ReferenceError if the object was deleted
                 except ReferenceError:
                     continue
+                _t0 = _time.monotonic()
                 try:
                     bm = mc_obj.set_bm_object()      # fresh from mesh / edit-mesh
                     mc_obj._mesh_key = (len(bm.verts), len(bm.edges), len(bm.faces))
@@ -1219,6 +1238,15 @@ class MeshCheck:
                 except Exception as e:
                     name = getattr(mc_obj._object, 'name', '?')
                     alog(f"[AssetChecker] live flush {name}: {e}")
+                _dt = _time.monotonic() - _t0
+                if _dt >= cls._SLOW_PASS_WARN:
+                    alog(f"[AssetChecker] SLOW live pass: "
+                         f"{getattr(mc_obj._object, 'name', '?')} {_dt:.2f}s")
+
+            _batch_dt = _time.monotonic() - _batch_t0
+            if _batch_dt >= cls._SLOW_BATCH_WARN and processed:
+                alog(f"[AssetChecker] SLOW live flush: {processed} object(s) "
+                     f"{_batch_dt:.2f}s")
 
             # More left in the queue — keep the loop going on the next tick.
             if cls._live_dirty:
