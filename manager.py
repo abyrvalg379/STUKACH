@@ -375,6 +375,9 @@ class MeshCheckGPU:
         shader.bind()
 
         try:
+            # Self-heal: a dead reference that slipped past the depsgraph purge
+            # would log a draw error on every redraw — drop it here instead.
+            MeshCheck._purge_dead_objects()
             for check in mc.checker_options:
                 if not getattr(mc, check, False):
                     continue
@@ -497,6 +500,11 @@ class UVCheckGPU:
     def draw(cls):
         ctx = bpy.context
         mc = ctx.window_manager.mesh_check_props
+        if not MeshCheck.objects:
+            return
+        # Self-heal, same as the 3D draw handler: drop dead references before
+        # the batches are rebuilt for them.
+        MeshCheck._purge_dead_objects()
         if not MeshCheck.objects:
             return
 
@@ -701,6 +709,20 @@ class MeshCheck:
             del cls.objects[o]
 
     @classmethod
+    def _purge_dead_objects(cls):
+        """Drop tracked objects deleted from the scene (dead RNA references).
+
+        Safe to call from any entry point (depsgraph callback, draw handler) —
+        every consumer of MeshCheck.objects would otherwise trip over the dead
+        reference one by one.
+        """
+        for o in list(cls.objects.keys()):
+            try:
+                o.name
+            except ReferenceError:
+                cls.remove_mesh_check_object(o)
+
+    @classmethod
     def reset_mc_objects(cls):
         for mc_obj in cls.objects.values():
             mc_obj._drop_cached_bm()
@@ -773,8 +795,15 @@ class MeshCheck:
 
         from mathutils.bvhtree import BVHTree
 
-        pairs = [(obj, mc_obj) for obj, mc_obj in cls.objects.items()
-                 if mc_obj._checks.get('z_fighting') is not None]
+        pairs = []
+        for obj, mc_obj in cls.objects.items():
+            if mc_obj._checks.get('z_fighting') is None:
+                continue
+            try:
+                _ = obj.name   # ReferenceError if the object was deleted
+            except ReferenceError:
+                continue
+            pairs.append((obj, mc_obj))
         if len(pairs) < 2:
             return
 
@@ -887,10 +916,14 @@ class MeshCheck:
             checker = mc_obj._checks.get(name)
             if checker:
                 try:
+                    me = mc_obj._object.data
+                except ReferenceError:
+                    cls.remove_mesh_check_object(mc_obj._object)
+                    continue
+                try:
                     # The mesh may have been edited by a fix operator since the
                     # cached bmesh was built — refresh it, or set_datas() would
                     # recompute on stale geometry and keep the old count.
-                    me = mc_obj._object.data
                     new_key = (len(me.vertices), len(me.edges), len(me.polygons))
                     if new_key != mc_obj._mesh_key:
                         mc_obj._mesh_key = new_key
@@ -937,6 +970,11 @@ class MeshCheck:
         ctx = bpy.context
         if not ctx.object:
             ctx.window_manager.mesh_check_props.check_data = False
+            # Deleting the active object leaves no context object — purging
+            # here too, or dead references survive until the next event and
+            # the overlay / inter-object Z-fighting spam errors on redraw.
+            if MeshCheck._mode == "OBJECT":
+                MeshCheck._purge_dead_objects()
             return
         mc = ctx.window_manager.mesh_check_props
         m = ctx.object.mode
@@ -1039,10 +1077,15 @@ class MeshCheck:
                 # skipped the live refresh for some edit ops (n-gon dissolves
                 # stayed stale while tris-to-quads refreshed).
                 geo = False
-                for u in deps.updates:
-                    oid = u.id.original
-                    if oid == o or oid == o.data:
-                        geo = geo or u.is_updated_geometry
+                try:
+                    for u in deps.updates:
+                        oid = u.id.original
+                        if oid == o or oid == o.data:
+                            geo = geo or u.is_updated_geometry
+                except ReferenceError:
+                    # Object deleted from the outliner while in edit mode
+                    MeshCheck.remove_mesh_check_object(o)
+                    continue
                 if geo:
                     MeshCheck._live_dirty.add(mc_obj)
             if MeshCheck._live_dirty:
