@@ -4015,7 +4015,13 @@ class SharpEdgesNotHard(_EdgeOverlay, BaseCheck):
     Smooth shading across a sharp corner produces shading artifacts — such
     edges must be marked sharp (or handled by custom normals).  Listing every
     marked sharp edge is meaningless on hardsurf, so only the MISSED ones are
-    flagged.  Maya v1.1.0 HardEdges parity."""
+    flagged.  Maya v1.1.0 HardEdges parity.
+
+    Skipped when shading is NOT flag-driven: meshes with custom split normals
+    (the Maya/FBX pipeline authors shading in the normals — the sharp flag
+    does not affect the render there, so "missing sharp" is not a defect) and
+    objects using Blender's "Smooth by Angle" modifier (flags exist only on
+    the evaluated mesh, never in the base data this check reads)."""
 
     ANGLE_THRESHOLD_DEG = 30.0
 
@@ -4024,10 +4030,18 @@ class SharpEdgesNotHard(_EdgeOverlay, BaseCheck):
         self._edges_idx: List[int] = []
 
     def set_datas(self):
+        obj = self._parent._object
+        me = obj.data
         bm = self._parent.bm_object
         bm.edges.ensure_lookup_table()
-        threshold = math.radians(self.ANGLE_THRESHOLD_DEG)
         self._edges_idx = []
+        if getattr(me, 'has_custom_normals', False) or any(
+                m.show_viewport and 'smooth by angle' in m.name.lower()
+                for m in obj.modifiers):
+            self._count = 0
+            self.metric_text = "skipped: shading is custom-normal driven"
+            return
+        threshold = math.radians(self.ANGLE_THRESHOLD_DEG)
         for e in bm.edges:
             if not e.smooth or not e.is_manifold:
                 continue
@@ -4035,6 +4049,7 @@ class SharpEdgesNotHard(_EdgeOverlay, BaseCheck):
             if angle >= threshold:
                 self._edges_idx.append(e.index)
         self._count = len(self._edges_idx)
+        self.metric_text = ""
 
     def get_select_data(self):
         return ('EDGE', self._edges_idx)
