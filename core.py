@@ -2388,6 +2388,9 @@ class UVPaddingCheck(BaseCheck):
             for li in range(ls, ls + lt):
                 u = float(flat_uvs[li * 2])
                 v = float(flat_uvs[li * 2 + 1])
+                # NaN/inf UVs poison padding math and crash int(floor()) — skip
+                if not (math.isfinite(u) and math.isfinite(v)):
+                    continue
                 island_uvs[isl].append((u, v))
                 total_verts += 1
                 tile = (int(math.floor(u)), int(math.floor(v)))
@@ -2945,7 +2948,11 @@ class UVMaterialUDIM(BaseCheck):
             for li in range(ls, ls + lt):
                 u_sum += flat_uvs[li * 2]
                 v_sum += flat_uvs[li * 2 + 1]
-            tile = (int(math.floor(u_sum / lt)), int(math.floor(v_sum / lt)))
+            cu, cv = u_sum / lt, v_sum / lt
+            # NaN/inf UVs crash int(floor()) — face votes no tile
+            if not (math.isfinite(cu) and math.isfinite(cv)):
+                continue
+            tile = (int(math.floor(cu)), int(math.floor(cv)))
             d = island_votes[isl]
             d[tile] = d.get(tile, 0) + 1
 
@@ -3602,6 +3609,9 @@ def build_material_udim_map(obj, bm) -> dict:
             face_tiles = mat_tiles[mat_name]
             for loop in face.loops:
                 uv = loop[uv_layer].uv
+                # NaN/inf UVs (degenerate geometry) crash int(floor()) — skip them
+                if not (math.isfinite(uv.x) and math.isfinite(uv.y)):
+                    continue
                 face_tiles.add((int(math.floor(uv.x)), int(math.floor(uv.y))))
         return mat_tiles
 
@@ -3615,6 +3625,13 @@ def build_material_udim_map(obj, bm) -> dict:
     uv_flat = _get_uv_np(me, bm=bm)
     if uv_flat is None:
         return {}
+    # NaN/inf UVs (degenerate geometry) crash the int conversion below —
+    # drop the affected loops instead of killing the whole map.
+    finite = np.isfinite(uv_flat).all(axis=1)
+    if not finite.all():
+        uv_flat = uv_flat[finite]
+        if uv_flat.shape[0] == 0:
+            return {}
     tile_u = np.floor(uv_flat[:, 0]).astype(np.int32)
     tile_v = np.floor(uv_flat[:, 1]).astype(np.int32)
 
@@ -3623,7 +3640,7 @@ def build_material_udim_map(obj, bm) -> dict:
     me.polygons.foreach_get("material_index", mi_poly)
     pt = np.empty(n_polys, dtype=np.int32)
     me.polygons.foreach_get("loop_total", pt)
-    mi_loop = np.repeat(mi_poly, pt)   # (n_loops,) material index per loop
+    mi_loop = np.repeat(mi_poly, pt)[finite]   # (n_loops,) material index per loop
 
     # Build slot_index → mat_name mapping
     slot_names = []
