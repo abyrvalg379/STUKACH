@@ -75,17 +75,12 @@ def _register_hotkey():
     kc = bpy.context.window_manager.keyconfigs.addon
     if kc is None:      # background mode / no window manager yet
         return
-    key = getattr(prefs, "next_issue_hotkey_key", 'N')
-    mods = getattr(prefs, "next_issue_hotkey_mod", 'SHIFT')
-    kwargs = {"type": key, "value": 'PRESS'}
-    if 'SHIFT' in mods:
-        kwargs['shift'] = True
-    if 'CTRL' in mods:
-        kwargs['ctrl'] = True
-    if 'ALT' in mods:
-        kwargs['alt'] = True
+    # Shift+N: unbound in Object Mode (the factory Shift+N - Make Normals
+    # Consistent - lives in the Mesh keymap, Edit Mode only).  Users can
+    # rebind natively via Preferences > Keymap > 'Next Issue'.
     _hotkey_km = kc.keymaps.new(name="3D View", space_type='VIEW_3D')
-    _hotkey_kmi = _hotkey_km.keymap_items.new("asset_checker.next_issue", **kwargs)
+    _hotkey_kmi = _hotkey_km.keymap_items.new(
+        "asset_checker.next_issue", type='N', value='PRESS', shift=True)
 
 
 def _reload_hotkey(self, context):
@@ -2034,8 +2029,47 @@ class ASSET_CHECKER_OT_copy_summary(bpy.types.Operator):
         return {'FINISHED'}
 
 
+def _defect_focus(obj, element_type, indices):
+    """World-space (center, radius) of the bad element cluster — or (None, 0)
+    when it cannot be computed.  Used to point the camera at the DEFECT
+    instead of the whole object (Next Issue)."""
+    from mathutils import Vector
+    try:
+        me = obj.data
+        verts = me.vertices
+        pts = []
+        if element_type == 'VERT':
+            for i in list(indices)[:500]:
+                if 0 <= i < len(verts):
+                    pts.append(verts[i].co)
+        elif element_type == 'EDGE':
+            for i in list(indices)[:500]:
+                if 0 <= i < len(me.edges):
+                    for vi in me.edges[i].vertices:
+                        pts.append(verts[vi].co)
+        elif element_type == 'FACE':
+            for i in list(indices)[:500]:
+                if 0 <= i < len(me.polygons):
+                    for vi in me.polygons[i].vertices:
+                        pts.append(verts[vi].co)
+        if not pts:
+            return None, 0.0
+        n = len(pts)
+        center = Vector((sum(p.x for p in pts) / n,
+                         sum(p.y for p in pts) / n,
+                         sum(p.z for p in pts) / n))
+        radius = max((p - center).length for p in pts)
+        mw = obj.matrix_world
+        scale = max(mw.to_scale().x, mw.to_scale().y, mw.to_scale().z, 1e-6)
+        return mw @ center, radius * scale
+    except Exception:
+        return None, 0.0
+
+
 class ASSET_CHECKER_OT_next_issue(bpy.types.Operator):
-    """Jump to the next object with issues — selects and frames it in the viewport"""
+    """Jump to the next defect in the cycle — every (object, check) pair is
+    its own stop; the camera points at the defect cluster and the HUD names
+    the finding"""
     bl_idname  = "asset_checker.next_issue"
     bl_label   = "Next Issue"
     bl_options = {'REGISTER'}
