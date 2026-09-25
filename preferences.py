@@ -203,7 +203,7 @@ class StukachPresetItem(PropertyGroup):
 # Hotkeys
 def _reload_next_issue_hotkey(self, context):
     from .properties import _register_hotkey
-    _register_hotkey(self, context)
+    _register_hotkey()
 
 
 class ASSET_CHECKER_OT_profile_apply(bpy.types.Operator):
@@ -249,11 +249,33 @@ class MeshCheckPreferences(AddonPreferences):
 
     # Hotkeys
     use_next_issue_hotkey: BoolProperty(
-        name="Next Issue hotkey (Shift+N)", default=True,
-        description="Cycle through problem objects with Shift+N in the 3D "
+        name="Next Issue hotkey", default=True,
+        description="Cycle through problem objects with a hotkey in the 3D "
                     "viewport (Object Mode, only while validation is active). "
                     "Turn off if it conflicts with another addon",
         update=_reload_next_issue_hotkey)
+    next_issue_hotkey_key: EnumProperty(
+        name="Key",
+        items=(
+            ('N', "N", "Note: N without modifiers toggles the sidebar"),
+            ('M', "M", "Note: M in Object Mode is Move to Collection"),
+            ('COMMA', "Comma", ""),
+            ('PERIOD', "Period", ""),
+            ('PAGE_UP', "Page Up", ""),
+            ('PAGE_DOWN', "Page Down", ""),
+            ('F9', "F9", ""),
+        ),
+        default='N', update=_reload_next_issue_hotkey)
+    next_issue_hotkey_mod: EnumProperty(
+        name="Modifier",
+        items=(
+            ('SHIFT', "Shift", "Shift+N is free in Object Mode"),
+            ('CTRL_SHIFT', "Ctrl+Shift", ""),
+            ('ALT', "Alt", ""),
+            ('CTRL_ALT', "Ctrl+Alt", ""),
+            ('NONE', "None", "No modifier"),
+        ),
+        default='SHIFT', update=_reload_next_issue_hotkey)
     show_viewport_hud: BoolProperty(
         name="Viewport HUD", default=True,
         description="Show the validation status and the focused finding info "
@@ -508,6 +530,10 @@ class MeshCheckPreferences(AddonPreferences):
         vrow = box.row(align=True)
         vrow.prop(self, "validator_name", text="Validator", icon="USER")
         box.prop(self, "use_next_issue_hotkey")
+        row = box.row(align=True)
+        row.enabled = self.use_next_issue_hotkey
+        row.prop(self, "next_issue_hotkey_key", text="Key")
+        row.prop(self, "next_issue_hotkey_mod", text="")
         box.prop(self, "show_viewport_hud")
         box.prop(self, "advance_after_fix")
 
