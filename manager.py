@@ -1185,6 +1185,15 @@ class MeshCheck:
     @classmethod
     def _validation_flush(cls):
         cls._validation_flush_pending = False
+        # Same modal-operator hazard as _live_flush: MeshCheckObject init
+        # reads the live edit-BMesh.
+        try:
+            win = bpy.context.window
+            if win is not None and win.modal_operators:
+                cls._validation_flush_pending = True
+                return 0.1
+        except Exception:
+            pass
         try:
             mc = getattr(bpy.context.window_manager, 'mesh_check_props', None)
             batch = 6
@@ -1214,6 +1223,18 @@ class MeshCheck:
     @classmethod
     def _live_flush(cls):
         cls._live_flush_pending = False
+        # A modal operator mid-run (e.g. vert_slide with Auto Merge) leaves the
+        # live edit-BMesh and its CustomData layers in flux — touching them
+        # from this timer segfaults inside BM_data_layer_add (2026-09-26).
+        # Wait the operator out; the pending flag stays set so nothing
+        # double-schedules the flush while we wait.
+        try:
+            win = bpy.context.window
+            if win is not None and win.modal_operators:
+                cls._live_flush_pending = True
+                return 0.1
+        except Exception:
+            pass
         try:
             mc = getattr(bpy.context.window_manager, 'mesh_check_props', None)
             if mc is None or not mc.check_data:
