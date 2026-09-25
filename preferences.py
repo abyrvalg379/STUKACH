@@ -300,6 +300,7 @@ class MeshCheckPreferences(AddonPreferences):
             ('OVERLAY', "Overlay", "Viewport overlay style: faces, edges, points"),
             ('UV', "UV", "UV thresholds: texel density, padding, stretch, aspect ratio, count thresholds"),
             ('NAMING', "Naming", "Naming policy: prefixes, suffixes, hierarchy whitelist"),
+            ('CHECKS', "Checks", "Check behavior thresholds"),
             ('COLORS', "Colors", "Per-check overlay colors"),
         ),
         default='OVERLAY',
@@ -323,6 +324,15 @@ class MeshCheckPreferences(AddonPreferences):
         description="Required suffix for group empties in the Hierarchy validator (empty = '_grp')",
     )
     hierarchy_layer_names: CollectionProperty(type=NamingEntry, name="Functional Layer Whitelist")
+
+    # CHECKS — behavior thresholds
+    sharp_bevel_width: FloatProperty(
+        name="Chamfer width", default=0.5, min=0.05, max=10.0, precision=2,
+        subtype='PERCENTAGE',
+        description="Hard Edges: a smooth steep edge hugging a strip thinner "
+                    "than this % of the object's size is a chamfer and is not "
+                    "flagged (the shading artifact is invisible on a strip that thin)",
+    )
 
     # UV PADDING settings
     uv_padding_texture_size: EnumProperty(
@@ -462,8 +472,18 @@ class MeshCheckPreferences(AddonPreferences):
             self._draw_section_uv(layout)
         elif self.prefs_section == 'NAMING':
             self._draw_section_naming(layout)
+        elif self.prefs_section == 'CHECKS':
+            self._draw_section_checks(layout)
         elif self.prefs_section == 'COLORS':
             self._draw_section_colors(layout)
+
+    def _draw_section_checks(self, layout):
+        box = layout.box()
+        box.label(text="Hard Edges (Sharp Edges Not Hard)", icon="EDGESEL")
+        box.prop(self, "sharp_bevel_width")
+        hint = box.row()
+        hint.enabled = False
+        hint.label(text="Edges hugging thinner strips are treated as chamfers", icon="INFO")
 
     def _draw_section_overlay(self, layout):
         box = layout.box()

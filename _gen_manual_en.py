@@ -45,7 +45,7 @@ def _save(doc, out):
 
 
 doc = ds.new_doc('STUKACH', 'User Guide',
-                 'BLENDER 5.2  -  V1.7.6  ·  MAYA 2025 - V1.3.0')
+                 'BLENDER 5.2  -  V1.8.0  ·  MAYA 2025 - V1.3.0')
 
 p(doc, 'STUKACH checks a scene for typical pipeline errors: topology, transforms, UVs, '
        'naming, materials and hierarchy structure. The artist sees the defects right in the '
@@ -107,7 +107,7 @@ p(doc, 'The panel works in one of two modes. Artist Mode is the artist working m
 h2(doc, '1.4 Two versions')
 add_table(doc, [
     ['', 'Blender version', 'Maya version'],
-    ['Version', 'v1.7.6', 'v1.3.0'],
+    ['Version', 'v1.8.0', 'v1.3.0'],
     ['Package', 'Blender 5.1+ extension (zip)', 'Maya 2025 Win x64 (python + C++ overlay plugin)'],
     ['Panel', 'View3D N-panel - STUKACH tab', 'Docked panel to the left of the Attribute Editor'],
     ['Checks', '42 + Scene Units', '43 + Scene Units + Empty Groups'],
@@ -282,8 +282,11 @@ p(doc, 'With Coordinator Mode on, the panel shows the verdict plate (ASSET STATU
        'the Artist Mode button in the toolbar.')
 
 h1(doc, '5. Checkers (Blender)')
-p(doc, '42 checks in 7 categories + Scene Units. The set and severity match the v1.7.6 code; '
-       'thresholds of some checks are configurable in Preferences (the UV tab).')
+p(doc, '42 checks in 7 categories + Scene Units. The set and severity match the v1.8.0 code; '
+       'thresholds of some checks are configurable in Preferences (the UV tab, the Checks tab - '
+       'the Hard Edges chamfer width).')
+p(doc, 'Preferences - Updates: checks for a new version (a button plus an optional daily '
+       'auto-check). When a newer release exists, a badge in the panel links to the download.')
 
 h2(doc, '5.1 Scene Units (scene)')
 add_table(doc, [
@@ -319,8 +322,10 @@ add_table(doc, [
     ['Starlike', 'WARNING', 'Faces invisible from their own centroid: self-intersecting '
      'contours, concavity with the centroid outside, sewn zero-length edges', 'Such a face '
      'triangulates incorrectly - shading and bake artifacts'],
-    ['Sharp Edges Not Hard', 'WARNING', 'Sharp edges (dihedral angle of 30 degrees or more) '
-     'not marked Sharp', 'Smooth shading on a sharp corner produces a shading artifact'],
+    ['Sharp Edges Not Hard', 'WARNING', 'Smooth-shaded edges (dihedral angle of 30 degrees or '
+     'more) between substantial faces, not marked Sharp',
+     'Smooth shading on a sharp corner produces a shading artifact. Skipped: custom-normal '
+     'meshes, chamfer strips (threshold in Preferences - Checks), flat-shaded pairs'],
     ['Triangles', 'INFO', 'Triangular faces', 'A midpoly workflow allows triangulation - '
      'artist review. Critical only in deformation zones'],
     ['Boundary Edges', 'INFO', 'Open edges - exactly one adjacent face', 'They can be '
@@ -721,7 +726,7 @@ add_table(doc, [
      'RUN takes Selected. Widen to Scene/Collection. A search filter or Issues-only is on - '
      'check the "N / M" header.'),
     ['The overlay shows through the mesh', 'That is the X-Ray button in Pipeline Checks '
-     '(v1.7.6): turn it off and the walls will hide the far-side markers. An enabled Alt+Z '
+     '(v1.7.5): turn it off and the walls will hide the far-side markers. An enabled Alt+Z '
      '(viewport xray) also forces the overlay to be transparent.'],
     ['Overlay markers flicker with the geometry', 'Raise Face/Point Offset in Pipeline Checks.'],
     ['A finding seems false', 'Check the check threshold in Preferences; ignore it precisely '

@@ -4054,7 +4054,12 @@ class SharpEdgesNotHard(_EdgeOverlay, BaseCheck):
                                   bb[6][2] - bb[0][2]))).length
         if diag <= 0.0:
             diag = 1.0
-        strip_max = self.BEVEL_WIDTH_RATIO * diag
+        try:
+            addon_name = __name__.rsplit(".", 1)[0]
+            prefs = bpy.context.preferences.addons[addon_name].preferences
+            strip_max = (prefs.sharp_bevel_width / 100.0) * diag
+        except Exception:
+            strip_max = self.BEVEL_WIDTH_RATIO * diag
         for e in bm.edges:
             if not e.smooth or not e.is_manifold:
                 continue
