@@ -42,6 +42,48 @@ def category_enabled(check):
     except Exception:
         return True
 
+
+# ── Next Issue hotkey ────────────────────────────────────────────────────────
+# Registered in the addon keyconfig pool (never keyconfigs.user), removable
+# from Preferences.  Shift+N scoped to the 3D Viewport + Object Mode: the
+# factory Shift+N (Make Normals Consistent) lives in the Mesh keymap and only
+# fires in Edit Mode, where this operator's poll yields.
+
+_hotkey_km = None
+_hotkey_kmi = None
+
+
+def _unregister_hotkey():
+    global _hotkey_km, _hotkey_kmi
+    if _hotkey_kmi is not None and _hotkey_km is not None:
+        try:
+            _hotkey_km.keymap_items.remove(_hotkey_kmi)
+        except Exception:
+            pass
+    _hotkey_km = _hotkey_kmi = None
+
+
+def _register_hotkey():
+    global _hotkey_km, _hotkey_kmi
+    _unregister_hotkey()
+    try:
+        prefs = bpy.context.preferences.addons[__name__.rsplit(".", 1)[0]].preferences
+    except Exception:
+        return
+    if not getattr(prefs, "use_next_issue_hotkey", True):
+        return
+    kc = bpy.context.window_manager.keyconfigs.addon
+    if kc is None:      # background mode / no window manager yet
+        return
+    _hotkey_km = kc.keymaps.new(name="3D View", space_type='VIEW_3D')
+    _hotkey_kmi = _hotkey_km.keymap_items.new(
+        "asset_checker.next_issue", type='N', value='PRESS', shift=True)
+
+
+def _reload_hotkey(self, context):
+    _register_hotkey()
+
+
 _CAT_ICONS = {
     "TOPOLOGY":   "MESH_DATA",
     "TRANSFORMS": "ARROW_LEFTRIGHT",
@@ -1924,6 +1966,13 @@ class ASSET_CHECKER_OT_next_issue(bpy.types.Operator):
     bl_label   = "Next Issue"
     bl_options = {'REGISTER'}
 
+    @classmethod
+    def poll(cls, context):
+        if context.mode != 'OBJECT':
+            return False
+        from .manager import MeshCheck
+        return bool(MeshCheck.objects)
+
     def execute(self, context):
         from .manager import MeshCheck
         mc = context.window_manager.mesh_check_props
@@ -2957,6 +3006,18 @@ class MeshCheckProperties(PropertyGroup):
             open_prop = f"cat_{cat_name.lower()}_open"
             is_open   = getattr(self, open_prop, True)
 
+            # Category issue counter — visible while collapsed too, so the
+            # whole panel reads like a dashboard without expanding anything.
+            cat_issue_count = 0
+            if MeshCheck.objects:
+                for c in visible_checks:
+                    if not getattr(self, c, False):
+                        continue
+                    for mc_obj in MeshCheck.objects.values():
+                        chk = mc_obj._checks.get(c)
+                        if chk is not None:
+                            cat_issue_count += chk.count
+
             box = layout.box()
 
             # ── Collapsible header ─────────────────────────────────────────
@@ -2974,6 +3035,10 @@ class MeshCheckProperties(PropertyGroup):
                 text=pretty_name(cat_name),
                 icon=_CAT_ICONS.get(cat_name, "DOT"),
             )
+            if cat_issue_count:
+                header.alert = True
+                header.label(text=str(cat_issue_count))
+                header.alert = False
             header.label(text="")
 
             # Fix button — only when at least one fixable check in the category has issues
