@@ -1083,6 +1083,10 @@ class MeshCheck:
                             )
                     except Exception as e:
                         alog(f"[AssetChecker] transform dirty check {o.name}: {e}")
+                # The transform path runs inline — nothing else schedules the
+                # deferred flush that drains the pending inter-Z-fighting pass.
+                if MeshCheck._inter_zf_pending:
+                    MeshCheck._schedule_live_flush()
 
         elif m == "EDIT" and MeshCheck.poll() and getattr(mc, 'live_update', False):
             # Only flag objects with geometry updates — the heavy BMesh work
@@ -1269,16 +1273,17 @@ class MeshCheck:
                 # Inter-object Z-fighting: transforms/edits/deletes invalidated
                 # the old overlap sets — refresh them once the per-object
                 # queue has drained (this debounces continuous drags too).
-                if cls._inter_zf_pending and getattr(mc, 'z_fighting', False):
+                if cls._inter_zf_pending:
                     cls._inter_zf_pending = False
-                    for mc_obj in cls.objects.values():
-                        checker = mc_obj._checks.get('z_fighting')
-                        if checker:
-                            checker.clear_inter_results()
-                    try:
-                        cls._run_inter_object_z_fighting()
-                    except Exception as e:
-                        alog(f"[AssetChecker] live inter Z-fighting: {e}")
+                    if getattr(mc, 'z_fighting', False):
+                        for mc_obj in cls.objects.values():
+                            checker = mc_obj._checks.get('z_fighting')
+                            if checker:
+                                checker.clear_inter_results()
+                        try:
+                            cls._run_inter_object_z_fighting()
+                        except Exception as e:
+                            alog(f"[AssetChecker] live inter Z-fighting: {e}")
                 # Hierarchy auto-acceptance: while Live is on and a scan exists,
                 # re-scan as soon as the scene fingerprint changes — keeps the
                 # hierarchy report fresh after FBX imports, renames, reparents.
