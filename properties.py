@@ -928,7 +928,6 @@ class ASSET_CHECKER_OT_fix_naming(bpy.types.Operator):
         MeshCheck.update_mc_object_datas("obj_naming")
         self.report({'INFO'}, f"Renamed {fixed} object(s)")
         _finish_fix(context)
-        _finish_fix(context)
         return {'FINISHED'}
 
 
@@ -1003,6 +1002,7 @@ class ASSET_CHECKER_OT_fix_modifier_stack(bpy.types.Operator):
 
         MeshCheck.update_mc_object_datas("modifier_stack")
         self.report({'INFO'}, f"Applied modifiers on {fixed} object(s)")
+        _finish_fix(context)
         return {'FINISHED'}
 
 
@@ -1056,7 +1056,6 @@ class ASSET_CHECKER_OT_collapse_objects(bpy.types.Operator):
                 o.mesh_check_statistics = not any_open
             except Exception:
                 pass
-        _finish_fix(context)
         return {'FINISHED'}
 
 
@@ -1292,6 +1291,7 @@ class ASSET_CHECKER_OT_fix_uv_single_set(bpy.types.Operator):
         if fixed:
             MeshCheck.update_mc_object_datas("uv_single_set")
         self.report({'INFO'}, f"Removed extra UV sets on {fixed} object(s)")
+        _finish_fix(context)
         return {'FINISHED'}
 
 
@@ -1329,6 +1329,7 @@ class ASSET_CHECKER_OT_fix_category(bpy.types.Operator):
                 alog(f"[AssetChecker] fix_category {check}: {e}")
 
         self.report({'INFO'}, f"Ran {ran} fix(es) in {self.category}")
+        _finish_fix(context)
         return {'FINISHED'}
 
 
@@ -2022,7 +2023,6 @@ class ASSET_CHECKER_OT_copy_summary(bpy.types.Operator):
 
         context.window_manager.clipboard = "\n".join(lines)
         self.report({'INFO'}, f"Summary copied ({len(rows)} objects with issues)")
-        _finish_fix(context)
         return {'FINISHED'}
 
 
@@ -2124,7 +2124,6 @@ class ASSET_CHECKER_OT_next_issue(bpy.types.Operator):
         except Exception:
             pass
 
-        _finish_fix(context)
         return {'FINISHED'}
 
 
@@ -2246,6 +2245,7 @@ class ASSET_CHECKER_OT_fix_unused_data(bpy.types.Operator):
         if shared_hits:
             msg += f"  Shared meshes updated: {', '.join(shared_hits[:5])}"
         self.report({'INFO'}, msg)
+        _finish_fix(context)
         return {'FINISHED'}
 
 
@@ -2283,6 +2283,7 @@ class ASSET_CHECKER_OT_fix_mesh_data_naming(bpy.types.Operator):
             self.report({'INFO'}, f"Renamed {len(renamed)} mesh data block(s): {preview}{more}")
         else:
             self.report({'INFO'}, "Nothing to rename")
+        _finish_fix(context)
         return {'FINISHED'}
 
 
@@ -2686,7 +2687,6 @@ class ASSET_CHECKER_OT_load_checkpoint(bpy.types.Operator):
         n_issues = cp['totals']['total']
         self.report({'INFO'},
                     f"Checkpoint loaded — {n_obj} object(s), {n_issues} issue(s)  [{cp['timestamp']}]")
-        _finish_fix(context)
         return {'FINISHED'}
 
     @staticmethod
