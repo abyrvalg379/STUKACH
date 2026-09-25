@@ -208,6 +208,10 @@ class MeshCheckPreferences(AddonPreferences):
     preset_active: StringProperty(name="Active Preset", default="")
 
     # Update checker — state of the last manual check
+    update_auto_check: BoolProperty(
+        name="Check for updates daily", default=True,
+        description="Silently compare the installed version with the latest "
+                    "GitHub release once a day (one anonymous request)")
     update_checking: BoolProperty(name="Checking", default=False)
     update_result:  StringProperty(name="Update Check Result", default="")
     update_url:     StringProperty(name="Latest Release URL", default="")
@@ -426,6 +430,7 @@ class MeshCheckPreferences(AddonPreferences):
         # Updates
         box = layout.box()
         box.label(text="Updates", icon="WORLD")
+        box.prop(self, "update_auto_check")
         row = box.row(align=True)
         row.operator("asset_checker.check_updates",
                      text="Checking..." if self.update_checking else "Check for updates",

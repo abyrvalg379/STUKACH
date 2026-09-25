@@ -38,9 +38,6 @@ classes = (
     preferences.ASSET_CHECKER_OT_hierarchy_layer_add,
     preferences.ASSET_CHECKER_OT_hierarchy_layer_remove,
     preferences.MeshCheckPreferences,
-    # Update checker
-    update_checker.ASSET_CHECKER_OT_check_updates,
-    update_checker.ASSET_CHECKER_OT_open_releases,
     properties.MESH_CHECK_OT_toggle_category,
     properties.ASSET_CHECKER_OT_select_check_elements,
     properties.ASSET_CHECKER_OT_set_td_target,
@@ -112,6 +109,8 @@ def register():
         except Exception as e:
             print(f"[AssetChecker] Warning: {e}")
 
+    update_checker.register()
+
     bpy.types.WindowManager.mesh_check_props = PointerProperty(
         type=properties.MeshCheckProperties)
 
@@ -165,6 +164,11 @@ def unregister():
         unregister_state_handlers()
     except Exception as e:
         print(f"[AssetChecker] unregister_state_handlers: {e}")
+
+    try:
+        update_checker.unregister()
+    except Exception as e:
+        print(f"[AssetChecker] unregister update_checker: {e}")
 
     try:
         from .manager import MeshCheck, MeshCheckGPU, UVCheckGPU
