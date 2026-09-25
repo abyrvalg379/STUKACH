@@ -4021,9 +4021,16 @@ class SharpEdgesNotHard(_EdgeOverlay, BaseCheck):
     (the Maya/FBX pipeline authors shading in the normals — the sharp flag
     does not affect the render there, so "missing sharp" is not a defect) and
     objects using Blender's "Smooth by Angle" modifier (flags exist only on
-    the evaluated mesh, never in the base data this check reads)."""
+    the evaluated mesh, never in the base data this check reads).
+
+    Bevel-aware: a smooth >=30 deg edge that borders a NARROW strip face is a
+    deliberately smoothed chamfer/bevel (the shading artifact on a strip that
+    thin is invisible), not a missed hard edge.  Only edges between two
+    substantial faces are flagged.  A face counts as a strip when
+    area / longest-edge < BEVEL_WIDTH_RATIO of the object's bbox diagonal."""
 
     ANGLE_THRESHOLD_DEG = 30.0
+    BEVEL_WIDTH_RATIO = 0.005
 
     def __init__(self, parent):
         super().__init__(parent)
@@ -4042,12 +4049,28 @@ class SharpEdgesNotHard(_EdgeOverlay, BaseCheck):
             self.metric_text = "skipped: shading is custom-normal driven"
             return
         threshold = math.radians(self.ANGLE_THRESHOLD_DEG)
+        bb = obj.bound_box
+        diag = (mathutils.Vector((bb[6][0] - bb[0][0], bb[6][1] - bb[0][1],
+                                  bb[6][2] - bb[0][2]))).length
+        if diag <= 0.0:
+            diag = 1.0
+        strip_max = self.BEVEL_WIDTH_RATIO * diag
         for e in bm.edges:
             if not e.smooth or not e.is_manifold:
                 continue
             angle = e.calc_face_angle(0.0)
-            if angle >= threshold:
-                self._edges_idx.append(e.index)
+            if angle < threshold:
+                continue
+            # Bevel-aware: skip edges hugging a narrow strip face (chamfers)
+            is_bevel = False
+            for f in e.link_faces:
+                longest = max(ed.calc_length() for ed in f.edges)
+                if longest > 0.0 and f.calc_area() / longest < strip_max:
+                    is_bevel = True
+                    break
+            if is_bevel:
+                continue
+            self._edges_idx.append(e.index)
         self._count = len(self._edges_idx)
         self.metric_text = ""
 
