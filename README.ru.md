@@ -6,7 +6,7 @@
 
 *English documentation: [README.md](README.md)*
 
-**Blender 5.2 · v1.7.2 · Автор: Maksim Kovalev**
+**Blender 4.2+ (протестировано на 5.2) · v1.8.0 · Автор: Maksim Kovalev**
 
 ---
 

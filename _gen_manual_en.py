@@ -108,7 +108,7 @@ h2(doc, '1.4 Two versions')
 add_table(doc, [
     ['', 'Blender version', 'Maya version'],
     ['Version', 'v1.8.0', 'v1.3.0'],
-    ['Package', 'Blender 5.1+ extension (zip)', 'Maya 2025 Win x64 (python + C++ overlay plugin)'],
+    ['Package', 'Blender 4.2+ extension (zip)', 'Maya 2025 Win x64 (python + C++ overlay plugin)'],
     ['Panel', 'View3D N-panel - STUKACH tab', 'Docked panel to the left of the Attribute Editor'],
     ['Checks', '42 + Scene Units', '43 + Scene Units + Empty Groups'],
     ['Hierarchy', '13-rule validator + fixes', 'Built with locators; validated in Blender'],
@@ -120,7 +120,7 @@ kv_note(doc, 'The Blender and Maya version numbers are independent. The Maya ver
 
 h1(doc, '2. Installation')
 
-h2(doc, '2.1 Blender 5.1+')
+h2(doc, '2.1 Blender 4.2+')
 for b in [
     'Download the zip of the latest release: github.com/abyrvalg379/STUKACH - Releases - the '
     'STUKACH.zip asset.',
