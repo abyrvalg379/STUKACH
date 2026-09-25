@@ -4061,9 +4061,14 @@ class SharpEdgesNotHard(_EdgeOverlay, BaseCheck):
             angle = e.calc_face_angle(0.0)
             if angle < threshold:
                 continue
+            # Flat-shaded on both sides — the edge renders hard regardless of
+            # the sharp flag, there is nothing to miss here.
+            lf = e.link_faces
+            if len(lf) == 2 and not lf[0].smooth and not lf[1].smooth:
+                continue
             # Bevel-aware: skip edges hugging a narrow strip face (chamfers)
             is_bevel = False
-            for f in e.link_faces:
+            for f in lf:
                 longest = max(ed.calc_length() for ed in f.edges)
                 if longest > 0.0 and f.calc_area() / longest < strip_max:
                     is_bevel = True
