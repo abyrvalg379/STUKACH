@@ -231,8 +231,9 @@ class MeshCheckObject:
         # Stall diagnostics: name the exact check that burns the main thread
         # (a >=5s total block gets the window closed by Windows).
         import time as _time
+        from .properties import category_enabled
         for name, checker in self._checks.items():
-            if not getattr(mc, name, False):
+            if not getattr(mc, name, False) or not category_enabled(name):
                 continue
             is_uv        = name in self._UV_CHECKS
             is_transform = name in self._TRANSFORM_CHECKS
@@ -388,8 +389,9 @@ class MeshCheckGPU:
             # Self-heal: a dead reference that slipped past the depsgraph purge
             # would log a draw error on every redraw — drop it here instead.
             MeshCheck._purge_dead_objects()
+            from .properties import category_enabled
             for check in mc.checker_options:
-                if not getattr(mc, check, False):
+                if not getattr(mc, check, False) or not category_enabled(check):
                     continue
                 for mc_obj in MeshCheck.objects.values():
                     checker = mc_obj._checks.get(check)
@@ -526,9 +528,10 @@ class UVCheckGPU:
 
         shader = cls.get_shader()
         shader.bind()
+        from .properties import category_enabled
 
         for check in cls._UV_OVERLAY_CHECKS:
-            if not getattr(mc, check, False):
+            if not getattr(mc, check, False) or not category_enabled(check):
                 continue
             for mc_obj in MeshCheck.objects.values():
                 checker = mc_obj._checks.get(check)
@@ -926,6 +929,9 @@ class MeshCheck:
 
     @classmethod
     def update_mc_object_datas(cls, name):
+        from .properties import category_enabled
+        if not category_enabled(name):
+            return
         for mc_obj in cls.objects.values():
             checker = mc_obj._checks.get(name)
             if checker:

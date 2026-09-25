@@ -334,6 +334,23 @@ class MeshCheckPreferences(AddonPreferences):
                     "flagged (the shading artifact is invisible on a strip that thin)",
     )
 
+    # Per-category switches: a disabled category is hidden in the panel and
+    # never executed (RUN, Live, overlays, reports).  Default = all on.
+    enable_topology:   BoolProperty(name="Topology",   default=True,
+                                    description="Show and run the TOPOLOGY checks")
+    enable_transforms: BoolProperty(name="Transforms", default=True,
+                                    description="Show and run the TRANSFORMS checks")
+    enable_symmetry:   BoolProperty(name="Symmetry",   default=True,
+                                    description="Show and run the SYMMETRY checks")
+    enable_uv:         BoolProperty(name="UV",         default=True,
+                                    description="Show and run the UV checks")
+    enable_naming:     BoolProperty(name="Naming",     default=True,
+                                    description="Show and run the NAMING checks")
+    enable_materials:  BoolProperty(name="Materials",  default=True,
+                                    description="Show and run the MATERIALS checks")
+    enable_cleanup:    BoolProperty(name="Cleanup",    default=True,
+                                    description="Show and run the CLEANUP checks")
+
     # UV PADDING settings
     uv_padding_texture_size: EnumProperty(
         name="Padding Texture Size",
@@ -484,6 +501,16 @@ class MeshCheckPreferences(AddonPreferences):
         hint = box.row()
         hint.enabled = False
         hint.label(text="Edges hugging thinner strips are treated as chamfers", icon="INFO")
+
+        box = layout.box()
+        box.label(text="Categories", icon="OUTLINER_COLLECTION")
+        col = box.column(align=True)
+        for attr in ("enable_topology", "enable_transforms", "enable_symmetry",
+                     "enable_uv", "enable_naming", "enable_materials", "enable_cleanup"):
+            col.prop(self, attr, toggle=True)
+        hint = box.row()
+        hint.enabled = False
+        hint.label(text="Disabled: hidden in the panel, never runs, not in reports", icon="INFO")
 
     def _draw_section_overlay(self, layout):
         box = layout.box()
