@@ -4023,13 +4023,16 @@ class SharpEdgesNotHard(_EdgeOverlay, BaseCheck):
     objects using Blender's "Smooth by Angle" modifier (flags exist only on
     the evaluated mesh, never in the base data this check reads).
 
-    Bevel-aware: a smooth >=30 deg edge that borders a NARROW strip face is a
-    deliberately smoothed chamfer/bevel (the shading artifact on a strip that
-    thin is invisible), not a missed hard edge.  Only edges between two
+    Bevel-aware: a smooth >=threshold edge that borders a NARROW strip face is
+    a deliberately smoothed chamfer/bevel (the shading artifact on a strip
+    that thin is invisible), not a missed hard edge.  Only edges between two
     substantial faces are flagged.  A face counts as a strip when
-    area / longest-edge < BEVEL_WIDTH_RATIO of the object's bbox diagonal."""
+    area / longest-edge < BEVEL_WIDTH_RATIO of the object's bbox diagonal.
 
-    ANGLE_THRESHOLD_DEG = 30.0
+    The angle threshold is a Preferences knob (default 60 deg — the classic
+    30 deg spams segment boundaries of smooth-curved surfaces)."""
+
+    ANGLE_THRESHOLD_DEG = 60.0
     BEVEL_WIDTH_RATIO = 0.005
 
     def __init__(self, parent):
@@ -4048,7 +4051,13 @@ class SharpEdgesNotHard(_EdgeOverlay, BaseCheck):
             self._count = 0
             self.metric_text = "skipped: shading is custom-normal driven"
             return
-        threshold = math.radians(self.ANGLE_THRESHOLD_DEG)
+        try:
+            addon_name = __name__.rsplit(".", 1)[0]
+            prefs = bpy.context.preferences.addons[addon_name].preferences
+            threshold_deg = float(prefs.sharp_angle_deg)
+        except Exception:
+            threshold_deg = self.ANGLE_THRESHOLD_DEG
+        threshold = math.radians(threshold_deg)
         bb = obj.bound_box
         diag = (mathutils.Vector((bb[6][0] - bb[0][0], bb[6][1] - bb[0][1],
                                   bb[6][2] - bb[0][2]))).length
