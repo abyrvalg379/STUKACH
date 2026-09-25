@@ -6,286 +6,49 @@ r"""STUKACH - Руководство пользователя (RU). Генера
 Выход:   D:\AI\ZCode\Project\STUKACH\out\blender\STUKACH_Manual_RU.docx
 """
 
-from docx import Document
-from docx.shared import Pt, RGBColor, Cm, Inches
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.enum.table import WD_ALIGN_VERTICAL
-from docx.oxml.ns import qn
-from docx.oxml import OxmlElement
+import json
 
-OUT = r'D:\AI\ZCode\Project\STUKACH\out\blender\STUKACH_Manual_RU.docx'
+import _docstyle as ds
 
-doc = Document()
-
-for section in doc.sections:
-    section.top_margin    = Inches(0.9)
-    section.bottom_margin = Inches(0.9)
-    section.left_margin   = Inches(1)
-    section.right_margin  = Inches(1)
-
-# ── базовые стили ──────────────────────────────────────────────────────────
-
-normal = doc.styles['Normal']
-normal.font.name = 'Arial'
-normal.font.size = Pt(10)
-normal.paragraph_format.line_spacing = 1.3
-normal.paragraph_format.space_after = Pt(4)
-normal.paragraph_format.space_before = Pt(0)
-# кириллица в Arial - нужен явный w:cs-шрифт
-rpr = normal.element.get_or_add_rPr()
-rfonts = rpr.find(qn('w:rFonts'))
-rfonts.set(qn('w:cs'), 'Arial')
-
-for lvl, size in (('Heading 1', 15), ('Heading 2', 12.5), ('Heading 3', 11)):
-    st = doc.styles[lvl]
-    st.font.name = 'Arial'
-    st.font.size = Pt(size)
-    st.font.bold = True
-    st.font.color.rgb = RGBColor(0x1F, 0x49, 0x7D) if lvl == 'Heading 1' else RGBColor(0x2E, 0x74, 0xB5)
-    st.paragraph_format.space_before = Pt(14 if lvl == 'Heading 1' else 10)
-    st.paragraph_format.space_after = Pt(5)
-    st.paragraph_format.line_spacing = 1.15
-    st.paragraph_format.keep_with_next = True
-
-# ── хелперы ────────────────────────────────────────────────────────────────
-
-SEV_STYLE = {
-    'BLOCKER': ('FDE9E9', (0xC0, 0x00, 0x00)),
-    'ERROR':   ('FDE9E9', (0xC0, 0x00, 0x00)),
-    'WARNING': ('FFF3CD', (0x7F, 0x60, 0x00)),
-    'INFO':    ('E8F4FD', (0x1F, 0x49, 0x7D)),
-}
-HDR_BG  = '2E75B5'
-ALT_ROW = 'F5F8FB'
-BLUE_H1 = RGBColor(0x1F, 0x49, 0x7D)
-GREY    = RGBColor(0x55, 0x55, 0x55)
-
-
-def set_cell_bg(cell, hex_color):
-    tc = cell._tc
-    tcPr = tc.get_or_add_tcPr()
-    shd = OxmlElement('w:shd')
-    shd.set(qn('w:val'), 'clear')
-    shd.set(qn('w:color'), 'auto')
-    shd.set(qn('w:fill'), hex_color)
-    tcPr.append(shd)
-
-
-def set_cell_borders(cell, color='CCCCCC'):
-    tc = cell._tc
-    tcPr = tc.get_or_add_tcPr()
-    tcB = OxmlElement('w:tcBorders')
-    for side in ('top', 'left', 'bottom', 'right'):
-        b = OxmlElement(f'w:{side}')
-        b.set(qn('w:val'), 'single')
-        b.set(qn('w:sz'), '4')
-        b.set(qn('w:space'), '0')
-        b.set(qn('w:color'), color)
-        tcB.append(b)
-    tcPr.append(tcB)
-
-
-def cell_para(cell, text, bold=False, size=9, color=None, italic=False):
-    p = cell.paragraphs[0]
-    p.paragraph_format.space_before = Pt(2)
-    p.paragraph_format.space_after = Pt(2)
-    p.paragraph_format.line_spacing = 1.1
-    run = p.add_run(text)
-    run.font.name = 'Arial'
-    run.font.size = Pt(size)
-    run.font.bold = bold
-    run.font.italic = italic
-    if color:
-        run.font.color.rgb = RGBColor(*color)
-
-
-def table_margins(table, top=40, bottom=40, left=80, right=80):
-    tblPr = table._tbl.tblPr
-    mar = OxmlElement('w:tblCellMar')
-    for side, val in (('top', top), ('left', left), ('bottom', bottom), ('right', right)):
-        el = OxmlElement(f'w:{side}')
-        el.set(qn('w:w'), str(val))
-        el.set(qn('w:type'), 'dxa')
-        mar.append(el)
-    tblPr.append(mar)
-
-
-def add_table(doc, rows, col_widths_cm, sev_col=None):
-    """rows[0] = заголовок. sev_col - индекс колонки с severity-чипом (окраска)."""
-    n_cols = len(col_widths_cm)
-    table = doc.add_table(rows=0, cols=n_cols)
-    table.style = 'Table Grid'
-    table.autofit = False
-    table_margins(table)
-
-    for r_idx, row_data in enumerate(rows):
-        row = table.add_row()
-        # Разрыв строки посреди ячейки запрещён всегда (cantSplit). tblHeader
-        # (повтор шапки) - только большим таблицам: пара cantSplit+tblHeader
-        # у маленьких таблиц роняет строку при конвертации в PDF (LibreOffice).
-        # Маленькие таблицы (<=2 рядов) дополнительно клеятся в один блок
-        # через keepNext - шапка-сирота недопустима.
-        big = len(rows) > 2
-        trPr = row._tr.get_or_add_trPr()
-        cant = OxmlElement('w:cantSplit')
-        trPr.append(cant)
-        if big and r_idx == 0:
-            th = OxmlElement('w:tblHeader')
-            trPr.append(th)
-
-        glue = not big and r_idx < len(rows) - 1
-        for c_idx, (text, w) in enumerate(zip(row_data, col_widths_cm)):
-            cell = row.cells[c_idx]
-            cell.width = Cm(w)
-            set_cell_borders(cell)
-            cell.vertical_alignment = WD_ALIGN_VERTICAL.TOP
-
-            if r_idx == 0:
-                set_cell_bg(cell, HDR_BG)
-                cell_para(cell, text, bold=True, size=9, color=(0xFF, 0xFF, 0xFF))
-            else:
-                if r_idx % 2 == 0:
-                    set_cell_bg(cell, ALT_ROW)
-                if sev_col is not None and c_idx == sev_col:
-                    key = text.strip()
-                    bg, fg = SEV_STYLE.get(key, ('FFFFFF', (0, 0, 0)))
-                    set_cell_bg(cell, bg)
-                    cell_para(cell, key, bold=True, size=9, color=fg)
-                elif c_idx == 0:
-                    cell_para(cell, text, bold=True, size=9)
-                else:
-                    cell_para(cell, text, size=9)
-
-            if glue:
-                for par in cell.paragraphs:
-                    par.paragraph_format.keep_with_next = True
-
-    sp = doc.add_paragraph()
-    sp.paragraph_format.space_after = Pt(4)
-    sp.paragraph_format.space_before = Pt(0)
-    sp.paragraph_format.line_spacing = 1.0
-    return table
+OUT = r'D:\AI\ZCode\Project\STUKACH\work\docs\STUKACH_Manual_RU.docx'
 
 
 def h1(doc, text):
-    doc.add_heading(text, level=1)
+    return ds.h1(doc, text)
 
 
 def h2(doc, text):
-    doc.add_heading(text, level=2)
+    return ds.h2(doc, text)
 
 
-def p(doc, text, italic=False, grey=False, bullet=False):
-    par = doc.add_paragraph(style='List Bullet' if bullet else None)
-    run = par.add_run(text)
-    run.font.name = 'Arial'
-    run.font.size = Pt(9.5)
-    run.font.italic = italic
-    if grey:
-        run.font.color.rgb = GREY
-    return par
+def p(doc, text, bullet=False, italic=False, grey=False):
+    return ds.p(doc, text, bullet=bullet, italic=italic, grey=grey)
 
 
 def kv_note(doc, text):
-    """Серый курсив-хинт."""
-    par = doc.add_paragraph()
-    run = par.add_run(text)
-    run.font.name = 'Arial'
-    run.font.size = Pt(9)
-    run.font.italic = True
-    run.font.color.rgb = GREY
+    return ds.kv(doc, text)
 
 
 def mono(doc, text):
-    """Строка с интерфейсным элементом (кнопка/надпись)."""
-    par = doc.add_paragraph()
-    run = par.add_run(text)
-    run.font.name = 'Consolas'
-    run.font.size = Pt(9.5)
-    run.font.bold = True
-    par.paragraph_format.space_after = Pt(3)
-    return par
+    return ds.mono(doc, text)
 
 
-def add_toc_field(doc):
-    """Поле оглавления + хинт обновления (правило скилла)."""
-    par = doc.add_paragraph()
-    run = par.add_run()
-    fld_begin = OxmlElement('w:fldChar')
-    fld_begin.set(qn('w:fldCharType'), 'begin')
-    instr = OxmlElement('w:instrText')
-    instr.set(qn('xml:space'), 'preserve')
-    instr.text = r'TOC \o "1-2" \h \z \u'
-    fld_sep = OxmlElement('w:fldChar')
-    fld_sep.set(qn('w:fldCharType'), 'separate')
-    t = OxmlElement('w:t')
-    t.text = 'Оглавление: откройте документ в Word/LibreOffice и обновите поле (F9), чтобы заполнить номера страниц.'
-    fld_sep.append(t)
-    fld_end = OxmlElement('w:fldChar')
-    fld_end.set(qn('w:fldCharType'), 'end')
-    r = run._r
-    r.append(fld_begin)
-    r.append(instr)
-    r.append(fld_sep)
-    r.append(fld_end)
-
-    br = doc.add_paragraph()
-    run_br = br.add_run()
-    pb = OxmlElement('w:br')
-    pb.set(qn('w:type'), 'page')
-    run_br._r.append(pb)
+def add_table(doc, rows, widths, sev_col=None):
+    return ds.add_table(doc, rows, widths, sev_col=sev_col)
 
 
-def add_footer_pagenum(doc):
-    footer = doc.sections[0].footer
-    par = footer.paragraphs[0]
-    par.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = par.add_run()
-    fld_begin = OxmlElement('w:fldChar')
-    fld_begin.set(qn('w:fldCharType'), 'begin')
-    instr = OxmlElement('w:instrText')
-    instr.set(qn('xml:space'), 'preserve')
-    instr.text = r'PAGE \* arabic \* MERGEFORMAT'
-    fld_end = OxmlElement('w:fldChar')
-    fld_end.set(qn('w:fldCharType'), 'end')
-    run._r.append(fld_begin)
-    run._r.append(instr)
-    run._r.append(fld_end)
-    run.font.name = 'Arial'
-    run.font.size = Pt(9)
-    run.font.color.rgb = GREY
+def _save(doc, out):
+    ds.footer(doc.sections[1], 'STUKACH')
+    ds.strip_tail(doc)
+    doc.save(out)
+    h1s = [t for t in ds.H1_REGISTRY if t.lower() not in ('содержание', 'contents')]
+    json.dump(h1s, open(out.replace('.docx', '.h1.json'), 'w', encoding='utf-8'),
+              ensure_ascii=False)
+    print('saved:', out)
 
 
-# ════════════════════════════════════════════════════════════════════════════
-# ТИТУЛ
-# ════════════════════════════════════════════════════════════════════════════
-
-title_p = doc.add_paragraph()
-title_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-title_p.paragraph_format.space_before = Pt(30)
-title_p.paragraph_format.space_after = Pt(4)
-r = title_p.add_run('STUKACH')
-r.font.name = 'Arial'; r.font.size = Pt(30); r.font.bold = True
-r.font.color.rgb = BLUE_H1
-
-title2 = doc.add_paragraph()
-title2.alignment = WD_ALIGN_PARAGRAPH.CENTER
-title2.paragraph_format.space_after = Pt(10)
-r = title2.add_run('Руководство пользователя')
-r.font.name = 'Arial'; r.font.size = Pt(18); r.font.bold = True
-r.font.color.rgb = BLUE_H1
-
-sub = doc.add_paragraph()
-sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
-sub.paragraph_format.space_after = Pt(4)
-r = sub.add_run('Пайплайн-валидатор ассетов')
-r.font.name = 'Arial'; r.font.size = Pt(11); r.font.color.rgb = GREY
-
-sub2 = doc.add_paragraph()
-sub2.alignment = WD_ALIGN_PARAGRAPH.CENTER
-sub2.paragraph_format.space_after = Pt(20)
-r = sub2.add_run('Версия для Blender 5.2 - v1.7.5  ·  Версия для Maya 2025 - v1.3.0')
-r.font.name = 'Arial'; r.font.size = Pt(10.5); r.font.color.rgb = GREY
+doc = ds.new_doc('STUKACH', 'Руководство пользователя',
+                 'BLENDER 5.2  -  V1.7.6  ·  MAYA 2025 - V1.3.0')
 
 p(doc, 'STUKACH проверяет сцену на типовые ошибки пайплайна: топологию, трансформы, '
        'UV, нейминг, материалы и структуру иерархии. Артист видит брак прямо во вьюпорте '
@@ -300,7 +63,7 @@ kv_note(doc, 'Blender: github.com/abyrvalg379/STUKACH  ·  Maya: github.com/abyr
 # ════════════════════════════════════════════════════════════════════════════
 
 h1(doc, 'Содержание')
-add_toc_field(doc)
+ds.toc_field(doc, 'Оглавление: откройте документ в Word/LibreOffice и обновите поле (F9), чтобы заполнить номера страниц.')
 
 # ════════════════════════════════════════════════════════════════════════════
 # 1. О ПРОГРАММЕ
@@ -352,7 +115,7 @@ p(doc, 'Панель работает в одном из двух режимов
 h2(doc, '1.4 Две версии')
 add_table(doc, [
     ['', 'Blender-версия', 'Maya-версия'],
-    ['Версия', 'v1.7.5', 'v1.3.0'],
+    ['Версия', 'v1.7.6', 'v1.3.0'],
     ['Пакет', 'Blender 5.1+ extension (zip)', 'Maya 2025 Win x64 (python + C++ плагин оверлея)'],
     ['Панель', 'N-панель View3D → вкладка STUKACH', 'Док-панель слева от Attribute Editor'],
     ['Чеки', '42 + Scene Units', '43 + Scene Units + Empty Groups'],
@@ -528,7 +291,7 @@ p(doc, 'При включённом Coordinator Mode панель показыв
 # ════════════════════════════════════════════════════════════════════════════
 
 h1(doc, '5. Чекеры (Blender)')
-p(doc, '42 чека в 7 категориях + Scene Units. Состав и критичность соответствуют коду v1.7.5; '
+p(doc, '42 чека в 7 категориях + Scene Units. Состав и критичность соответствуют коду v1.7.6; '
        'пороги части чеков настраиваются в Preferences (вкладка UV).')
 
 h2(doc, '5.1 Scene Units (сцена)')
@@ -947,6 +710,10 @@ for b in [
 
 h1(doc, '12. Решение проблем')
 
+kv_note(doc, 'Баг-репорты и пожелания: github.com/abyrvalg379/STUKACH/issues (Blender), '
+             'github.com/abyrvalg379/STUKACH_Maya/issues (Maya). Прикладывайте Debug Info и сценарий '
+             'воспроизведения.')
+
 add_table(doc, [
     ['Симптом', 'Что это и что делать'],
     ['«Settings restored - press Run to revalidate»', 'Штатное сообщение STUKACH: настройки восстановлены '
@@ -955,7 +722,7 @@ add_table(doc, [
      'Run или Scan; в Live большая часть подхватится сама.'],
     ['Объект не появляется в Objects', 'Он вне области проверки: первый RUN берёт Selected. Расширьте '
      'до Scene/Collection. Включён фильтр поиска или Issues-only - проверьте заголовок «N / M».'],
-    ['Оверлей просвечивает сквозь меш', 'Это кнопка X-Ray в Pipeline Checks (v1.7.5): выключите - '
+    ['Оверлей просвечивает сквозь меш', 'Это кнопка X-Ray в Pipeline Checks (v1.7.6): выключите - '
      'стенки скроют метки дальней стороны. Также включённый Alt+Z (xray вьюпорта) принудительно '
      'делает оверлей прозрачным.'],
     ['Метки оверлея мерцают с геометрией', 'Увеличьте Face/Point Offset в Pipeline Checks.'],
@@ -971,11 +738,4 @@ add_table(doc, [
      'Debug Info до краша. Краш-дампы Blender (.crash) лежат в %TEMP%.'],
 ], [5.4, 13.6])
 
-p(doc, ' ')
-kv_note(doc, 'Баг-репорты и пожелания: github.com/abyrvalg379/STUKACH/issues (Blender), '
-             'github.com/abyrvalg379/STUKACH_Maya/issues (Maya). Прикладывайте Debug Info и сценарий '
-             'воспроизведения.')
-
-add_footer_pagenum(doc)
-doc.save(OUT)
-print(f'Saved: {OUT}')
+_save(doc, OUT)
