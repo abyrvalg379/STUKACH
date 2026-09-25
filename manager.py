@@ -283,6 +283,101 @@ class MeshCheckObject:
         return any(getattr(self, f"_{d}") != len(getattr(bm, d)) for d in self.MESH_DATAS)
 
 
+def auto_advance(context):
+    """Jump to the next issue after a successful fix (Preferences toggle).
+
+    Only in Object Mode — fixes that leave the user in Edit Mode keep them
+    there (the edit flow is the user's, not ours).
+    """
+    try:
+        prefs = bpy.context.preferences.addons[__name__.rsplit(".", 1)[0]].preferences
+        if not prefs.advance_after_fix or context.mode != 'OBJECT':
+            return
+        bpy.ops.asset_checker.next_issue()
+    except Exception:
+        pass
+
+
+class ViewportHUD:
+    """Corner HUD in the 3D viewport: validation status line + the focused
+    finding (set by Sel / Next Issue), so small defects are identifiable
+    without reading the panel."""
+
+    handler = None
+
+    @classmethod
+    def register(cls):
+        if cls.handler is None:
+            cls.handler = bpy.types.SpaceView3D.draw_handler_add(
+                cls.draw, (), 'WINDOW', 'POST_PIXEL')
+
+    @classmethod
+    def unregister(cls):
+        if cls.handler is not None:
+            try:
+                bpy.types.SpaceView3D.draw_handler_remove(cls.handler, 'WINDOW')
+            except Exception:
+                pass
+            cls.handler = None
+
+    @staticmethod
+    def _draw_line(text, color, y):
+        import blf
+        font_id = 0
+        blf.size(font_id, 13)
+        blf.position(font_id, 14, y, 0)
+        blf.color(font_id, *color)
+        blf.draw(font_id, text)
+
+    @classmethod
+    def draw(cls):
+        import blf
+        ctx = bpy.context
+        try:
+            mc = ctx.window_manager.mesh_check_props
+        except Exception:
+            return
+        if not mc.check_data:
+            return
+        try:
+            prefs = ctx.preferences.addons[__name__.rsplit(".", 1)[0]].preferences
+        except Exception:
+            return
+        if not prefs.show_viewport_hud:
+            return
+
+        from .ui import _compute_asset_summary, _get_asset_status, CHECK_SEVERITY
+        from .properties import _CHECK_LABELS, category_enabled, pretty_name
+
+        status = _get_asset_status(mc)
+        colors = {
+            "ready":    (0.45, 0.80, 0.40, 0.9),
+            "warning":  (0.95, 0.78, 0.25, 0.9),
+            "critical": (0.95, 0.30, 0.25, 0.9),
+            "none":     (0.65, 0.65, 0.65, 0.7),
+        }
+
+        # Line 1 — status (only when there is something validated)
+        if MeshCheck.objects:
+            summary = _compute_asset_summary(mc)
+            cls._draw_line(
+                f"STUKACH · {status.upper()} · {summary['total_blockers']}B / {summary['total_warnings']}W",
+                colors.get(status, colors["none"]), 20)
+
+        # Line 2 — the focused finding (set by Sel / Next Issue)
+        finding = getattr(MeshCheck, "_hud_finding", None)
+        if finding:
+            obj_name, check_name, count = finding
+            if not category_enabled(check_name):
+                return
+            label = _CHECK_LABELS.get(check_name, pretty_name(check_name))
+            sev = CHECK_SEVERITY.get(check_name, "WARNING")
+            cls._draw_line(
+                f"{obj_name} · {label} · {count}",
+                colors.get("critical" if sev == "BLOCKER" else "warning", colors["warning"]),
+                40)
+
+
 class MeshCheckGPU:
     _handler = None
     _shader = None
@@ -1155,6 +1250,19 @@ class MeshCheck:
     _SLOW_PASS_WARN: float = 0.5
     _SLOW_BATCH_WARN: float = 1.0
 
+    _status_clear_at = None
+
+    @classmethod
+    def _status_clear(cls):
+        """Clear the completion status-bar text a few seconds after RUN."""
+        if cls._status_clear_at is not None and _time.monotonic() >= cls._status_clear_at - 0.4:
+            try:
+                bpy.context.workspace.status_text_set(None)
+            except Exception:
+                pass
+            cls._status_clear_at = None
+        return None
+
     # ── Progressive validation (Scene / Collection scope) ─────────────────────
     # Scene-wide RUN used to build every MeshCheckObject synchronously — the
     # UI froze for the whole pass.  Instead the objects are queued and built
@@ -1216,6 +1324,21 @@ class MeshCheck:
                 cls._scene_stale = False
                 if mc is not None:
                     mc.validation_progress = 1.0
+                # Completion report in the status bar, auto-clears after ~4s
+                try:
+                    from .properties import category_enabled
+                    issues = 0
+                    for o_ in cls.objects.values():
+                        for name_, chk_ in o_._checks.items():
+                            if getattr(mc, name_, False) and category_enabled(name_):
+                                issues += chk_.count
+                    text = (f"STUKACH: {issues} issues in {len(cls.objects)} objects")
+                    bpy.context.workspace.status_text_set(text)
+                    cls._status_clear_at = _time.monotonic() + 4.0
+                    if not bpy.app.timers.is_registered(cls._status_clear):
+                        bpy.app.timers.register(cls._status_clear, first_interval=4.5)
+                except Exception as e:
+                    alog(f"[AssetChecker] status report: {e}")
         except Exception as e:
             alog(f"[AssetChecker] validation flush error: {e}")
         return None

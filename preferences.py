@@ -203,7 +203,35 @@ class StukachPresetItem(PropertyGroup):
 # Hotkeys
 def _reload_next_issue_hotkey(self, context):
     from .properties import _register_hotkey
-    _register_hotkey()
+    _register_hotkey(self, context)
+
+
+class ASSET_CHECKER_OT_profile_apply(bpy.types.Operator):
+    """Apply a checker category profile in one click"""
+    bl_idname = "asset_checker.profile_apply"
+    bl_label = "Apply Profile"
+    bl_options = {'REGISTER'}
+
+    profile: StringProperty()
+
+    def execute(self, context):
+        prefs = context.preferences.addons[__name__.rsplit(".", 1)[0]].preferences
+        values = {
+            # everything on
+            "ALL": {},
+            # modeler: topology + transforms only
+            "MODELER": {"enable_uv": False, "enable_symmetry": False,
+                        "enable_naming": False, "enable_materials": False,
+                        "enable_cleanup": False},
+        }.get(self.profile)
+        if values is None:
+            return {'CANCELLED'}
+        for attr in ("enable_topology", "enable_transforms", "enable_symmetry",
+                     "enable_uv", "enable_naming", "enable_materials",
+                     "enable_cleanup"):
+            setattr(prefs, attr, attr not in values)
+        self.report({'INFO'}, f"Profile applied: {self.profile.title()}")
+        return {'FINISHED'}
 
 
 class MeshCheckPreferences(AddonPreferences):
@@ -226,6 +254,13 @@ class MeshCheckPreferences(AddonPreferences):
                     "viewport (Object Mode, only while validation is active). "
                     "Turn off if it conflicts with another addon",
         update=_reload_next_issue_hotkey)
+    show_viewport_hud: BoolProperty(
+        name="Viewport HUD", default=True,
+        description="Show the validation status and the focused finding info "
+                    "in the corner of the 3D viewport")
+    advance_after_fix: BoolProperty(
+        name="Auto-advance after fix", default=True,
+        description="After a successful fix, jump to the next object with issues")
     update_checking: BoolProperty(name="Checking", default=False)
     update_result:  StringProperty(name="Update Check Result", default="")
     update_url:     StringProperty(name="Latest Release URL", default="")
@@ -473,6 +508,8 @@ class MeshCheckPreferences(AddonPreferences):
         vrow = box.row(align=True)
         vrow.prop(self, "validator_name", text="Validator", icon="USER")
         box.prop(self, "use_next_issue_hotkey")
+        box.prop(self, "show_viewport_hud")
+        box.prop(self, "advance_after_fix")
 
         # Updates
         box = layout.box()
@@ -525,6 +562,9 @@ class MeshCheckPreferences(AddonPreferences):
 
         box = layout.box()
         box.label(text="Categories", icon="OUTLINER_COLLECTION")
+        prow = box.row(align=True)
+        prow.operator("asset_checker.profile_apply", text="All", icon="CHECKBOX_HLT").profile = "ALL"
+        prow.operator("asset_checker.profile_apply", text="Modeler", icon="MOD_BUILD").profile = "MODELER"
         col = box.column(align=True)
         for attr in ("enable_topology", "enable_transforms", "enable_symmetry",
                      "enable_uv", "enable_naming", "enable_materials", "enable_cleanup"):
