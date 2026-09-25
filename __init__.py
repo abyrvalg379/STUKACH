@@ -111,6 +111,12 @@ def register():
 
     update_checker.register()
 
+    # Next Issue hotkey (respects the Preferences toggle)
+    try:
+        properties._register_hotkey()
+    except Exception as e:
+        print(f"[AssetChecker] hotkey register: {e}")
+
     bpy.types.WindowManager.mesh_check_props = PointerProperty(
         type=properties.MeshCheckProperties)
 
@@ -159,6 +165,11 @@ def register():
 
 
 def unregister():
+    try:
+        properties._unregister_hotkey()
+    except Exception as e:
+        print(f"[AssetChecker] hotkey unregister: {e}")
+
     try:
         from .manager import unregister_state_handlers
         unregister_state_handlers()

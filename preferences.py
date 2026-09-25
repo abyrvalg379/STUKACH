@@ -200,6 +200,12 @@ class StukachPresetItem(PropertyGroup):
                                 description="JSON dict {check_key: enabled}")
 
 
+# Hotkeys
+def _reload_next_issue_hotkey(self, context):
+    from .properties import _register_hotkey
+    _register_hotkey()
+
+
 class MeshCheckPreferences(AddonPreferences):
     bl_idname = __name__.rsplit(".", 1)[0]
 
@@ -212,6 +218,14 @@ class MeshCheckPreferences(AddonPreferences):
         name="Check for updates daily", default=True,
         description="Silently compare the installed version with the latest "
                     "GitHub release once a day (one anonymous request)")
+
+    # Hotkeys
+    use_next_issue_hotkey: BoolProperty(
+        name="Next Issue hotkey (Shift+N)", default=True,
+        description="Cycle through problem objects with Shift+N in the 3D "
+                    "viewport (Object Mode, only while validation is active). "
+                    "Turn off if it conflicts with another addon",
+        update=_reload_next_issue_hotkey)
     update_checking: BoolProperty(name="Checking", default=False)
     update_result:  StringProperty(name="Update Check Result", default="")
     update_url:     StringProperty(name="Latest Release URL", default="")
@@ -453,6 +467,7 @@ class MeshCheckPreferences(AddonPreferences):
         box.prop(self, "coordinator_lock")
         vrow = box.row(align=True)
         vrow.prop(self, "validator_name", text="Validator", icon="USER")
+        box.prop(self, "use_next_issue_hotkey")
 
         # Updates
         box = layout.box()
