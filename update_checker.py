@@ -148,6 +148,18 @@ def _auto_tick():
     return 3600.0
 
 
+def result_is_valid():
+    """True when the stored 'Update available: vX' result still refers to a
+    version newer than the installed one.  A stale result (the user already
+    updated) must not keep the badge alive."""
+    prefs = _prefs()
+    result = (getattr(prefs, "update_result", "") or "") if prefs else ""
+    if not result.startswith("Update available: "):
+        return False
+    tag = result.rsplit(":", 1)[1].strip()
+    return _parse_tag(tag) > _local_version_tuple()
+
+
 def open_releases(context):
     prefs = _prefs()
     url = (getattr(prefs, "update_url", "") or "") if prefs else ""
