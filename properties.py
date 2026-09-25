@@ -471,6 +471,28 @@ class ASSET_CHECKER_OT_select_check_elements(bpy.types.Operator):
     def poll(cls, context):
         return context.mode in {'OBJECT', 'EDIT_MESH'}
 
+    @staticmethod
+    def _view3d_override(context):
+        """Explicit window/area/region for context-sensitive viewport ops.
+
+        The panel button click does not guarantee a context that
+        object.select_all's poll accepts ('context is incorrect', 26-09) —
+        pin the ops to an actual VIEW_3D area instead of trusting the
+        ambient one.  Falls back to any window that has a 3D view.
+        """
+        windows = [context.window]
+        windows += [w for w in context.window_manager.windows if w != context.window]
+        for window in windows:
+            if window is None:
+                continue
+            for area in window.screen.areas:
+                if area.type == 'VIEW_3D':
+                    for region in area.regions:
+                        if region.type == 'WINDOW':
+                            return {"window": window, "screen": window.screen,
+                                    "area": area, "region": region}
+        return {}
+
     def execute(self, context):
         from .manager import MeshCheck
 
@@ -493,12 +515,20 @@ class ASSET_CHECKER_OT_select_check_elements(bpy.types.Operator):
             self.report({'INFO'}, "No selectable 3D elements for this check")
             return {'CANCELLED'}
 
+        ovr = self._view3d_override(context)
+
         # Make active, enter Edit mode
-        bpy.ops.object.select_all(action='DESELECT')
+        try:
+            with bpy.context.temp_override(**ovr):
+                bpy.ops.object.select_all(action='DESELECT')
+        except RuntimeError as e:
+            self.report({'WARNING'}, f"Sel: no usable 3D viewport ({e})")
+            return {'CANCELLED'}
         context.view_layer.objects.active = obj
         obj.select_set(True)
         if context.mode != 'EDIT_MESH':
-            bpy.ops.object.mode_set(mode='EDIT')
+            with bpy.context.temp_override(**ovr):
+                bpy.ops.object.mode_set(mode='EDIT')
 
         bm = bmesh.from_edit_mesh(obj.data)
 
@@ -509,24 +539,25 @@ class ASSET_CHECKER_OT_select_check_elements(bpy.types.Operator):
 
         bm.select_flush(False)
 
-        if element_type == 'VERT':
-            bpy.ops.mesh.select_mode(type='VERT')
-            bm.verts.ensure_lookup_table()
-            for idx in indices:
-                if 0 <= idx < len(bm.verts):
-                    bm.verts[idx].select = True
-        elif element_type == 'EDGE':
-            bpy.ops.mesh.select_mode(type='EDGE')
-            bm.edges.ensure_lookup_table()
-            for idx in indices:
-                if 0 <= idx < len(bm.edges):
-                    bm.edges[idx].select = True
-        elif element_type == 'FACE':
-            bpy.ops.mesh.select_mode(type='FACE')
-            bm.faces.ensure_lookup_table()
-            for idx in indices:
-                if 0 <= idx < len(bm.faces):
-                    bm.faces[idx].select = True
+        with bpy.context.temp_override(**ovr):
+            if element_type == 'VERT':
+                bpy.ops.mesh.select_mode(type='VERT')
+                bm.verts.ensure_lookup_table()
+                for idx in indices:
+                    if 0 <= idx < len(bm.verts):
+                        bm.verts[idx].select = True
+            elif element_type == 'EDGE':
+                bpy.ops.mesh.select_mode(type='EDGE')
+                bm.edges.ensure_lookup_table()
+                for idx in indices:
+                    if 0 <= idx < len(bm.edges):
+                        bm.edges[idx].select = True
+            elif element_type == 'FACE':
+                bpy.ops.mesh.select_mode(type='FACE')
+                bm.faces.ensure_lookup_table()
+                for idx in indices:
+                    if 0 <= idx < len(bm.faces):
+                        bm.faces[idx].select = True
 
         bm.select_flush_mode()
         bmesh.update_edit_mesh(obj.data, loop_triangles=False, destructive=False)
@@ -535,7 +566,8 @@ class ASSET_CHECKER_OT_select_check_elements(bpy.types.Operator):
         # see where the problem is, especially important for zero-area faces
         # whose markers can be hard to spot manually.
         try:
-            bpy.ops.view3d.view_selected()
+            with bpy.context.temp_override(**ovr):
+                bpy.ops.view3d.view_selected()
         except Exception:
             pass
 
