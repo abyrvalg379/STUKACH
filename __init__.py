@@ -7,15 +7,16 @@ from bpy.props import BoolProperty, PointerProperty
 
 if "bpy" in locals():
     import importlib
-    from . import core, naming, preferences, properties, ui, manager
+    from . import core, naming, preferences, properties, ui, manager, update_checker
     importlib.reload(core)
     importlib.reload(naming)
     importlib.reload(preferences)
     importlib.reload(properties)
     importlib.reload(ui)
     importlib.reload(manager)
+    importlib.reload(update_checker)
 else:
-    from . import core, naming, preferences, properties, ui, manager
+    from . import core, naming, preferences, properties, ui, manager, update_checker
 
 classes = (
     # NamingEntry must precede MeshCheckPreferences (CollectionProperty type dependency)
@@ -37,6 +38,9 @@ classes = (
     preferences.ASSET_CHECKER_OT_hierarchy_layer_add,
     preferences.ASSET_CHECKER_OT_hierarchy_layer_remove,
     preferences.MeshCheckPreferences,
+    # Update checker
+    update_checker.ASSET_CHECKER_OT_check_updates,
+    update_checker.ASSET_CHECKER_OT_open_releases,
     properties.MESH_CHECK_OT_toggle_category,
     properties.ASSET_CHECKER_OT_select_check_elements,
     properties.ASSET_CHECKER_OT_set_td_target,

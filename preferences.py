@@ -207,6 +207,11 @@ class MeshCheckPreferences(AddonPreferences):
     presets:       CollectionProperty(type=StukachPresetItem)
     preset_active: StringProperty(name="Active Preset", default="")
 
+    # Update checker — state of the last manual check
+    update_checking: BoolProperty(name="Checking", default=False)
+    update_result:  StringProperty(name="Update Check Result", default="")
+    update_url:     StringProperty(name="Latest Release URL", default="")
+
     edges_width:   FloatProperty(name="Edges Width",  default=2.0,  min=1.0, max=10.0, subtype="PIXEL")
     faces_offset:  FloatProperty(name="Faces Offset", default=0.03, min=0.0, max=5.0,  precision=3)
     edges_alpha:   FloatProperty(name="Edges Alpha",  default=1.0,  min=0.0, max=1.0,  precision=3)
@@ -417,6 +422,22 @@ class MeshCheckPreferences(AddonPreferences):
         box.prop(self, "coordinator_lock")
         vrow = box.row(align=True)
         vrow.prop(self, "validator_name", text="Validator", icon="USER")
+
+        # Updates
+        box = layout.box()
+        box.label(text="Updates", icon="WORLD")
+        row = box.row(align=True)
+        row.operator("asset_checker.check_updates",
+                     text="Checking..." if self.update_checking else "Check for updates",
+                     icon="FILE_REFRESH")
+        if self.update_result:
+            row = box.row(align=True)
+            is_update = self.update_result.startswith("Update available")
+            row.enabled = is_update
+            row.operator("asset_checker.open_releases",
+                         text=self.update_result,
+                         icon="URL" if is_update else "INFO",
+                         emboss=is_update)
 
         # Section tabs — the full sheet as one scroll was far too tall
         row = layout.row(align=True)
