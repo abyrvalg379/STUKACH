@@ -1,7 +1,7 @@
 # -*- coding:utf-8 -*-
 import bpy
 from . import manager as _manager_mod
-from .properties import CHECK_CATEGORIES, pretty_name
+from .properties import CHECK_CATEGORIES, pretty_name, category_enabled
 
 
 # ── Health-strip: category → hidden COLOR property name ──────────────────────
@@ -236,7 +236,7 @@ def _compute_asset_summary(mc) -> dict:
     for cat, checks in CHECK_CATEGORIES.items():
         cat_b = cat_w = 0
         for check in checks:
-            if not getattr(mc, check, False):
+            if not getattr(mc, check, False) or not category_enabled(check):
                 continue
             total = sum(_get_check_count(mc_obj, check) for mc_obj in _manager_mod.MeshCheck.objects.values())
             if total == 0:
@@ -264,7 +264,7 @@ def _get_object_status(mc_obj, mc) -> str:
     has_blocker = has_warning = False
     for cat_checks in CHECK_CATEGORIES.values():
         for check in cat_checks:
-            if not getattr(mc, check, False):
+            if not getattr(mc, check, False) or not category_enabled(check):
                 continue
             count = _get_check_count(mc_obj, check)
             if count == 0:
@@ -297,7 +297,7 @@ def _get_asset_status(mc) -> str:
     if _manager_mod.MeshCheck.objects:
         for cat_checks in CHECK_CATEGORIES.values():
             for check in cat_checks:
-                if not getattr(mc, check, False):
+                if not getattr(mc, check, False) or not category_enabled(check):
                     continue
                 has_any_active = True
                 total = sum(
@@ -1071,7 +1071,8 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
             (check, mc_obj._checks.get(check))
             for checks in CHECK_CATEGORIES.values()
             for check in checks
-            if getattr(mc, check, False) and mc_obj._checks.get(check) is not None
+            if getattr(mc, check, False) and category_enabled(check)
+            and mc_obj._checks.get(check) is not None
         ]
 
         # Split the active checks: hot ones (issues / ignored) get full rows,

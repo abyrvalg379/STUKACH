@@ -29,6 +29,19 @@ CHECK_CATEGORIES = {
     "CLEANUP":    ("unused_data",),
 }
 
+_CATEGORY_OF = {check: cat for cat, checks in CHECK_CATEGORIES.items() for check in checks}
+
+
+def category_enabled(check):
+    """False when the check's category is switched off in Preferences —
+    the check is hidden in the panel and never executed anywhere."""
+    try:
+        prefs = bpy.context.preferences.addons[__name__.rsplit(".", 1)[0]].preferences
+        cat = _CATEGORY_OF.get(check)
+        return cat is None or getattr(prefs, "enable_" + cat.lower(), True)
+    except Exception:
+        return True
+
 _CAT_ICONS = {
     "TOPOLOGY":   "MESH_DATA",
     "TRANSFORMS": "ARROW_LEFTRIGHT",
@@ -1811,7 +1824,7 @@ class ASSET_CHECKER_OT_copy_summary(bpy.types.Operator):
             b = w = 0
             worst = None
             for chk_name, checker in mc_obj._checks.items():
-                if not getattr(mc, chk_name, False):
+                if not getattr(mc, chk_name, False) or not category_enabled(chk_name):
                     continue
                 c = checker.count
                 if c <= 0:
@@ -1925,7 +1938,7 @@ class ASSET_CHECKER_OT_next_issue(bpy.types.Operator):
             total = 0
             worst = None      # (count, check_name)
             for chk_name, checker in mc_obj._checks.items():
-                if not getattr(mc, chk_name, False):
+                if not getattr(mc, chk_name, False) or not category_enabled(chk_name):
                     continue
                 c = checker.count
                 if c > 0:
@@ -2929,6 +2942,9 @@ class MeshCheckProperties(PropertyGroup):
             getattr(addon_prefs, "coordinator_lock", False)))
 
         for cat_name, checks in CHECK_CATEGORIES.items():
+            # Category switched off in Preferences — hidden, never executed
+            if not category_enabled(checks[0]):
+                continue
             # Apply severity filter — skip categories where nothing passes
             if severity_filter:
                 visible_checks = [c for c in checks
