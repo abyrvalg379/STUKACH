@@ -75,9 +75,17 @@ def _register_hotkey():
     kc = bpy.context.window_manager.keyconfigs.addon
     if kc is None:      # background mode / no window manager yet
         return
+    key = getattr(prefs, "next_issue_hotkey_key", 'N')
+    mods = getattr(prefs, "next_issue_hotkey_mod", 'SHIFT')
+    kwargs = {"type": key, "value": 'PRESS'}
+    if 'SHIFT' in mods:
+        kwargs['shift'] = True
+    if 'CTRL' in mods:
+        kwargs['ctrl'] = True
+    if 'ALT' in mods:
+        kwargs['alt'] = True
     _hotkey_km = kc.keymaps.new(name="3D View", space_type='VIEW_3D')
-    _hotkey_kmi = _hotkey_km.keymap_items.new(
-        "asset_checker.next_issue", type='N', value='PRESS', shift=True)
+    _hotkey_kmi = _hotkey_km.keymap_items.new("asset_checker.next_issue", **kwargs)
 
 
 def _reload_hotkey(self, context):
@@ -2043,29 +2051,24 @@ class ASSET_CHECKER_OT_next_issue(bpy.types.Operator):
         from .manager import MeshCheck
         mc = context.window_manager.mesh_check_props
 
-        # Problem objects in stable worst-first order
+        # Cycle entries: (object, check) PAIRS — every defect type is its own
+        # stop, so an object carrying triangles + ngons + poles is visited
+        # three times instead of being swallowed by its top finding.
         problems = []
         for o, mc_obj in MeshCheck.objects.items():
             try:
                 o.name
             except ReferenceError:
                 continue
-            total = 0
-            worst = None      # (count, check_name)
             for chk_name, checker in mc_obj._checks.items():
                 if not getattr(mc, chk_name, False) or not category_enabled(chk_name):
                     continue
                 c = checker.count
                 if c > 0:
-                    total += c
-                    if worst is None or c > worst[0]:
-                        worst = (c, chk_name)
-            if total > 0:
-                problems.append((-total, o.name, o, worst))
+                    problems.append((-c, o.name, o, chk_name))
 
-        # Hierarchy findings participate too — objects whose ONLY problems are
-        # hierarchy issues (they may not even be tracked by the checker).
-        # Per-node ignores respected.
+        # Hierarchy findings participate too — one stop per object with
+        # hierarchy issues (no element framing for those).
         hier = MeshCheck.hierarchy_result
         if hier is not None:
             from .naming import hierarchy_effective_issues
@@ -2079,7 +2082,7 @@ class ASSET_CHECKER_OT_next_issue(bpy.types.Operator):
                     continue
                 obj = bpy.data.objects.get(name)
                 if obj is not None:
-                    problems.append((-n, name, obj, (n, "hierarchy")))
+                    problems.append((-n, name, obj, "hierarchy"))
 
         if not problems:
             self.report({'INFO'}, "No issues found — mesh is clean")
@@ -2088,7 +2091,7 @@ class ASSET_CHECKER_OT_next_issue(bpy.types.Operator):
         problems.sort(key=lambda t: (t[0], t[1]))
         idx = MeshCheck._next_issue_ptr % len(problems)
         MeshCheck._next_issue_ptr = idx + 1
-        neg_total, name, o, worst = problems[idx]
+        neg_count, name, o, chk_name = problems[idx]
 
         if context.mode != 'OBJECT':
             bpy.ops.object.mode_set(mode='OBJECT')
@@ -2096,7 +2099,16 @@ class ASSET_CHECKER_OT_next_issue(bpy.types.Operator):
         o.select_set(True)
         context.view_layer.objects.active = o
 
-        # Frame it in every 3D viewport
+        # Point every 3D viewport at the DEFECT cluster of this check, not at
+        # the whole object.
+        center = radius = None
+        mc_obj = MeshCheck.objects.get(o)
+        checker = mc_obj._checks.get(chk_name) if mc_obj else None
+        if checker is not None and chk_name != "hierarchy":
+            etype, idxs = checker.get_select_data()
+            if etype and idxs:
+                center, radius = _defect_focus(o, etype, idxs)
+
         for window in context.window_manager.windows:
             for area in window.screen.areas:
                 if area.type == 'VIEW_3D':
@@ -2107,20 +2119,24 @@ class ASSET_CHECKER_OT_next_issue(bpy.types.Operator):
                     with context.temp_override(window=window, area=area,
                                                region=region):
                         try:
-                            bpy.ops.view3d.view_selected()
+                            if center is not None:
+                                r3d = area.spaces.active.region_3d
+                                if r3d is not None:
+                                    r3d.view_location = center
+                                    r3d.view_distance = max(radius * 3.0, 0.05)
+                            else:
+                                bpy.ops.view3d.view_selected()
                         except Exception:
                             pass
 
-        msg = f"[{idx + 1}/{len(problems)}] {name}: {-neg_total} issue(s)"
-        if worst:
-            msg += f" — top: {worst[1]} ({worst[0]})"
+        count = -neg_count
+        msg = f"[{idx + 1}/{len(problems)}] {name} · {chk_name}: {count} issue(s)"
         self.report({'INFO'}, msg)
 
         # HUD: show what this finding is in the viewport corner
         try:
-            _hud_count, _hud_check = worst if worst else (-neg_total, "")
-            _hud_label = _CHECK_LABELS.get(_hud_check, _hud_check)
-            MeshCheck._hud_finding = (name, _hud_label, _hud_count)
+            _hud_label = _CHECK_LABELS.get(chk_name, chk_name)
+            MeshCheck._hud_finding = (name, _hud_label, count)
         except Exception:
             pass
 
