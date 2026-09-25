@@ -116,7 +116,7 @@ h2(doc, '1.4 Две версии')
 add_table(doc, [
     ['', 'Blender-версия', 'Maya-версия'],
     ['Версия', 'v1.8.0', 'v1.3.0'],
-    ['Пакет', 'Blender 5.1+ extension (zip)', 'Maya 2025 Win x64 (python + C++ плагин оверлея)'],
+    ['Пакет', 'Blender 4.2+ extension (zip)', 'Maya 2025 Win x64 (python + C++ плагин оверлея)'],
     ['Панель', 'N-панель View3D → вкладка STUKACH', 'Док-панель слева от Attribute Editor'],
     ['Чеки', '42 + Scene Units', '43 + Scene Units + Empty Groups'],
     ['Иерархия', 'Валидатор 13 правил + фиксы', 'Рождается локаторами; проверяется в Blender'],
@@ -131,7 +131,7 @@ kv_note(doc, 'Нумерация версий Blender и Maya независим
 
 h1(doc, '2. Установка')
 
-h2(doc, '2.1 Blender 5.1+')
+h2(doc, '2.1 Blender 4.2+')
 for b in [
     'Скачайте zip последнего релиза: github.com/abyrvalg379/STUKACH → Releases → ассет STUKACH.zip.',
     'Blender → Edit → Preferences → Get Extensions → стрелка-меню в правом верхнем углу → Install from Disk → выберите zip. '

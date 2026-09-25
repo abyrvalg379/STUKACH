@@ -7,7 +7,7 @@ tagline       = "Pipeline Snitch System — Asset validation for VFX production"
 maintainer    = "Maksim Kovalev <m.kovalev089@gmail.com>"
 type          = "add-on"
 
-blender_version_min = "5.1.0"
+blender_version_min = "4.2.0"
 
 license       = ["SPDX:GPL-3.0-or-later"]
 copyright     = ["2026 Maksim Kovalev"]
@@ -22,9 +22,6 @@ transform validation, and pipeline integration features with checkpoint system.
 GPU overlays in 3D viewport and UV Editor. Live mode — checks re-run automatically as you edit.
 Coordinator mode for supervisors.
 """
-
-[tools]
-blender = "5.1"
 
 [permissions]
 files = "Save/load checkpoints and export reports"
