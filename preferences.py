@@ -340,6 +340,11 @@ class MeshCheckPreferences(AddonPreferences):
     hierarchy_layer_names: CollectionProperty(type=NamingEntry, name="Functional Layer Whitelist")
 
     # CHECKS — behavior thresholds
+    sharp_angle_deg: FloatProperty(
+        name="Angle threshold", default=60.0, min=5.0, max=179.0, precision=1,
+        description="Hard Edges: flag smooth-shaded edges whose dihedral angle "
+                    "exceeds this many degrees. Lower = stricter (30 is the "
+                    "classic default, 60 suits smooth/curved surfaces)")
     sharp_bevel_width: FloatProperty(
         name="Chamfer width", default=0.5, min=0.05, max=10.0, precision=2,
         subtype='PERCENTAGE',
@@ -512,6 +517,7 @@ class MeshCheckPreferences(AddonPreferences):
     def _draw_section_checks(self, layout):
         box = layout.box()
         box.label(text="Hard Edges (Sharp Edges Not Hard)", icon="EDGESEL")
+        box.prop(self, "sharp_angle_deg")
         box.prop(self, "sharp_bevel_width")
         hint = box.row()
         hint.enabled = False
