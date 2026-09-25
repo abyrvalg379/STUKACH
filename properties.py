@@ -2076,10 +2076,10 @@ class ASSET_CHECKER_OT_next_issue(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        if context.mode != 'OBJECT':
-            return False
-        from .manager import MeshCheck
-        return bool(MeshCheck.objects)
+        # Works from Edit Mode too — it switches to Object Mode itself
+        # (the original behavior; Shift+N in Edit Mode stays with the
+        # Mesh keymap's Make Normals Consistent, so no hotkey conflict).
+        return context.mode in {'OBJECT', 'EDIT_MESH'}
 
     def execute(self, context):
         from .manager import MeshCheck
