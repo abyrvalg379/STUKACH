@@ -436,13 +436,21 @@ class MeshCheckPreferences(AddonPreferences):
                      text="Checking..." if self.update_checking else "Check for updates",
                      icon="FILE_REFRESH")
         if self.update_result:
-            row = box.row(align=True)
-            is_update = self.update_result.startswith("Update available")
-            row.enabled = is_update
-            row.operator("asset_checker.open_releases",
-                         text=self.update_result,
-                         icon="URL" if is_update else "INFO",
-                         emboss=is_update)
+            from . import update_checker
+            stale_update = (self.update_result.startswith("Update available")
+                            and not update_checker.result_is_valid())
+            if self.update_result.startswith("Update available") and not stale_update:
+                box.row(align=True).operator("asset_checker.open_releases",
+                                             text=self.update_result,
+                                             icon="URL")
+            else:
+                hint = box.row()
+                hint.enabled = False
+                if stale_update:
+                    hint.label(text=f"Up to date ({self.update_result.rsplit(':', 1)[1].strip()})",
+                               icon="INFO")
+                else:
+                    hint.label(text=self.update_result, icon="INFO")
 
         # Section tabs — the full sheet as one scroll was far too tall
         row = layout.row(align=True)

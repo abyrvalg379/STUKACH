@@ -1256,11 +1256,13 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
         except Exception:
             prefs = None
 
-        # Update badge — only after a manual check found a newer release
+        # Update badge — only a result still newer than the installed version
         if prefs is not None and getattr(prefs, "update_result", "").startswith("Update available"):
-            row = layout.row(align=True)
-            row.operator("asset_checker.open_releases",
-                         text=prefs.update_result, icon="WORLD")
+            from . import update_checker
+            if update_checker.result_is_valid():
+                row = layout.row(align=True)
+                row.operator("asset_checker.open_releases",
+                             text=prefs.update_result, icon="WORLD")
 
         # ── Main action button ───────────────────────────────────────────────
         sub = layout.row()
