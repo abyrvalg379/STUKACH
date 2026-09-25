@@ -38,6 +38,7 @@ classes = (
     preferences.ASSET_CHECKER_OT_hierarchy_layer_add,
     preferences.ASSET_CHECKER_OT_hierarchy_layer_remove,
     preferences.MeshCheckPreferences,
+    preferences.ASSET_CHECKER_OT_profile_apply,
     properties.MESH_CHECK_OT_toggle_category,
     properties.ASSET_CHECKER_OT_select_check_elements,
     properties.ASSET_CHECKER_OT_set_td_target,
@@ -117,6 +118,12 @@ def register():
     except Exception as e:
         print(f"[AssetChecker] hotkey register: {e}")
 
+    # Viewport HUD
+    try:
+        manager.ViewportHUD.register()
+    except Exception as e:
+        print(f"[AssetChecker] HUD register: {e}")
+
     bpy.types.WindowManager.mesh_check_props = PointerProperty(
         type=properties.MeshCheckProperties)
 
@@ -165,6 +172,11 @@ def register():
 
 
 def unregister():
+    try:
+        manager.ViewportHUD.unregister()
+    except Exception as e:
+        print(f"[AssetChecker] HUD unregister: {e}")
+
     try:
         properties._unregister_hotkey()
     except Exception as e:

@@ -571,6 +571,17 @@ class ASSET_CHECKER_OT_select_check_elements(bpy.types.Operator):
         except Exception:
             pass
 
+        # HUD: show what this finding is in the viewport corner
+        try:
+            from .manager import MeshCheck as _MeshCheck
+            _MeshCheck._hud_finding = (
+                obj.name,
+                _CHECK_LABELS.get(self.check_name, self.check_name),
+                checker.count,
+            )
+        except Exception:
+            pass
+
         return {'FINISHED'}
 
 
@@ -679,6 +690,16 @@ _FIX_OPERATORS: dict = {
 }
 
 
+def _finish_fix(context):
+    """Common tail of fix operators: auto-advance to the next issue
+    (Preferences > Interface > Auto-advance after fix)."""
+    try:
+        from .manager import auto_advance
+        auto_advance(context)
+    except Exception:
+        pass
+
+
 def _problem_objects(check_name):
     """Yield (obj, mc_obj) pairs where *check_name* has count > 0."""
     from .manager import MeshCheck
@@ -755,6 +776,7 @@ class ASSET_CHECKER_OT_fix_transforms(bpy.types.Operator):
                 _restore_accessible(obj, state)
         MeshCheck.update_mc_object_datas("non_applied_transform")
         self.report({'INFO'}, f"Applied rotation to {fixed} object(s)")
+        _finish_fix(context)
         return {'FINISHED'}
 
 
@@ -782,6 +804,7 @@ class ASSET_CHECKER_OT_fix_scale(bpy.types.Operator):
                 _restore_accessible(obj, state)
         MeshCheck.update_mc_object_datas("scale")
         self.report({'INFO'}, f"Applied scale to {fixed} object(s)")
+        _finish_fix(context)
         return {'FINISHED'}
 
 
@@ -870,6 +893,7 @@ class ASSET_CHECKER_OT_fix_merge_by_distance(bpy.types.Operator):
         MeshCheck.update_mc_object_datas("isolated_verts")
         self.report({'INFO'},
                     f"Merged by distance on {fixed + merged_objs} object(s)")
+        _finish_fix(context)
         return {'FINISHED'}
 
 
@@ -903,6 +927,8 @@ class ASSET_CHECKER_OT_fix_naming(bpy.types.Operator):
 
         MeshCheck.update_mc_object_datas("obj_naming")
         self.report({'INFO'}, f"Renamed {fixed} object(s)")
+        _finish_fix(context)
+        _finish_fix(context)
         return {'FINISHED'}
 
 
@@ -932,6 +958,7 @@ class ASSET_CHECKER_OT_fix_origin(bpy.types.Operator):
                 _restore_accessible(obj, state)
         MeshCheck.update_mc_object_datas("origin_at_zero")
         self.report({'INFO'}, f"Applied location to {fixed} object(s)")
+        _finish_fix(context)
         return {'FINISHED'}
 
 
@@ -1000,6 +1027,7 @@ class ASSET_CHECKER_OT_fix_mat_suffix(bpy.types.Operator):
         from .manager import MeshCheck
         MeshCheck.update_mc_object_datas("mat_suffix")
         self.report({'INFO'}, f"Added _mat suffix to {fixed} material(s)")
+        _finish_fix(context)
         return {'FINISHED'}
 
 
@@ -1028,6 +1056,7 @@ class ASSET_CHECKER_OT_collapse_objects(bpy.types.Operator):
                 o.mesh_check_statistics = not any_open
             except Exception:
                 pass
+        _finish_fix(context)
         return {'FINISHED'}
 
 
@@ -1082,6 +1111,7 @@ class ASSET_CHECKER_OT_fix_zero_area(bpy.types.Operator):
 
         MeshCheck.update_mc_object_datas("zero_area")
         self.report({'INFO'}, f"Deleted zero-area faces on {fixed} object(s)")
+        _finish_fix(context)
         return {'FINISHED'}
 
 
@@ -1136,6 +1166,7 @@ class ASSET_CHECKER_OT_fix_lamina(bpy.types.Operator):
 
         MeshCheck.update_mc_object_datas("lamina")
         self.report({'INFO'}, f"Deleted lamina faces on {fixed} object(s)")
+        _finish_fix(context)
         return {'FINISHED'}
 
 
@@ -1195,6 +1226,7 @@ class ASSET_CHECKER_OT_fix_sharp_edges(bpy.types.Operator):
 
         MeshCheck.update_mc_object_datas("sharp_edges_not_hard")
         self.report({'INFO'}, f"Marked sharp edges on {fixed} object(s)")
+        _finish_fix(context)
         return {'FINISHED'}
 
 
@@ -1233,6 +1265,7 @@ class ASSET_CHECKER_OT_fix_mat_numbering(bpy.types.Operator):
 
         MeshCheck.update_mc_object_datas("mat_numbering")
         self.report({'INFO'}, f"Renamed {renamed} material(s)")
+        _finish_fix(context)
         return {'FINISHED'}
 
 
@@ -1989,6 +2022,7 @@ class ASSET_CHECKER_OT_copy_summary(bpy.types.Operator):
 
         context.window_manager.clipboard = "\n".join(lines)
         self.report({'INFO'}, f"Summary copied ({len(rows)} objects with issues)")
+        _finish_fix(context)
         return {'FINISHED'}
 
 
@@ -2081,6 +2115,16 @@ class ASSET_CHECKER_OT_next_issue(bpy.types.Operator):
         if worst:
             msg += f" — top: {worst[1]} ({worst[0]})"
         self.report({'INFO'}, msg)
+
+        # HUD: show what this finding is in the viewport corner
+        try:
+            _hud_count, _hud_check = worst if worst else (-neg_total, "")
+            _hud_label = _CHECK_LABELS.get(_hud_check, _hud_check)
+            MeshCheck._hud_finding = (name, _hud_label, _hud_count)
+        except Exception:
+            pass
+
+        _finish_fix(context)
         return {'FINISHED'}
 
 
@@ -2642,6 +2686,7 @@ class ASSET_CHECKER_OT_load_checkpoint(bpy.types.Operator):
         n_issues = cp['totals']['total']
         self.report({'INFO'},
                     f"Checkpoint loaded — {n_obj} object(s), {n_issues} issue(s)  [{cp['timestamp']}]")
+        _finish_fix(context)
         return {'FINISHED'}
 
     @staticmethod
