@@ -1322,6 +1322,15 @@ class ZFighting(BaseCheck):
         self._update_metric_text()
         self._gpu_dirty = True
 
+    def clear_inter_results(self):
+        """Drop injected inter-object results (stale after moves/deletes) —
+        the live inter pass re-adds fresh ones right after."""
+        self._inter_faces_idx.clear()
+        self._inter_object_names.clear()
+        self._rebuild_edges()
+        self._update_metric_text()
+        self._gpu_dirty = True
+
     def _rebuild_edges(self):
         bm = self._parent.bm_object
         all_faces = set(self._intra_faces_idx) | self._inter_faces_idx

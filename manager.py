@@ -619,6 +619,7 @@ class MeshCheck:
         cls.objects.clear()
         cls._live_dirty.clear()
         cls._live_repopulate = False
+        cls._inter_zf_pending = False
         cls._validation_queue.clear()
         cls._next_issue_ptr = 0
         MeshCheckGPU._batch_cache.clear()
@@ -717,6 +718,9 @@ class MeshCheck:
                 MeshCheckGPU._batch_cache.pop(id(checker), None)
                 UVCheckGPU._batch_cache.pop(id(checker), None)
             del cls.objects[o]
+            # Its old overlap partners may now be clean — inter Z-fighting
+            # needs a re-run once the live queue drains.
+            cls._inter_zf_pending = True
 
     @classmethod
     def _purge_dead_objects(cls):
@@ -1052,6 +1056,9 @@ class MeshCheck:
                     except ReferenceError:
                         continue
                 if MeshCheck._live_dirty:
+                    # Overlap sets changed (new/edited geometry) — refresh
+                    # inter-object Z-fighting after the per-object queue drains.
+                    MeshCheck._inter_zf_pending = True
                     MeshCheck._schedule_live_flush()
 
             # Transform dirty check — cheap matrix reads, safe to run inline.
@@ -1065,6 +1072,9 @@ class MeshCheck:
                         new_tk = MeshCheckObject._sample_transform_key(o)
                         if new_tk != mc_obj._transform_key:
                             mc_obj._transform_key = new_tk
+                            # A moved object changes every overlap it
+                            # participates in — inter Z-fighting is stale now.
+                            MeshCheck._inter_zf_pending = True
                             mc_obj.update_datas(
                                 mc_obj.bm_object,
                                 uv_changed=False,
@@ -1099,6 +1109,7 @@ class MeshCheck:
                 if geo:
                     MeshCheck._live_dirty.add(mc_obj)
             if MeshCheck._live_dirty:
+                MeshCheck._inter_zf_pending = True
                 MeshCheck._schedule_live_flush()
 
     # ── Deferred live refresh ─────────────────────────────────────────────────
@@ -1109,6 +1120,9 @@ class MeshCheck:
     _live_flush_pending: bool = False
     _live_dirty: set = set()      # MeshCheckObject refs needing re-check
     _live_repopulate: bool = False
+    # Inter-object Z-fighting overlap sets are stale (move/edit/delete) —
+    # re-run once the live queue drains.
+    _inter_zf_pending: bool = False
 
     @classmethod
     def _schedule_live_flush(cls):
@@ -1252,6 +1266,19 @@ class MeshCheck:
             if cls._live_dirty:
                 cls._schedule_live_flush()
             else:
+                # Inter-object Z-fighting: transforms/edits/deletes invalidated
+                # the old overlap sets — refresh them once the per-object
+                # queue has drained (this debounces continuous drags too).
+                if cls._inter_zf_pending and getattr(mc, 'z_fighting', False):
+                    cls._inter_zf_pending = False
+                    for mc_obj in cls.objects.values():
+                        checker = mc_obj._checks.get('z_fighting')
+                        if checker:
+                            checker.clear_inter_results()
+                    try:
+                        cls._run_inter_object_z_fighting()
+                    except Exception as e:
+                        alog(f"[AssetChecker] live inter Z-fighting: {e}")
                 # Hierarchy auto-acceptance: while Live is on and a scan exists,
                 # re-scan as soon as the scene fingerprint changes — keeps the
                 # hierarchy report fresh after FBX imports, renames, reparents.
