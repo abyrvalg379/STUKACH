@@ -2029,39 +2029,31 @@ class ASSET_CHECKER_OT_copy_summary(bpy.types.Operator):
         return {'FINISHED'}
 
 
-def _defect_focus(obj, element_type, indices):
-    """World-space (center, radius) of the bad element cluster — or (None, 0)
-    when it cannot be computed.  Used to point the camera at the DEFECT
-    instead of the whole object (Next Issue)."""
+def _element_focus(obj, element_type, index):
+    """World-space (center, radius) of ONE defective element — the camera
+    zooms onto it instead of framing the whole object."""
     from mathutils import Vector
     try:
         me = obj.data
         verts = me.vertices
-        pts = []
         if element_type == 'VERT':
-            for i in list(indices)[:500]:
-                if 0 <= i < len(verts):
-                    pts.append(verts[i].co)
+            center = verts[index].co
+            radius = 0.1 * max(obj.dimensions)
         elif element_type == 'EDGE':
-            for i in list(indices)[:500]:
-                if 0 <= i < len(me.edges):
-                    for vi in me.edges[i].vertices:
-                        pts.append(verts[vi].co)
+            e = me.edges[index]
+            a = verts[e.vertices[0]].co
+            b = verts[e.vertices[1]].co
+            center = (a + b) / 2
+            radius = (a - b).length / 2 * 1.5
         elif element_type == 'FACE':
-            for i in list(indices)[:500]:
-                if 0 <= i < len(me.polygons):
-                    for vi in me.polygons[i].vertices:
-                        pts.append(verts[vi].co)
-        if not pts:
+            poly = me.polygons[index]
+            center = poly.center
+            radius = max((verts[vi].co - center).length for vi in poly.vertices) * 1.2
+        else:
             return None, 0.0
-        n = len(pts)
-        center = Vector((sum(p.x for p in pts) / n,
-                         sum(p.y for p in pts) / n,
-                         sum(p.z for p in pts) / n))
-        radius = max((p - center).length for p in pts)
         mw = obj.matrix_world
         scale = max(mw.to_scale().x, mw.to_scale().y, mw.to_scale().z, 1e-6)
-        return mw @ center, radius * scale
+        return mw @ center, max(radius * scale, 0.05)
     except Exception:
         return None, 0.0
 
@@ -2133,15 +2125,21 @@ class ASSET_CHECKER_OT_next_issue(bpy.types.Operator):
         o.select_set(True)
         context.view_layer.objects.active = o
 
-        # Point every 3D viewport at the DEFECT cluster of this check, not at
-        # the whole object.
+        # Point every 3D viewport at the DEFECT itself: cycle this check's
+        # element list one item per press (object + check pairs stay grouped).
         center = radius = None
         mc_obj = MeshCheck.objects.get(o)
         checker = mc_obj._checks.get(chk_name) if mc_obj else None
         if checker is not None and chk_name != "hierarchy":
             etype, idxs = checker.get_select_data()
             if etype and idxs:
-                center, radius = _defect_focus(o, etype, idxs)
+                pair_key = (name, chk_name)
+                if getattr(MeshCheck, "_cycle_key", None) != pair_key:
+                    MeshCheck._cycle_key = pair_key
+                    MeshCheck._cycle_i = 0
+                sel_idx = idxs[MeshCheck._cycle_i % len(idxs)]
+                MeshCheck._cycle_i += 1
+                center, radius = _element_focus(o, etype, sel_idx)
 
         for window in context.window_manager.windows:
             for area in window.screen.areas:
