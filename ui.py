@@ -1105,16 +1105,16 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
                 if element_type is not None:
                     op = rr.operator(
                         "asset_checker.select_check_elements",
-                        text="", icon="VIEWZOOM", emboss=False,
+                        text="", icon="VIEWZOOM",
                     )
                     op.obj_name   = obj.name
                     op.check_name = check
             fix_id = _FIX_OPERATORS.get(check)
             if fix_id and count > 0:
-                op = rr.operator(fix_id, text="", icon="CHECKMARK", emboss=False)
+                op = rr.operator(fix_id, text="", icon="CHECKMARK")
             op = rr.operator(
                 "asset_checker.toggle_ignore",
-                text="", icon="HIDE_ON", emboss=False,
+                text="", icon="HIDE_ON",
             )
             op.obj_name   = obj.name
             op.check_name = check
