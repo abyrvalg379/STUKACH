@@ -50,7 +50,7 @@ The **STUKACH** tab appears in the N-Panel (View3D and UV Editor).
 | Duplicate Verts | BLOCKER | Coincident vertices within one connected shell (0.01mm) — different shells touching are intentional and not flagged |
 | Face Aspect Ratio | INFO | Quad edge ratio exceeding threshold (default 6:1) |
 | Triangles | INFO | Tris outside deformable/subdiv zones |
-| Ngons | WARNING | Faces with more than 4 vertices |
+| Ngons | BLOCKER | Faces with more than 4 vertices |
 | Poles | INFO | N-poles (3 edges), E-poles (5+ edges) |
 | Zero Area | BLOCKER | Degenerate faces with near-zero area |
 | Z-Fighting | BLOCKER | Coplanar overlapping geometry |

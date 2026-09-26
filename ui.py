@@ -57,10 +57,10 @@ CHECK_SEVERITY: dict = {
     "lamina":                "BLOCKER",   # zero-thickness faces break booleans / export
     "zero_length_edges":     "BLOCKER",   # degenerate edges break subdivision / export
     "duplicated_names":      "BLOCKER",   # linked-library name collisions break export
+    "ngons":                 "BLOCKER",   # not allowed in the pipeline - auto-fixable (triangulate)
 
     # ── WARNINGS — artist must review before delivery ────────────────────────
     "isolated_verts":        "WARNING",   # cleanup noise
-    "ngons":                 "WARNING",   # context-dependent but usually a problem
     "modifier_stack":        "WARNING",   # unapplied modifiers change exported geo
     "uv_single_set":         "WARNING",   # extra UV layers
     "uv_micro_shell":        "WARNING",   # tiny UV islands
@@ -108,7 +108,7 @@ CHECK_THRESHOLDS: dict = {
     "zero_area":             0,
     "z_fighting":            0,
     "triangles":             50,
-    "ngons":                 10,
+    "ngons":                 0,
     "poles":                 20,
     "non_applied_transform": 0,
     "scale":                 0,

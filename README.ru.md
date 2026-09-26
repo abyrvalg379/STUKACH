@@ -50,7 +50,7 @@ Edit → Preferences → Get Extensions → ⚙️ → Install from Disk → в�
 | Duplicate Verts | BLOCKER | Совпадающие вершины в пределах одного связного шелла (0,01 мм) — касание разных шеллов намеренное и не флагается |
 | Face Aspect Ratio | INFO | Отношение сторон квада выше порога (по умолчанию 6:1) |
 | Triangles | INFO | Треугольники вне зон деформации/subdiv |
-| Ngons | WARNING | Грани с более чем 4 вершинами |
+| Ngons | BLOCKER | Грани с более чем 4 вершинами |
 | Poles | INFO | N-poles (3 ребра), E-poles (5+ рёбер) |
 | Zero Area | BLOCKER | Вырожденные грани с почти нулевой площадью |
 | Z-Fighting | BLOCKER | Копланарная пересекающаяся геометрия |
