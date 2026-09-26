@@ -1119,16 +1119,15 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
             op.obj_name   = obj.name
             op.check_name = check
 
-        first = True
+        # every finding is its own slim strip — visible separation between
+        # different error types
         for check, checker in active_checks:
             ignored = check in ignored_checks
             count   = _get_check_count(mc_obj, check)
             if not ignored and count == 0:
                 continue
-            if not first:
-                ob_box.separator(factor=0.35)
-            first = False
-            _draw_check_row(ob_box, check, checker, ignored)
+            strip = ob_box.box()
+            _draw_check_row(strip, check, checker, ignored)
 
     @staticmethod
     def _draw_asset_status(layout, mc):
@@ -1397,10 +1396,6 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
                     return t
                 visible.sort(key=lambda t: -_issue_score(t[1]))
 
-            # ── Search — full width ──────────────────────────────────────────
-            sec_box.prop(mc, "obj_filter_text", text="", icon="VIEWZOOM",
-                         placeholder="Search objects")
-
             # ── Filters slim row + collapse icon right ──────────────────────
             srow = sec_box.split(factor=0.62)
             frow = srow.row(align=True)
@@ -1442,7 +1437,10 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
                     if getattr(mc, _cn, False) and category_enabled(_cn):
                         n_bad += _chk.count
 
-                row = sec_box.row(align=True)
+                # each object in its own frame — meshes must not merge into
+                # a wall of rows
+                ob_box = sec_box.box()
+                row = ob_box.row(align=True)
                 row.alert = (obj_status == "critical")
                 tria = "TRIA_DOWN" if stat else "TRIA_RIGHT"
                 row.prop(obj, "mesh_check_statistics",
@@ -1457,12 +1455,12 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
 
                 if stat:
                     try:
-                        sec_box.indent(level=1)
+                        ob_box.indent(level=1)
                     except Exception:
                         pass
-                    self._draw_object_details(sec_box, obj, mc_obj, mc)
+                    self._draw_object_details(ob_box, obj, mc_obj, mc)
                     try:
-                        sec_box.indent(level=0)
+                        ob_box.indent(level=0)
                     except Exception:
                         pass
 
