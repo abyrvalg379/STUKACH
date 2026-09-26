@@ -1312,22 +1312,16 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
                      toggle=True, icon='FACESEL')
         fo_right = fo_split.row(align=True)
         fo_right.prop(mc, "scene_units", text="Scene Units", toggle=True)
-        mc.draw_options(box)
 
-        # ── Check presets — native dropdown + save/remove + share ───────────
-        preset_row = box.row(align=True)
-        preset_row.menu("ASSET_CHECKER_MT_presets", text="Presets", icon="PRESET")
-        preset_row.separator(factor=0.4)
-        preset_row.operator("asset_checker.preset_add",    text="", icon="ADD",    emboss=False)
-        preset_row.operator("asset_checker.preset_remove", text="", icon="REMOVE", emboss=False)
-        # EXPORT opens a submenu listing each saved preset (per-preset export)
-        preset_row.menu("ASSET_CHECKER_MT_preset_export", text="", icon="EXPORT")
-        preset_row.operator("asset_checker.preset_import", text="", icon="IMPORT", emboss=False)
-
+        # X-Ray — pinned right under the view helpers (author request)
         if prefs:
             xr_row = box.row(align=True)
             xr_row.scale_y = 0.8
             xr_row.prop(prefs, "overlay_xray", text="X-Ray", toggle=True, icon='XRAY')
+
+        mc.draw_options(box)
+
+        if prefs:
             off_row = box.row(align=True)
             off_row.scale_y = 0.8
             off_row.prop(prefs, "faces_offset", text="Face Offset")
@@ -1463,6 +1457,16 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
                         ob_box.indent(level=0)
                     except Exception:
                         pass
+
+        # ── Check presets — native dropdown + save/remove + share ───────────
+        preset_row = layout.row(align=True)
+        preset_row.menu("ASSET_CHECKER_MT_presets", text="Presets", icon="PRESET")
+        preset_row.separator(factor=0.4)
+        preset_row.operator("asset_checker.preset_add",    text="", icon="ADD",    emboss=False)
+        preset_row.operator("asset_checker.preset_remove", text="", icon="REMOVE", emboss=False)
+        # EXPORT opens a submenu listing each saved preset (per-preset export)
+        preset_row.menu("ASSET_CHECKER_MT_preset_export", text="", icon="EXPORT")
+        preset_row.operator("asset_checker.preset_import", text="", icon="IMPORT", emboss=False)
 
         # Ignored Issues block — shown only when there are active ignores
         _draw_ignore_list_block(layout, mc)
