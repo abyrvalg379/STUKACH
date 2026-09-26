@@ -1078,49 +1078,46 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
             row = parent.row(align=True)
 
             if ignored:
+                row.alert = False
                 lbl = row.row(align=True)
                 lbl.enabled = False
-                lbl.label(text=pretty_name(check), icon="HIDE_ON")
+                lbl.label(text=f"{pretty_name(check)}  (ign)", icon="HIDE_ON")
                 op = row.operator(
                     "asset_checker.toggle_ignore",
-                    text="Ign", icon="HIDE_OFF", emboss=False,
+                    text="", icon="HIDE_OFF", emboss=False,
                 )
                 op.obj_name   = obj.name
                 op.check_name = check
                 return
 
             mt    = getattr(checker, 'metric_text', '')
-            label = mt if mt else pretty_name(check)
+            name  = mt if mt else pretty_name(check)
             hot   = count > threshold            # real shading artifact risk
             icon  = "ERROR" if hot else "INFO"
 
-            row.alert = hot                      # red for genuine problems
-            row.label(text=label, icon=icon)
+            row.alert = hot
+            row.label(text=f"{name}  ({count})", icon=icon)
 
-            right = row.row(align=True)
-            right.alignment = 'RIGHT'
-            right.alert = hot
-            right.label(text=str(count))
-            right.alert = False
-            if count > 0 or ignored:
-                if hasattr(checker, 'get_select_data'):
-                    element_type, _ = checker.get_select_data()
-                    if element_type is not None:
-                        op = right.operator(
-                            "asset_checker.select_check_elements",
-                            text="Sel", emboss=False,
-                        )
-                        op.obj_name   = obj.name
-                        op.check_name = check
-                fix_id = _FIX_OPERATORS.get(check)
-                if fix_id and count > 0:
-                    op = right.operator(fix_id, text="Fix", emboss=False)
-                op = right.operator(
-                    "asset_checker.toggle_ignore",
-                    text="Ign", icon="HIDE_ON", emboss=False,
-                )
-                op.obj_name   = obj.name
-                op.check_name = check
+            rr = row.row(align=True)
+            rr.alignment = 'RIGHT'
+            if hasattr(checker, 'get_select_data'):
+                element_type, _ = checker.get_select_data()
+                if element_type is not None:
+                    op = rr.operator(
+                        "asset_checker.select_check_elements",
+                        text="", icon="VIEWZOOM", emboss=False,
+                    )
+                    op.obj_name   = obj.name
+                    op.check_name = check
+            fix_id = _FIX_OPERATORS.get(check)
+            if fix_id and count > 0:
+                op = rr.operator(fix_id, text="", icon="CHECKMARK", emboss=False)
+            op = rr.operator(
+                "asset_checker.toggle_ignore",
+                text="", icon="HIDE_ON", emboss=False,
+            )
+            op.obj_name   = obj.name
+            op.check_name = check
 
         first = True
         for check, checker in active_checks:
@@ -1424,9 +1421,8 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
             rrow.operator("asset_checker.collapse_objects", text="",
                           icon=col_icon, emboss=False)
 
-            # ── Object list: flat rows, thin separators ─────────────────────
+            # ── Object list: By-Type style rows ──────────────────────────────
             _BADGE = {"critical": "ERROR", "warning": "INFO", "clean": "CHECKMARK"}
-            first_obj = True
 
             if not visible and not filter_text:
                 sec_box.label(text="All objects clean", icon="CHECKMARK")
@@ -1439,39 +1435,25 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
                 except ReferenceError:
                     continue
 
-                if not first_obj:
-                    sec_box.separator(factor=0.5)
-                first_obj = False
-
                 n_ignored = len(get_obj_ignore_list(obj))
 
-                r_name = sec_box.row(align=True)
-                split   = r_name.split(factor=0.72)
-
-                left = split.row(align=True)
-                left.alignment = "LEFT"
-                tria = "TRIA_DOWN" if stat else "TRIA_RIGHT"
-                left.prop(obj, "mesh_check_statistics", text=obj_name, icon=tria, emboss=False)
-
-                right = split.row(align=True)
-                right.alignment = "RIGHT"
-
-                # defect counter of the enabled checks — red when critical
                 n_bad = 0
                 for _cn, _chk in mc_obj._checks.items():
                     if getattr(mc, _cn, False) and category_enabled(_cn):
                         n_bad += _chk.count
-                if n_bad:
-                    right.alert = (obj_status == "critical")
-                    right.label(text=str(n_bad))
-                    right.alert = False
 
+                row = sec_box.row(align=True)
+                row.alert = (obj_status == "critical")
+                tria = "TRIA_DOWN" if stat else "TRIA_RIGHT"
+                row.prop(obj, "mesh_check_statistics",
+                         text=f"{obj_name}  ({n_bad})", icon=tria, emboss=False)
+                rr = row.row(align=True)
+                rr.alignment = "RIGHT"
                 if n_ignored and not stat:
-                    ign_badge = right.row(align=True)
-                    ign_badge.enabled = False
-                    ign_badge.label(text=str(n_ignored), icon="HIDE_ON")
-
-                right.label(text="", icon=_BADGE[obj_status])
+                    ig = rr.row(align=True)
+                    ig.enabled = False
+                    ig.label(text=str(n_ignored), icon="HIDE_ON")
+                rr.label(text="", icon=_BADGE[obj_status])
 
                 if stat:
                     try:
