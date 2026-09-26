@@ -303,6 +303,15 @@ def make_garden():
     ob.location = (141, 1, 0)
     ob.rotation_euler.x = math.radians(0.003)
 
+    # exact duplicate - a Shift-D copy left in place: strictly parallel
+    # planes never intersect, only the coincident-faces pass can see them
+    ob = bmesh_obj("zf_dup_a_geo", _plane)
+    add_mat(ob, "steel_zf_dup_a_mat")
+    ob.location = (180, 1, 0)
+    ob = bmesh_obj("zf_dup_b_geo", _plane)
+    add_mat(ob, "steel_zf_dup_b_mat")
+    ob.location = (180, 1, 0)
+
     # hierarchy fixture:
     #   asset_root (EMPTY, missing _grp suffix)
     #     wheels_grp (functional layer) -> brakes_grp (part group)
@@ -432,7 +441,12 @@ def st_zfighting_inter():
     a = counts("z_fighting")
     total = sum(a.values())
     expect(total >= 1, f"inter-object z-fighting not flagged: {a}")
-    return f"pair flagged ({a.get('zf_bottom_geo', 0)}+{a.get('zf_top_geo', 0)})"
+    angled = a.get("zf_bottom_geo", 0) + a.get("zf_top_geo", 0)
+    expect(angled >= 1, f"angled coplanar pair not flagged: {a}")
+    dup = a.get("zf_dup_a_geo", 0) + a.get("zf_dup_b_geo", 0)
+    expect(dup >= 1,
+           f"exact duplicate (Shift-D in place) not flagged: {a}")
+    return f"angled pair {angled}, duplicate pair {dup}"
 
 
 def st_hierarchy():

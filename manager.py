@@ -113,6 +113,8 @@ class MeshCheckObject:
         self._sym_kd_key:   tuple = ()
         self._sym_kd_cache  = None   # mathutils.kdtree.KDTree
         self._sym_kd_co           = None   # numpy (n_verts, 3) float32, rebuilt per topology  # mat_name → set of (tile_u, tile_v)
+        self._zf_kd_key: tuple = ()  # (mesh_key, transform_key) - inter z-fighting KD cache stamp
+        self._zf_kd_cache = None   # (kd, centroids, aabb_min, aabb_max)
         self._init_object()
 
     @staticmethod
@@ -905,16 +907,22 @@ class MeshCheck:
     def _run_inter_object_z_fighting(cls):
         """Detect Z-fighting between pairs of tracked objects (world space).
 
-        Builds a world-space BVHTree for every tracked mesh, then tests all
-        O(n²) pairs.  Only coplanar face pairs (normal dot > 0.99) are flagged.
-        Results are injected into each object's ZFighting checker via
-        checker.add_inter_results().
+        Two passes over all O(n²) object pairs; results are injected into
+        each object's ZFighting checker via checker.add_inter_results():
+        - BVHTree overlap — faces that geometrically intersect;
+        - KD-tree centroid range — coincident parallel faces, which never
+          intersect and are invisible to the BVH (a Shift-D duplicate left
+          in place).
+        Only coplanar face pairs are flagged: normal dot > 0.99, centroids
+        within 0.1 mm.
         """
         mc = bpy.context.window_manager.mesh_check_props
         if not getattr(mc, 'z_fighting', False):
             return
 
+        import numpy as np
         from mathutils.bvhtree import BVHTree
+        from mathutils.kdtree import KDTree
 
         pairs = []
         for obj, mc_obj in cls.objects.items():
@@ -950,6 +958,38 @@ class MeshCheck:
 
         bvh_list = [(obj, mc_obj, _world_bvh(mc_obj)) for obj, mc_obj in pairs]
         eps_normal = 0.99
+
+        # Per-object world-space face centroids + KD-tree over them - feeds
+        # the coincident-parallel-faces pass inside the pair loop below.
+        # Cached per (mesh, transform) like _sym_kd - Live re-runs this pass
+        # on every flush and rebuilding the KD tree each time would dominate.
+        def _centroid_kd(mc_obj):
+            # matrix_world, not _transform_key: a parent rotating around the
+            # object origin moves the world centroids without touching the
+            # local key - the cache must be exactly as fresh as no cache.
+            key = (mc_obj._mesh_key, tuple(mc_obj._object.matrix_world))
+            cached = mc_obj._zf_kd_cache
+            if cached is not None and mc_obj._zf_kd_key == key:
+                return cached
+            bm = mc_obj.bm_object
+            bm.faces.ensure_lookup_table()
+            mw = mc_obj._object.matrix_world
+            centroids = [mw @ f.calc_center_median() for f in bm.faces]
+            co_np = np.array(centroids, dtype=np.float64).reshape(-1, 3)
+            if not centroids:
+                empty = np.empty(0)
+                result = (KDTree(0), centroids, empty, empty)
+            else:
+                kd = KDTree(len(centroids))
+                for i, co in enumerate(centroids):
+                    kd.insert(co, i)
+                kd.balance()
+                result = (kd, centroids, co_np.min(axis=0), co_np.max(axis=0))
+            mc_obj._zf_kd_key = key
+            mc_obj._zf_kd_cache = result
+            return result
+
+        kd_map = {mc_obj: _centroid_kd(mc_obj) for _, mc_obj in pairs}
 
         for i in range(len(bvh_list)):
             obj_a, mc_a, bvh_a = bvh_list[i]
@@ -1000,6 +1040,24 @@ class MeshCheck:
                         continue
                     inter_a.add(idx_a)
                     inter_b.add(idx_b)
+
+                # Pass 2 - coincident parallel faces (a Shift-D duplicate left
+                # in place): they never geometrically intersect, so pass 1 is
+                # blind to them.  KD range over world face centroids keeps the
+                # same centroid gate; the winding gate below is shared.
+                kd_a, cent_a, aabb_min_a, aabb_max_a = kd_map[mc_a]
+                kd_b, cent_b, aabb_min_b, aabb_max_b = kd_map[mc_b]
+                separated = ((aabb_min_a > aabb_max_b + threshold).any()
+                             or (aabb_min_b > aabb_max_a + threshold).any())
+                if not separated:
+                    for idx_a, co_a in enumerate(cent_a):
+                        for _co, idx_b, _d in kd_b.find_range(co_a, threshold):
+                            n_a = (rot_a @ bm_a.faces[idx_a].normal).normalized()
+                            n_b = (rot_b @ bm_b.faces[idx_b].normal).normalized()
+                            if n_a.dot(n_b) <= eps_normal:
+                                continue
+                            inter_a.add(idx_a)
+                            inter_b.add(idx_b)
 
                 if inter_a:
                     checker_a.add_inter_results(inter_a, obj_b.name)
