@@ -1318,14 +1318,12 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
             xr_row = box.row(align=True)
             xr_row.scale_y = 0.8
             xr_row.prop(prefs, "overlay_xray", text="X-Ray", toggle=True, icon='XRAY')
-
-        mc.draw_options(box)
-
-        if prefs:
             off_row = box.row(align=True)
             off_row.scale_y = 0.8
             off_row.prop(prefs, "faces_offset", text="Face Offset")
             off_row.prop(prefs, "points_offset", text="Point Offset")
+
+        mc.draw_options(box)
 
         if not _manager_mod.MeshCheck.objects:
             return
