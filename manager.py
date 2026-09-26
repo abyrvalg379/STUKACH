@@ -305,7 +305,7 @@ class ViewportHUD:
     seconds — it must not hang on screen forever."""
 
     handler = None
-    FINDING_TTL = 5.0      # seconds the finding line stays on screen
+    FINDING_TTL = 15.0    # seconds the finding line stays on screen
 
     @classmethod
     def register(cls):
@@ -367,9 +367,11 @@ class ViewportHUD:
                 colors.get(status, colors["none"]), 20)
 
         # Line 2 — the focused finding (set by Sel / Next Issue): shown for a
-        # few seconds with a fade-out, never hanging on screen.
+        # while with a fade-out, never hanging on screen.  A missing stamp
+        # counts as fresh (the safe direction is to show, not to hide).
         finding = getattr(MeshCheck, "_hud_finding", None)
-        age = _time.monotonic() - getattr(MeshCheck, "_hud_finding_at", 0.0)
+        at = getattr(MeshCheck, "_hud_finding_at", None)
+        age = (_time.monotonic() - at) if at else 0.0
         if finding and age < cls.FINDING_TTL:
             obj_name, check_name, count = finding
             if not category_enabled(check_name):
@@ -378,7 +380,7 @@ class ViewportHUD:
             sev = CHECK_SEVERITY.get(check_name, "WARNING")
             base = colors.get("critical" if sev == "BLOCKER" else "warning",
                               colors["warning"])
-            fade = max(0.0, min(1.0, (cls.FINDING_TTL - age) / 1.5))
+            fade = max(0.0, min(1.0, (cls.FINDING_TTL - age) / 3.0))
             cls._draw_line(
                 f"{obj_name} · {label} · {count}",
                 (base[0], base[1], base[2], base[3] * fade),
