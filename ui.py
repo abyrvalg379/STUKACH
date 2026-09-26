@@ -1083,7 +1083,7 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
                 lbl.label(text=pretty_name(check), icon="HIDE_ON")
                 op = row.operator(
                     "asset_checker.toggle_ignore",
-                    text="", icon="HIDE_OFF", emboss=False,
+                    text="Ign", icon="HIDE_OFF", emboss=False,
                 )
                 op.obj_name   = obj.name
                 op.check_name = check
@@ -1091,30 +1091,33 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
 
             mt    = getattr(checker, 'metric_text', '')
             label = mt if mt else pretty_name(check)
-            icon  = "ERROR" if count > threshold else "INFO"
+            hot   = count > threshold            # real shading artifact risk
+            icon  = "ERROR" if hot else "INFO"
 
+            row.alert = hot                      # red for genuine problems
             row.label(text=label, icon=icon)
 
             right = row.row(align=True)
             right.alignment = 'RIGHT'
+            right.alert = hot
             right.label(text=str(count))
-            if count > 0:
+            right.alert = False
+            if count > 0 or ignored:
                 if hasattr(checker, 'get_select_data'):
                     element_type, _ = checker.get_select_data()
                     if element_type is not None:
                         op = right.operator(
                             "asset_checker.select_check_elements",
-                            text="", icon="EDITMODE_HLT", emboss=False,
+                            text="Sel", emboss=False,
                         )
                         op.obj_name   = obj.name
                         op.check_name = check
                 fix_id = _FIX_OPERATORS.get(check)
-                if fix_id:
-                    op = right.operator(fix_id, text="", icon="TOOL_SETTINGS",
-                                        emboss=False)
+                if fix_id and count > 0:
+                    op = right.operator(fix_id, text="Fix", emboss=False)
                 op = right.operator(
                     "asset_checker.toggle_ignore",
-                    text="", icon="HIDE_ON", emboss=False,
+                    text="Ign", icon="HIDE_ON", emboss=False,
                 )
                 op.obj_name   = obj.name
                 op.check_name = check
