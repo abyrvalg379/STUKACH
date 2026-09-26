@@ -1,7 +1,7 @@
 # -*- coding:utf-8 -*-
 import bpy
 from . import manager as _manager_mod
-from .properties import CHECK_CATEGORIES, pretty_name, category_enabled
+from .properties import CHECK_CATEGORIES, pretty_name, category_enabled, _FIX_OPERATORS
 
 
 # ── Health-strip: category → hidden COLOR property name ──────────────────────
@@ -1048,22 +1048,18 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
 
     @staticmethod
     def _draw_object_details(ob_box, obj, mc_obj, mc):
-        from .properties import get_obj_ignore_list
+        """Expanded object: findings only.
 
-        # Resolve prefs locally (static method has no access to outer draw() scope)
+        Severity icon + check name + count, compact Sel / Ign / Fix on the
+        right.  The V/E/F/T stats and the 'N checks clean' line are gone —
+        noise for this menu (author-approved redesign, 2026-09-26)."""
+        from .properties import get_obj_ignore_list, _FIX_OPERATORS
+
         addon_name = __name__.rsplit(".", 1)[0]
         try:
             prefs = bpy.context.preferences.addons[addon_name].preferences
         except Exception:
             prefs = None
-
-        verts, edges, faces, tris = mc_obj.stats
-        ob_box.label(text=f"V: {verts}  E: {edges}  F: {faces}  T: {tris}")
-
-        stats_row = ob_box.row()
-        split = stats_row.split(factor=0.02)
-        split.separator()
-        c1, c2 = split.column(), split.column()
 
         ignored_checks = get_obj_ignore_list(obj)
 
@@ -1075,33 +1071,13 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
             and mc_obj._checks.get(check) is not None
         ]
 
-        # Split the active checks: hot ones (issues / ignored) get full rows,
-        # clean ones collapse into a single summary line — with 30+ checks the
-        # expanded object would otherwise be a wall of "…: 0" rows.
-        MAX_GRID_LABEL = 24   # longer metrics truncate in a half-column
-        grid_items = []       # (check, checker, ignored)
-        wide_items = []       # long metric texts → full-width row
-        n_clean = 0
-
-        for check, checker in active_checks:
-            if check in ignored_checks:
-                grid_items.append((check, checker, True))
-                continue
-            if _get_check_count(mc_obj, check) > 0:
-                mt = getattr(checker, 'metric_text', '')
-                if mt and len(mt) > MAX_GRID_LABEL:
-                    wide_items.append((check, checker, False))
-                else:
-                    grid_items.append((check, checker, False))
-            else:
-                n_clean += 1
-
         def _draw_check_row(parent, check, checker, ignored):
             count     = _get_check_count(mc_obj, check)
             threshold = _get_threshold(check, prefs)
 
+            row = parent.row(align=True)
+
             if ignored:
-                row = parent.row(align=True)
                 lbl = row.row(align=True)
                 lbl.enabled = False
                 lbl.label(text=pretty_name(check), icon="HIDE_ON")
@@ -1113,55 +1089,46 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
                 op.check_name = check
                 return
 
-            if count == 0:
-                icon = "CHECKMARK"
-            elif count > threshold:
-                icon = "ERROR"
-            else:
-                icon = "INFO"
-
             mt    = getattr(checker, 'metric_text', '')
-            label = mt if mt else f"{pretty_name(check)}: {count}"
+            label = mt if mt else pretty_name(check)
+            icon  = "ERROR" if count > threshold else "INFO"
 
-            row = parent.row(align=True)
             row.label(text=label, icon=icon)
 
+            right = row.row(align=True)
+            right.alignment = 'RIGHT'
+            right.label(text=str(count))
             if count > 0:
-                # Select button — only where geometry is available
                 if hasattr(checker, 'get_select_data'):
                     element_type, _ = checker.get_select_data()
                     if element_type is not None:
-                        op = row.operator(
+                        op = right.operator(
                             "asset_checker.select_check_elements",
                             text="", icon="EDITMODE_HLT", emboss=False,
                         )
                         op.obj_name   = obj.name
                         op.check_name = check
-                        row.separator(factor=0.5)
-
-                op = row.operator(
+                fix_id = _FIX_OPERATORS.get(check)
+                if fix_id:
+                    op = right.operator(fix_id, text="", icon="TOOL_SETTINGS",
+                                        emboss=False)
+                op = right.operator(
                     "asset_checker.toggle_ignore",
                     text="", icon="HIDE_ON", emboss=False,
                 )
                 op.obj_name   = obj.name
                 op.check_name = check
 
-        for i, (check, checker, ignored) in enumerate(grid_items):
-            col = c1 if i % 2 == 0 else c2
-            _draw_check_row(col, check, checker, ignored)
-
-        # Long metric texts (e.g. 'Mesh.115 → fuselage_geo_031_mesh') get a
-        # full-width row instead of being truncated in a half-column.
-        for check, checker, ignored in wide_items:
+        first = True
+        for check, checker in active_checks:
+            ignored = check in ignored_checks
+            count   = _get_check_count(mc_obj, check)
+            if not ignored and count == 0:
+                continue
+            if not first:
+                ob_box.separator(factor=0.35)
+            first = False
             _draw_check_row(ob_box, check, checker, ignored)
-
-        if n_clean:
-            cln = ob_box.row(align=True)
-            cln.enabled = False
-            cln.label(
-                text=f"{n_clean} check{'s' if n_clean > 1 else ''} clean",
-                icon="CHECKMARK",
-            )
 
     @staticmethod
     def _draw_asset_status(layout, mc):
@@ -1430,13 +1397,18 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
                     return t
                 visible.sort(key=lambda t: -_issue_score(t[1]))
 
-            # ── Filter bar ────────────────────────────────────────────────────
-            filt_row = sec_box.row(align=True)
-            filt_row.prop(mc, "obj_filter_text",        text="", icon="VIEWZOOM",
-                          placeholder="Search objects")
-            filt_row.prop(mc, "obj_filter_errors_only", text="Issues", icon="FILTER", toggle=True)
-            filt_row.prop(mc, "obj_sort_worst",         text="", icon="SORT_DESC")
-            filt_row.prop(mc, "obj_filter_check",       text="")
+            # ── Search — full width ──────────────────────────────────────────
+            sec_box.prop(mc, "obj_filter_text", text="", icon="VIEWZOOM",
+                         placeholder="Search objects")
+
+            # ── Filters slim row + collapse icon right ──────────────────────
+            srow = sec_box.split(factor=0.62)
+            frow = srow.row(align=True)
+            frow.prop(mc, "obj_filter_errors_only", text="Issues", icon="FILTER", toggle=True)
+            frow.prop(mc, "obj_sort_worst", text="", icon="SORT_DESC")
+            frow.prop(mc, "obj_filter_check", text="")
+            rrow = srow.row(align=True)
+            rrow.alignment = "RIGHT"
 
             def _stat(o):
                 try:
@@ -1445,12 +1417,13 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
                     return False
 
             any_open = any(_stat(o) for o in _manager_mod.MeshCheck.objects)
-            col_text = "Collapse All" if any_open else "Expand All"
-            col_icon = "TRIA_RIGHT"   if any_open else "TRIA_DOWN"
-            sec_box.operator("asset_checker.collapse_objects", text=col_text, icon=col_icon)
+            col_icon = "TRIA_DOWN"   if any_open else "TRIA_RIGHT"
+            rrow.operator("asset_checker.collapse_objects", text="",
+                          icon=col_icon, emboss=False)
 
-            # ── Object list ───────────────────────────────────────────────────
+            # ── Object list: flat rows, thin separators ─────────────────────
             _BADGE = {"critical": "ERROR", "warning": "INFO", "clean": "CHECKMARK"}
+            first_obj = True
 
             if not visible and not filter_text:
                 sec_box.label(text="All objects clean", icon="CHECKMARK")
@@ -1463,14 +1436,14 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
                 except ReferenceError:
                     continue
 
+                if not first_obj:
+                    sec_box.separator(factor=0.5)
+                first_obj = False
+
                 n_ignored = len(get_obj_ignore_list(obj))
 
-                ob_box = sec_box.box()
-                r_name = ob_box.row()
-
-                # Adjust split factor when ignore badge is shown
-                split_f = 0.78 if (n_ignored and not stat) else 0.88
-                split   = r_name.split(factor=split_f)
+                r_name = sec_box.row(align=True)
+                split   = r_name.split(factor=0.72)
 
                 left = split.row(align=True)
                 left.alignment = "LEFT"
@@ -1480,8 +1453,16 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
                 right = split.row(align=True)
                 right.alignment = "RIGHT"
 
-                # Ignore badge — only on collapsed rows so it doesn't duplicate
-                # the per-check HIDE icons already visible in the expanded view
+                # defect counter of the enabled checks — red when critical
+                n_bad = 0
+                for _cn, _chk in mc_obj._checks.items():
+                    if getattr(mc, _cn, False) and category_enabled(_cn):
+                        n_bad += _chk.count
+                if n_bad:
+                    right.alert = (obj_status == "critical")
+                    right.label(text=str(n_bad))
+                    right.alert = False
+
                 if n_ignored and not stat:
                     ign_badge = right.row(align=True)
                     ign_badge.enabled = False
@@ -1490,7 +1471,15 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
                 right.label(text="", icon=_BADGE[obj_status])
 
                 if stat:
-                    self._draw_object_details(ob_box, obj, mc_obj, mc)
+                    try:
+                        sec_box.indent(level=1)
+                    except Exception:
+                        pass
+                    self._draw_object_details(sec_box, obj, mc_obj, mc)
+                    try:
+                        sec_box.indent(level=0)
+                    except Exception:
+                        pass
 
         # Ignored Issues block — shown only when there are active ignores
         _draw_ignore_list_block(layout, mc)
