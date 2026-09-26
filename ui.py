@@ -158,6 +158,16 @@ def _get_prefs():
         return None
 
 
+def _is_hot(check: str, count: int, prefs=None) -> bool:
+    """True when the count is a genuine problem for this check.
+
+    BLOCKER-severity checks ignore the configurable threshold entirely:
+    any count > 0 is a real problem by definition (ngons since v1.8.2)."""
+    if CHECK_SEVERITY.get(check) == "BLOCKER":
+        return count > 0
+    return count > _get_threshold(check, prefs)
+
+
 def _get_threshold(check: str, prefs=None) -> int:
     """Return the yellow/red dot threshold for *check*.
 
@@ -1092,7 +1102,7 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
 
             mt    = getattr(checker, 'metric_text', '')
             name  = mt if mt else pretty_name(check)
-            hot   = count > threshold            # real shading artifact risk
+            hot   = _is_hot(check, count, prefs)  # real shading artifact risk
             icon  = "ERROR" if hot else "INFO"
 
             row.alert = hot
@@ -1815,7 +1825,7 @@ class ASSET_CHECKER_PT_UV_Panel(bpy.types.Panel):
 
                     if count == 0:
                         icon = "CHECKMARK"
-                    elif count > threshold:
+                    elif _is_hot(check, count, prefs):
                         icon = "ERROR"
                     else:
                         icon = "INFO"
