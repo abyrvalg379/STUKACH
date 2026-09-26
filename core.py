@@ -1671,6 +1671,18 @@ class UVOverlapCheck(BaseCheck):
         uv1 = uv_np[tri_loop_np[:, 1]]   # (n_tris, 2)
         uv2 = uv_np[tri_loop_np[:, 2]]   # (n_tris, 2)
 
+        # NaN/inf UVs (degenerate geometry) crash the grid broad-phase with
+        # "cannot convert float NaN to integer" — drop those triangles before
+        # any coordinate math (same class of guard as the UDIM-map fix).
+        _finite = (np.isfinite(uv0) & np.isfinite(uv1) & np.isfinite(uv2)).all(axis=1)
+        if not _finite.all():
+            tri_loop_np = tri_loop_np[_finite]
+            tri_poly_np = tri_poly_np[_finite]
+            uv0, uv1, uv2 = uv0[_finite], uv1[_finite], uv2[_finite]
+            if len(uv0) == 0:
+                self._count = 0
+                return
+
         # Per-triangle AABB (vectorised) — convert to Python lists once for the
         # grid phase (Python list element access is faster than numpy scalar access).
         u_min_l = np.minimum(np.minimum(uv0[:, 0], uv1[:, 0]), uv2[:, 0]).tolist()
@@ -3114,11 +3126,12 @@ class SymmetryCheck(BaseCheck):
         par = self._parent
         if par._sym_kd_key != topo_key:
             me = par._object.data
-            co_np = np.empty(n_verts * 3, dtype=np.float32)
             if me.is_editmode:
-                # me.vertices is stale in EDIT mode — read the live edit-BMesh.
-                bm.verts.foreach_get("co", co_np)
+                # me.vertices is stale in EDIT mode — read the live edit-BMesh
+                # (BMVertSeq has no foreach_get — build the array directly).
+                co_np = np.array([v.co[:] for v in bm.verts], dtype=np.float32)
             else:
+                co_np = np.empty(n_verts * 3, dtype=np.float32)
                 me.vertices.foreach_get("co", co_np)
             co_np = co_np.reshape(n_verts, 3)
             par._sym_kd_key   = topo_key
