@@ -576,12 +576,14 @@ class ASSET_CHECKER_OT_select_check_elements(bpy.types.Operator):
 
         # HUD: show what this finding is in the viewport corner
         try:
+            import time as _time
             from .manager import MeshCheck as _MeshCheck
             _MeshCheck._hud_finding = (
                 obj.name,
                 _CHECK_LABELS.get(self.check_name, self.check_name),
                 checker.count,
             )
+            _MeshCheck._hud_finding_at = _time.monotonic()
         except Exception:
             pass
 
@@ -2167,8 +2169,10 @@ class ASSET_CHECKER_OT_next_issue(bpy.types.Operator):
 
         # HUD: show what this finding is in the viewport corner
         try:
+            import time as _time
             _hud_label = _CHECK_LABELS.get(chk_name, chk_name)
             MeshCheck._hud_finding = (name, _hud_label, count)
+            MeshCheck._hud_finding_at = _time.monotonic()
         except Exception:
             pass
 

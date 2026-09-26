@@ -301,9 +301,11 @@ def auto_advance(context):
 class ViewportHUD:
     """Corner HUD in the 3D viewport: validation status line + the focused
     finding (set by Sel / Next Issue), so small defects are identifiable
-    without reading the panel."""
+    without reading the panel.  The finding line auto-fades after a few
+    seconds — it must not hang on screen forever."""
 
     handler = None
+    FINDING_TTL = 5.0      # seconds the finding line stays on screen
 
     @classmethod
     def register(cls):
@@ -364,17 +366,22 @@ class ViewportHUD:
                 f"STUKACH · {status.upper()} · {summary['total_blockers']}B / {summary['total_warnings']}W",
                 colors.get(status, colors["none"]), 20)
 
-        # Line 2 — the focused finding (set by Sel / Next Issue)
+        # Line 2 — the focused finding (set by Sel / Next Issue): shown for a
+        # few seconds with a fade-out, never hanging on screen.
         finding = getattr(MeshCheck, "_hud_finding", None)
-        if finding:
+        age = _time.monotonic() - getattr(MeshCheck, "_hud_finding_at", 0.0)
+        if finding and age < cls.FINDING_TTL:
             obj_name, check_name, count = finding
             if not category_enabled(check_name):
                 return
             label = _CHECK_LABELS.get(check_name, pretty_name(check_name))
             sev = CHECK_SEVERITY.get(check_name, "WARNING")
+            base = colors.get("critical" if sev == "BLOCKER" else "warning",
+                              colors["warning"])
+            fade = max(0.0, min(1.0, (cls.FINDING_TTL - age) / 1.5))
             cls._draw_line(
                 f"{obj_name} · {label} · {count}",
-                colors.get("critical" if sev == "BLOCKER" else "warning", colors["warning"]),
+                (base[0], base[1], base[2], base[3] * fade),
                 40)
 
 
