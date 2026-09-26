@@ -45,7 +45,7 @@ def _save(doc, out):
 
 
 doc = ds.new_doc('STUKACH', 'User Guide',
-                 'BLENDER 5.2  -  V1.8.0  ·  MAYA 2025 - V1.3.0')
+                 'BLENDER 5.2  -  V1.8.2  ·  MAYA 2025 - V1.3.0')
 
 p(doc, 'STUKACH checks a scene for typical pipeline errors: topology, transforms, UVs, '
        'naming, materials and hierarchy structure. The artist sees the defects right in the '
@@ -107,7 +107,7 @@ p(doc, 'The panel works in one of two modes. Artist Mode is the artist working m
 h2(doc, '1.4 Two versions')
 add_table(doc, [
     ['', 'Blender version', 'Maya version'],
-    ['Version', 'v1.8.0', 'v1.3.0'],
+    ['Version', 'v1.8.2', 'v1.3.0'],
     ['Package', 'Blender 4.2+ extension (zip)', 'Maya 2025 Win x64 (python + C++ overlay plugin)'],
     ['Panel', 'View3D N-panel - STUKACH tab', 'Docked panel to the left of the Attribute Editor'],
     ['Checks', '42 + Scene Units', '43 + Scene Units + Empty Groups'],
@@ -282,7 +282,7 @@ p(doc, 'With Coordinator Mode on, the panel shows the verdict plate (ASSET STATU
        'the Artist Mode button in the toolbar.')
 
 h1(doc, '5. Checkers (Blender)')
-p(doc, '42 checks in 7 categories + Scene Units. The set and severity match the v1.8.0 code; '
+p(doc, '42 checks in 7 categories + Scene Units. The set and severity match the v1.8.2 code; '
        'thresholds of some checks are configurable in Preferences (the UV tab, the Checks tab - '
        'the Hard Edges chamfer width). Update checking is described in section 9.1.')
 
@@ -313,8 +313,8 @@ add_table(doc, [
      'operations and export'],
     ['Zero Length Edges', 'BLOCKER', 'Zero-length edges (including sewn face contours)',
      'Degenerate geometry breaks subdivide and export'],
-    ['Ngons', 'WARNING', 'Faces with 5+ edges', 'They triangulate unpredictably in the '
-     'renderer; normal artifacts on hard surfaces'],
+    ['Ngons', 'BLOCKER', 'Faces with 5+ edges', 'Not allowed in the pipeline: they '
+     'triangulate unpredictably in the renderer. One-click fix: triangulation'],
     ['Isolated Verts', 'WARNING', 'Vertices not connected to any edge', 'Garbage geometry: it '
      'pollutes vertex groups and UVs, invisible in renders'],
     ['Starlike', 'WARNING', 'Faces invisible from their own centroid: self-intersecting '
