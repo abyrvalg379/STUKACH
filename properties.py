@@ -684,6 +684,7 @@ _FIX_OPERATORS: dict = {
     "isolated_verts":        "asset_checker.fix_merge_by_distance",
     "duplicate_verts":       "asset_checker.fix_merge_by_distance",
     "zero_area":             "asset_checker.fix_zero_area",
+    "ngons":                 "asset_checker.fix_ngons",
     "mat_numbering":         "asset_checker.fix_mat_numbering",
     "uv_single_set":         "asset_checker.fix_uv_single_set",
     "obj_naming":            "asset_checker.fix_naming",
@@ -1115,6 +1116,66 @@ class ASSET_CHECKER_OT_fix_zero_area(bpy.types.Operator):
 
         MeshCheck.update_mc_object_datas("zero_area")
         self.report({'INFO'}, f"Deleted zero-area faces on {fixed} object(s)")
+        _finish_fix(context)
+        return {'FINISHED'}
+
+
+# ── Fix: Triangulate ngons ────────────────────────────────────────────────────
+class ASSET_CHECKER_OT_fix_ngons(bpy.types.Operator):
+    """Triangulate the n-gon faces detected by the Ngons check"""
+    bl_idname  = "asset_checker.fix_ngons"
+    bl_label   = "Fix: Triangulate Ngons"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        from .manager import MeshCheck
+        fixed = 0
+        prev_active = context.view_layer.objects.active
+        if context.mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
+
+        for obj, mc_obj in list(_problem_objects("ngons")):
+            checker = mc_obj._checks.get("ngons")
+            face_idx = set(getattr(checker, '_faces_idx', []) or [])
+            if not face_idx:
+                continue
+            state = _ensure_visible(obj)
+            try:
+                context.view_layer.objects.active = obj
+                obj.select_set(True)
+                bpy.ops.object.mode_set(mode='EDIT')
+                bm = bmesh.from_edit_mesh(obj.data)
+                bm.faces.ensure_lookup_table()
+                for f in bm.faces:
+                    f.select_set(f.index in face_idx)
+                bm.select_flush_mode()
+                bmesh.update_edit_mesh(obj.data)
+                sel_faces = [f for f in bm.faces if f.select]
+                if sel_faces:
+                    bmesh.ops.triangulate(bm, faces=sel_faces,
+                                          quad_method='BEAUTY',
+                                          ngon_method='BEAUTY')
+                bmesh.update_edit_mesh(obj.data)
+                bpy.ops.object.mode_set(mode='OBJECT')
+                obj.select_set(False)
+                fixed += 1
+            except Exception as e:
+                alog(f"[AssetChecker] fix_ngons {obj.name}: {e}")
+                try:
+                    bpy.ops.object.mode_set(mode='OBJECT')
+                except Exception:
+                    pass
+            finally:
+                _restore_visible(obj, state)
+
+        try:
+            if prev_active:
+                context.view_layer.objects.active = prev_active
+        except Exception:
+            pass
+
+        MeshCheck.update_mc_object_datas("ngons")
+        self.report({'INFO'}, f"Triangulated ngons on {fixed} object(s)")
         _finish_fix(context)
         return {'FINISHED'}
 
