@@ -681,7 +681,7 @@ _FIX_OPERATORS: dict = {
     "scale":                 "asset_checker.fix_scale",
     "origin_at_zero":        "asset_checker.fix_origin",
     "modifier_stack":        "asset_checker.fix_modifier_stack",
-    "isolated_verts":        "asset_checker.fix_merge_by_distance",
+    "isolated_verts":        "asset_checker.fix_isolated_verts",
     "duplicate_verts":       "asset_checker.fix_merge_by_distance",
     "zero_area":             "asset_checker.fix_zero_area",
     "ngons":                 "asset_checker.fix_ngons",
@@ -904,6 +904,61 @@ class ASSET_CHECKER_OT_fix_merge_by_distance(bpy.types.Operator):
 
 
 # ── Fix: Auto-rename objects ──────────────────────────────────────────────────
+# ── Fix: Delete isolated vertices ─────────────────────────────────────────────
+class ASSET_CHECKER_OT_fix_isolated_verts(bpy.types.Operator):
+    """Delete the loose vertices detected by the Isolated Verts check"""
+    bl_idname  = "asset_checker.fix_isolated_verts"
+    bl_label   = "Fix: Delete Isolated Verts"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        from .manager import MeshCheck
+        fixed = 0
+        prev_active = context.view_layer.objects.active
+        if context.mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
+
+        for obj, mc_obj in list(_problem_objects("isolated_verts")):
+            checker = mc_obj._checks.get("isolated_verts")
+            vert_idx = set(getattr(checker, '_vert_idx', []) or [])
+            if not vert_idx:
+                continue
+            state = _ensure_visible(obj)
+            try:
+                context.view_layer.objects.active = obj
+                obj.select_set(True)
+                bpy.ops.object.mode_set(mode='EDIT')
+                bm = bmesh.from_edit_mesh(obj.data)
+                bm.verts.ensure_lookup_table()
+                for v in bm.verts:
+                    v.select_set(v.index in vert_idx)
+                bm.select_flush_mode()
+                bmesh.update_edit_mesh(obj.data)
+                bpy.ops.mesh.delete(type='VERT')
+                bpy.ops.object.mode_set(mode='OBJECT')
+                obj.select_set(False)
+                fixed += 1
+            except Exception as e:
+                alog(f"[AssetChecker] fix_isolated_verts {obj.name}: {e}")
+                try:
+                    bpy.ops.object.mode_set(mode='OBJECT')
+                except Exception:
+                    pass
+            finally:
+                _restore_visible(obj, state)
+
+        try:
+            if prev_active:
+                context.view_layer.objects.active = prev_active
+        except Exception:
+            pass
+
+        MeshCheck.update_mc_object_datas("isolated_verts")
+        self.report({'INFO'}, f"Deleted isolated verts on {fixed} object(s)")
+        _finish_fix(context)
+        return {'FINISHED'}
+
+
 class ASSET_CHECKER_OT_fix_naming(bpy.types.Operator):
     """Auto-fix object names: lowercase, strip forbidden chars, apply prefix/suffix"""
     bl_idname  = "asset_checker.fix_naming"

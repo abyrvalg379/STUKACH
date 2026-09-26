@@ -50,6 +50,7 @@ classes = (
     properties.ASSET_CHECKER_OT_fix_origin,
     properties.ASSET_CHECKER_OT_fix_modifier_stack,
     properties.ASSET_CHECKER_OT_fix_merge_by_distance,
+    properties.ASSET_CHECKER_OT_fix_isolated_verts,
     properties.ASSET_CHECKER_OT_fix_zero_area,
     properties.ASSET_CHECKER_OT_fix_ngons,
     properties.ASSET_CHECKER_OT_fix_lamina,
