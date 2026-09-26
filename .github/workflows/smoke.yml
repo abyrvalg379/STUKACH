@@ -1,0 +1,71 @@
+name: Smoke
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 6 * * 1" # weekly on Mondays - catches bitrot (URLs, API drift)
+  workflow_dispatch:
+
+concurrency:
+  group: smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: smoke ${{ matrix.blender }} / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        blender: ["4.2.0", "5.2.2"]
+        exclude:
+          - os: windows-latest
+            blender: "4.2.0"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # build.py prints the commit checklist since the tag
+
+      - name: Cache Blender
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/blender-${{ matrix.blender }}
+          key: blender-${{ runner.os }}-${{ matrix.blender }}
+
+      - name: Download Blender ${{ matrix.blender }}
+        shell: bash
+        env:
+          V: ${{ matrix.blender }}
+        run: |
+          set -e
+          DIR="${RUNNER_TEMP}/blender-${V}"
+          mkdir -p "$DIR"
+          if [ "${RUNNER_OS}" = "Linux" ]; then
+            BIN="${DIR}/blender-${V}-linux-x64/blender"
+          else
+            BIN="${DIR}/blender-${V}-windows-x64/blender.exe"
+          fi
+          if [ -f "$BIN" ]; then
+            echo "Blender cached at $BIN"
+          else
+            if [ "${RUNNER_OS}" = "Linux" ]; then
+              URL="https://download.blender.org/release/Blender${V%.*}/blender-${V}-linux-x64.tar.xz"
+              curl -sfL --retry 3 -o "$DIR/bl.tar.xz" "$URL"
+              tar -xJf "$DIR/bl.tar.xz" -C "$DIR"
+            else
+              URL="https://download.blender.org/release/Blender${V%.*}/blender-${V}-windows-x64.zip"
+              curl -sfL --retry 3 -o "$DIR/bl.zip" "$URL"
+              tar -xf "$DIR/bl.zip" -C "$DIR"
+            fi
+          fi
+          echo "BLENDER_BIN=$BIN" >> "$GITHUB_ENV"
+
+      - name: Run smoke test
+        shell: bash
+        run: |
+          python tests/run_smoke.py --blender "$BLENDER_BIN" --timeout 420
