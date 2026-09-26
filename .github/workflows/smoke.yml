@@ -60,7 +60,9 @@ jobs:
             else
               URL="https://download.blender.org/release/Blender${V%.*}/blender-${V}-windows-x64.zip"
               curl -sfL --retry 3 -o "$DIR/bl.zip" "$URL"
-              tar -xf "$DIR/bl.zip" -C "$DIR"
+              # GNU tar in the runner's bash misreads "D:\..." as a remote
+              # host - unpack with python instead
+              python -c "import zipfile,sys; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" "$DIR/bl.zip" "$DIR"
             fi
           fi
           echo "BLENDER_BIN=$BIN" >> "$GITHUB_ENV"
