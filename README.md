@@ -2,6 +2,8 @@
 
 ![STUKACH](screenshots/stukach_cover.png)
 
+[![Smoke](https://github.com/abyrvalg379/STUKACH/actions/workflows/smoke.yml/badge.svg)](https://github.com/abyrvalg379/STUKACH/actions/workflows/smoke.yml)
+
 Pipeline asset validation addon for Blender.
 
 *Документация на русском: [README.ru.md](README.ru.md)*

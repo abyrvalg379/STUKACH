@@ -2,6 +2,8 @@
 
 ![STUKACH](screenshots/stukach_cover.png)
 
+[![Smoke](https://github.com/abyrvalg379/STUKACH/actions/workflows/smoke.yml/badge.svg)](https://github.com/abyrvalg379/STUKACH/actions/workflows/smoke.yml)
+
 Пайплайн-валидатор ассетов для Blender.
 
 *English documentation: [README.md](README.md)*
