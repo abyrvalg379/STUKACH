@@ -6,6 +6,8 @@
 
 Пайплайн-валидатор ассетов для Blender.
 
+💬 Обратная связь и обсуждения → [вкладка Discussions](https://github.com/abyrvalg379/STUKACH/discussions)
+
 *English documentation: [README.md](README.md)*
 
 **Blender 4.2+ (протестировано на 5.2) · v1.8.3 · Автор: Maksim Kovalev**
