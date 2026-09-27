@@ -39,20 +39,41 @@ def alog(msg: str) -> None:
         pass
 
 
+def _sanitize_log_line(line: str) -> str:
+    """Mask scene names in a log line before it leaves the machine.
+
+    Debug Info goes to the clipboard and from there into public issues —
+    object / mesh / material names must not leak with it.  The on-disk
+    session log keeps the real names (it never leaves the machine and is
+    needed for post-mortems)."""
+    import bpy
+    for coll, tag in ((bpy.data.objects, "<object>"),
+                      (bpy.data.meshes, "<mesh>"),
+                      (bpy.data.materials, "<material>")):
+        for item in coll:
+            name = item.name
+            if len(name) >= 3 and name in line:
+                line = line.replace(name, tag)
+    return line
+
+
 def get_debug_info() -> str:
-    """One-clipboard diagnostic snapshot: versions, session state, recent log."""
+    """One-clipboard diagnostic snapshot: versions, session state, recent log.
+
+    Public-safe by design: scene names are masked and no OS username is
+    included — this text is meant to be pasted into public issues."""
     import bpy
     lines = [
         f"STUKACH v{get_addon_version()}",
         f"Blender {bpy.app.version_string} | {_platform.system()} {_platform.release()} | Python {_platform.python_version()}",
         f"Mode: {bpy.context.object.mode if bpy.context.object else '?'} | Scope: {MeshCheck._scope} | Tracked: {len(MeshCheck.objects)}",
-        "Active validator: " + (__import__("getpass").getuser()),
         "Active checks: " + (", ".join(c for c in _AC_CHECK_PROPS
                                         if getattr(bpy.context.window_manager.mesh_check_props, c, False)) or "none"),
-        "--- recent log ---",
+        "--- recent log (scene names masked) ---",
     ]
-    lines.extend(LOG_RING or ["(empty)"])
-    lines.append(f"Session log file: {_LOG_PATH}")
+    lines.extend(_sanitize_log_line(l) if l.startswith("[AssetChecker]") else l
+                 for l in (LOG_RING or ["(empty)"]))
+    lines.append(f"Session log file: {_os.path.join('%TEMP%', _os.path.basename(_LOG_PATH))}")
     return "\n".join(lines)
 
 

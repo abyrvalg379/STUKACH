@@ -1894,8 +1894,9 @@ class ASSET_CHECKER_OT_validate_collection(bpy.types.Operator):
 
 
 class ASSET_CHECKER_OT_copy_debug_info(bpy.types.Operator):
-    """Copy diagnostic info to the clipboard: versions, session state,
-    active checks and the recent addon log. Attach it to bug reports."""
+    """Copy diagnostic info to the clipboard: versions, session state and
+    the recent addon log with scene names masked. Safe to paste in public
+    bug reports — no object, mesh or material names, no username."""
     bl_idname  = "asset_checker.copy_debug_info"
     bl_label   = "Copy Debug Info"
     bl_options = {'REGISTER'}
