@@ -10,6 +10,10 @@
 
 **Blender 4.2+ (протестировано на 5.2) · v1.8.3 · Автор: Maksim Kovalev**
 
+### Совместимость
+
+Поддерживаются: **Blender 4.2 LTS и 5.2** — оба прогоняются [CI смоук-матрицей](https://github.com/abyrvalg379/STUKACH/actions/workflows/smoke.yml) (Ubuntu + Windows) на каждое изменение. Breaking changes API Blender = **мажорное повышение версии**; промежуточные версии — без гарантий и без тестов. Вопросы и обратная связь: [Discussions](https://github.com/abyrvalg379/STUKACH/discussions).
+
 ---
 
 ## Установка

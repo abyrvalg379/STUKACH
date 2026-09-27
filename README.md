@@ -10,6 +10,10 @@ Pipeline asset validation addon for Blender.
 
 **Blender 4.2+ (tested on 5.2) · v1.8.3 · Author: Maksim Kovalev**
 
+### Compatibility
+
+Supported: **Blender 4.2 LTS and 5.2** — both are gated by the [CI smoke matrix](https://github.com/abyrvalg379/STUKACH/actions/workflows/smoke.yml) (Ubuntu + Windows) on every change. Blender API breaking changes are handled with a **major version bump**; intermediate versions are best-effort but not tested. Questions and feedback: [Discussions](https://github.com/abyrvalg379/STUKACH/discussions).
+
 ---
 
 ## Installation
