@@ -24,9 +24,28 @@ bevel-aware + custom-normals skip, Blender 4.2+ support, manuals v1.8.0.
 - **Objects panel redesign**: the list is noisy (search + toggles + dropdown +
   Collapse All + V/E/F/T + 3-button rows in one stack).  Redesign mockup
   first, approval by the author, then implementation.
-- **Skip hidden objects** option for Scene scope (big assemblies).
-- **Default preset**: one preset marked to auto-apply on new scenes.
+- **Skip hidden objects** option for Scene scope (big assemblies); measure
+  performance on 100k+ object assemblies alongside (snapshot engine + dirty
+  caching already cover the common case — this is about the extremes).
+- **Default preset**: one preset marked as default.  Applied at the FIRST
+  validation run in a new scene with a one-time dialog — never silently
+  ("everything turned red after the update" is a release-notes generator).
 - **Check search field**; "?" on a finding opens its manual section.
+- **Checker reference generated from the registry**: markdown/docx tables
+  from CHECK_SEVERITY / CHECK_CATEGORIES via the manual generator, built in
+  CI — retires the hand-maintained pair reference (stale since v1.5.2).
+- **Blender compatibility policy in README** (public): supported = 4.2 LTS +
+  5.2, the CI matrix is the gate; Blender API breaking changes get a major
+  bump.
+
+## Inter-object Z-fighting — open semantic question
+Exact duplicates and overlapping-face pairs are caught (KD-tree centroid
+pass).  Strictly parallel planes with a small offset are NOT, and cannot be
+without false positives: panel lines and decals are legitimately coplanar.
+The fix is semantic, not algorithmic — pick one:
+- **Decal whitelist**: skip pairs by material or name pattern (decal tag);
+- **Tolerance knob**: user-configurable offset threshold, default off.
+Either way, document the limitation honestly in the checker's help.
 
 ## v2.0 — STUKACH AI (локальный Ollama) — когда созреет
 Principles: validation stays deterministic; the AI explains, plans and
@@ -45,15 +64,33 @@ every AI-assisted edit is previewable and one-shot undoable.
   3. similar findings are matched (same check + local topology similarity,
      LLM-assisted mapping between the fixed pattern and each candidate);
   4. the model produces a per-instance op plan; execution is deterministic
-     bmesh ops with a preview list, per-instance accept/skip and one-shot
-     undo.  AI plans, bmesh executes, the human approves.
+   bmesh ops with a preview list, per-instance accept/skip and one-shot
+   undo.  AI plans, bmesh executes, the human approves.  Safety rails:
+   a golden set of 20–30 real propagation cases as the regression gate, and
+   a confidence threshold — below it the mapping is simply not offered
+   (this separates "smart tool" from "roulette that occasionally wrecks
+   a scene").
 - **Infra**: Ollama detection (localhost:11434, urllib — zero dependencies),
   model picker in Preferences, context builder over the check registry,
   streaming into the panel, graceful offline ("Ollama is not running").
 
+## Community
+- **Enable GitHub Discussions** (or a feedback issue template): ~100 users
+  and zero issues is not a quality signal — unhappy users uninstall silently.
+  Without a feedback channel we don't know the real failure modes.
+
+## Transferability criterion (bus factor = 1 today)
+The project is ready to hand over when: the core lives as a separate package
+independent of both DCC layers, checkers are data in a registry (not spread
+across DCC code), manuals are generated from the registry, and both smoke
+gates run without the author.  Two of these already hold; stukach_core +
+registry is the path to the rest.
+
 ## Maya
 - Migrate the remaining legacy checks to the snapshot engine
 - DCC-free `stukach_core` package (gate for the Houdini version)
+- No Maya CI is planned (Maya in CI is not cheap); the testing strategy is:
+  snapshot engine tested as pure Python, the DCC layer stays thin.
 
 ## Cross-DCC
 - Houdini version: after `stukach_core` (MVP on FBX, USD phase 2)
