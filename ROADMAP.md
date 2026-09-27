@@ -42,10 +42,11 @@ bevel-aware + custom-normals skip, Blender 4.2+ support, manuals v1.8.0.
 Exact duplicates and overlapping-face pairs are caught (KD-tree centroid
 pass).  Strictly parallel planes with a small offset are NOT, and cannot be
 without false positives: panel lines and decals are legitimately coplanar.
-The fix is semantic, not algorithmic — pick one:
-- **Decal whitelist**: skip pairs by material or name pattern (decal tag);
-- **Tolerance knob**: user-configurable offset threshold, default off.
-Either way, document the limitation honestly in the checker's help.
+The fix is semantic, not algorithmic — and not binary: the practical
+default is **both, in the same preset** — a tolerance knob plus a decal
+whitelist rule (material / name pattern).  The user then decides with one
+preset, not with an architecture switch.  Either way, document the
+limitation honestly in the checker's help.
 
 ## v2.0 — STUKACH AI (локальный Ollama) — когда созреет
 Principles: validation stays deterministic; the AI explains, plans and
@@ -69,7 +70,9 @@ every AI-assisted edit is previewable and one-shot undoable.
    a golden set of 20–30 real propagation cases as the regression gate, and
    a confidence threshold — below it the mapping is simply not offered
    (this separates "smart tool" from "roulette that occasionally wrecks
-   a scene").
+   a scene") — plus an **accept-rate metric** tracked from day one: the
+   share of offered propagations the user accepts; below ~70% on the golden
+   set = raise the confidence threshold or revisit the mapping, not ship.
 - **Infra**: Ollama detection (localhost:11434, urllib — zero dependencies),
   model picker in Preferences, context builder over the check registry,
   streaming into the panel, graceful offline ("Ollama is not running").
@@ -82,9 +85,14 @@ every AI-assisted edit is previewable and one-shot undoable.
 ## Transferability criterion (bus factor = 1 today)
 The project is ready to hand over when: the core lives as a separate package
 independent of both DCC layers, checkers are data in a registry (not spread
-across DCC code), manuals are generated from the registry, and both smoke
-gates run without the author.  Two of these already hold; stukach_core +
-registry is the path to the rest.
+across DCC code), manuals are generated from the registry, both smoke
+gates run without the author, **and checker regression = running the gate,
+not knowing the author** — every checker has a fixture in the defect
+garden, so a stranger changing a threshold sees the gate catch or miss it
+without our context.  Two of these already hold; stukach_core + registry is
+the path to the rest.  When custom user checkers eventually become a thing,
+the entry point should be a Python API (class registration, like Blender
+operators), not a DSL — don't freeze a format before real use cases exist.
 
 ## Maya
 - Migrate the remaining legacy checks to the snapshot engine
