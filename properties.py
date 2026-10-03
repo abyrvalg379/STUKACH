@@ -225,10 +225,6 @@ _PRESET_VALUE_KEYS = (
     'lamina', 'zero_length_edges', 'sharp_edges_not_hard', 'starlike',
     'missing_uvs', 'duplicated_names', 'trailing_numbers',
     'uncentered_pivots', 'parent_geometry',
-    # inline naming policy
-    'obj_required_prefix', 'obj_required_suffix',
-    'col_required_prefix', 'col_required_suffix',
-    'mesh_required_suffix',
 )
 
 
@@ -630,29 +626,6 @@ class ASSET_CHECKER_OT_set_td_target(bpy.types.Operator):
         return {'FINISHED'}
 
 
-class ASSET_CHECKER_OT_check_naming(bpy.types.Operator):
-    """Run naming validation for all tracked objects using current prefix / suffix settings"""
-    bl_idname = "asset_checker.check_naming"
-    bl_label  = "Check Naming"
-    bl_options = {'REGISTER'}
-
-    @classmethod
-    def poll(cls, context):
-        from .manager import MeshCheck
-        return bool(MeshCheck.objects)
-
-    def execute(self, context):
-        from .manager import MeshCheck
-        mc = context.window_manager.mesh_check_props
-        # Enable the checks so results are visible in the panel
-        mc.obj_naming = True
-        mc.col_naming = True
-        # Force re-run (set_datas picks up the new prefix/suffix values)
-        MeshCheck.update_mc_object_datas("obj_naming")
-        MeshCheck.update_mc_object_datas("col_naming")
-        return {'FINISHED'}
-
-
 class ASSET_CHECKER_OT_highlight_mat_udim(bpy.types.Operator):
     """Highlight UDIM tiles used by this material in the UV Editor (click again to deselect)"""
     bl_idname  = "asset_checker.highlight_mat_udim"
@@ -968,9 +941,17 @@ class ASSET_CHECKER_OT_fix_naming(bpy.types.Operator):
     def execute(self, context):
         import re
         from .manager import MeshCheck
-        mc     = context.window_manager.mesh_check_props
-        prefix = mc.obj_required_prefix.strip()
-        suffix = mc.obj_required_suffix.strip()
+        from .naming import get_active_policy
+        # policy from Preferences → Naming Policy (first entries win)
+        try:
+            addon = context.preferences.addons.get(
+                __name__.rsplit(".", 1)[0])
+            prefs = addon.preferences if addon else None
+        except Exception:
+            prefs = None
+        obj_policy = get_active_policy(prefs).get("object", {})
+        prefix = (obj_policy.get("required_prefixes") or [""])[0].strip()
+        suffix = (obj_policy.get("required_suffixes") or [""])[0].strip()
         fixed  = 0
 
         for obj, _ in list(_problem_objects("obj_naming")):
@@ -980,7 +961,8 @@ class ASSET_CHECKER_OT_fix_naming(bpy.types.Operator):
             name = re.sub(r'_+', '_', name).strip('_') or "unnamed"
             if prefix and not name.startswith(prefix):
                 name = prefix + name
-            if suffix and not name.endswith(suffix):
+            # EMPTY keeps its suffix logic in the hierarchy validator
+            if suffix and obj.type != 'EMPTY' and not name.endswith(suffix):
                 name = name + suffix
             if name != obj.name:
                 obj.name = name
@@ -1859,6 +1841,12 @@ class ASSET_CHECKER_OT_validate_scene(bpy.types.Operator):
         # in small timer batches so the UI keeps breathing on large scenes.
         MeshCheck.start_progressive_validation(
             [o for o in context.scene.objects if o.type == "MESH"])
+        # scene naming audit rides along (name-only pass, cheaper than a checker)
+        try:
+            from .naming import run_scene_audit
+            run_scene_audit(context)
+        except Exception:
+            pass
 
         return {'FINISHED'}
 
@@ -1889,6 +1877,12 @@ class ASSET_CHECKER_OT_validate_collection(bpy.types.Operator):
         UVCheckGPU._batch_cache.clear()
         MeshCheck.start_progressive_validation(
             [o for o in col.all_objects if o.type == "MESH"])
+        # scene naming audit rides along (name-only pass, cheaper than a checker)
+        try:
+            from .naming import run_scene_audit
+            run_scene_audit(context)
+        except Exception:
+            pass
 
         return {'FINISHED'}
 
@@ -3043,17 +3037,10 @@ class MeshCheckProperties(PropertyGroup):
     trailing_numbers: BoolProperty(name="Trailing Numbers", default=False, update=mc_object_datas_updater("trailing_numbers"),
                                 description="Object name ends with digits (Cube.001-style leftovers) — rename with a proper suffix")
 
-    # Inline naming policy fields — combined with prefs at validation time
-    obj_required_prefix: StringProperty(name="Prefix", default="",
-                                        description="Required object name prefix (e.g. 'sm_')")
-    obj_required_suffix: StringProperty(name="Suffix", default="",
-                                        description="Required object name suffix (e.g. '_geo')")
-    col_required_prefix: StringProperty(name="Prefix", default="",
-                                        description="Required group name prefix (e.g. 'grp_')")
-    col_required_suffix: StringProperty(name="Suffix", default="",
-                                        description="Required group name suffix (e.g. '_grp')")
-    mesh_required_suffix: StringProperty(name="Mesh Suffix", default="_mesh",
-                                        description="Required mesh data block suffix (e.g. '_mesh'). Used by the Mesh Data Name check and its Fix button")
+    # Naming policy lives in Preferences → Naming Policy only — the panel
+    # keeps validation, not configuration.  (The former inline Prefix/Suffix
+    # fields were removed; presets saved before this change simply carry a
+    # few unknown keys that the loader ignores.)
 
     # TD scope toggle — controls UV Space / Density summary in UV panel
     uv_td_scope_active: BoolProperty(
@@ -3387,34 +3374,9 @@ class MeshCheckProperties(PropertyGroup):
                 op.do_linked_ids = False
                 op.do_recursive  = True
 
-            # ── Inline naming policy fields ────────────────────────────────
+            # ── Naming Audit (runs inside Validate too) ────────────────────
             if cat_name == "NAMING":
                 box.separator(factor=0.5)
-                split = box.row(align=False)
-
-                obj_col = split.column(align=True)
-                obj_col.label(text="Objects:", icon="OBJECT_DATA")
-                obj_col.prop(self, "obj_required_prefix", text="Prefix")
-                obj_col.prop(self, "obj_required_suffix", text="Suffix")
-
-                grp_col = split.column(align=True)
-                grp_col.label(text="Groups:", icon="OUTLINER_COLLECTION")
-                grp_col.prop(self, "col_required_prefix", text="Prefix")
-                grp_col.prop(self, "col_required_suffix", text="Suffix")
-
-                mesh_col = split.column(align=True)
-                mesh_col.label(text="Mesh:", icon="MESH_DATA")
-                mesh_col.label(text="")   # align with Prefix rows — mesh has no prefix rule
-                mesh_col.prop(self, "mesh_required_suffix", text="Suffix")
-
-                box.operator(
-                    "asset_checker.check_naming",
-                    text="Check Naming",
-                    icon="VIEWZOOM",
-                )
-
-                # ── Naming Audit sub-section ────────────────────────────────
-                box.separator(factor=0.3)
                 try:
                     from .ui import draw_naming_audit_block
                     draw_naming_audit_block(box, self)

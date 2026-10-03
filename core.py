@@ -1391,24 +1391,13 @@ class NamingCheck(BaseCheck):
             self._count = 0
             return
 
-        # Build policy: addon prefs base + inline panel fields
+        # Policy from Preferences → Naming Policy only
         try:
             addon_name = __name__.rsplit(".", 1)[0]
             prefs = bpy.context.preferences.addons[addon_name].preferences
         except Exception:
             prefs = None
         policy = get_active_policy(prefs)
-
-        try:
-            mc = bpy.context.window_manager.mesh_check_props
-            pref = mc.obj_required_prefix.strip().lower()
-            suf  = mc.obj_required_suffix.strip().lower()
-            if pref and pref not in policy["object"]["required_prefixes"]:
-                policy["object"]["required_prefixes"].append(pref)
-            if suf and suf not in policy["object"]["required_suffixes"]:
-                policy["object"]["required_suffixes"].append(suf)
-        except Exception:
-            pass
 
         self._results = NamingValidator.validate_object(obj, policy=policy)
         # count = blocking issues only (WARNING + ERROR); INFO doesn't drive status
@@ -1523,24 +1512,13 @@ class ColNaming(BaseCheck):
         except Exception:
             scene_root = None
 
-        # Build policy: addon prefs base + inline panel fields
+        # Policy from Preferences → Naming Policy only
         try:
             addon_name = __name__.rsplit(".", 1)[0]
             prefs = bpy.context.preferences.addons[addon_name].preferences
         except Exception:
             prefs = None
         policy = get_active_policy(prefs)
-
-        try:
-            mc = bpy.context.window_manager.mesh_check_props
-            pref = mc.col_required_prefix.strip().lower()
-            suf  = mc.col_required_suffix.strip().lower()
-            if pref and pref not in policy["collection"]["required_prefixes"]:
-                policy["collection"]["required_prefixes"].append(pref)
-            if suf and suf not in policy["collection"]["required_suffixes"]:
-                policy["collection"]["required_suffixes"].append(suf)
-        except Exception:
-            pass
 
         skip_lower = NAMING_RULES["collection"].get("skip_names", set())
         # deduplicate: each collection reported only once per checker
@@ -3843,15 +3821,9 @@ class MeshDataNaming(BaseCheck):
 
     @classmethod
     def _mesh_suffixes(cls) -> List[str]:
+        """Configured mesh suffixes — Preferences → Naming Policy → Mesh Data.
+        The FIRST entry is the Fix button's target ('_mesh' is seeded first)."""
         suffixes = []
-        # Inline panel field takes priority (first = used by Fix)
-        try:
-            mc = bpy.context.window_manager.mesh_check_props
-            inline = getattr(mc, "mesh_required_suffix", "").strip()
-            if inline:
-                suffixes.append(inline)
-        except Exception:
-            pass
         prefs = cls._prefs()
         if prefs and getattr(prefs, "mesh_naming_suffixes", None):
             for e in prefs.mesh_naming_suffixes:

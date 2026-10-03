@@ -1605,9 +1605,6 @@ _AC_UI_PROPS: frozenset = frozenset({
     'cat_cleanup_open',
     'obj_list_open', 'uv_td_scope_active',
     'hierarchy_block_open', 'live_update',
-    'obj_required_prefix', 'obj_required_suffix',
-    'col_required_prefix', 'col_required_suffix',
-    'mesh_required_suffix',
 })
 _AC_ALL_PROPS: frozenset = _AC_CHECK_PROPS | _AC_UI_PROPS
 

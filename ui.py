@@ -547,23 +547,22 @@ def draw_hierarchy_block(layout, mc):
                        icon="ADD")
 
     if not mc.hierarchy_block_open:
-        # Collapsed — show one-line status badge
+        # Collapsed — status lives in the header row (no separate badge line)
         if result is not None:
-            badge = layout.row(align=True)
-            badge.scale_y = 0.75
             eff = hierarchy_effective_issues(result)
             e = sum(1 for i in eff if i.severity == ERROR)
             w = sum(1 for i in eff if i.severity == WARNING)
             if HierarchyValidator.is_stale(result):
-                badge.label(text="  Stale — hierarchy changed, re-scan",
-                            icon="FILE_REFRESH")
+                right.label(text="Stale — re-scan", icon="FILE_REFRESH")
             elif not eff:
-                badge.label(text=f"  Clean  ·  {len(result.asset_roots)} root(s)", icon="CHECKMARK")
+                right.label(text=f"Clean · {len(result.asset_roots)} root(s)",
+                            icon="CHECKMARK")
             else:
-                if e:
-                    badge.label(text=f"  {e} error(s)", icon=SEVERITY_ICON[ERROR])
+                counts = [f"{e}E"] if e else []
                 if w:
-                    badge.label(text=f"  {w} warning(s)", icon=SEVERITY_ICON[WARNING])
+                    counts.append(f"{w}W")
+                right.label(text=" · ".join(counts),
+                            icon=SEVERITY_ICON[ERROR if e else WARNING])
         return
 
     # ── Expanded content ──────────────────────────────────────────────────────
@@ -844,23 +843,20 @@ def draw_naming_audit_block(layout, mc) -> None:
     right.alignment = "RIGHT"
     if not NamingAudit._ran:
         right.operator("asset_checker.run_naming_audit", text="Run", icon="PLAY")
-    else:
-        right.operator("asset_checker.run_naming_audit", text="", icon="FILE_REFRESH")
-        right.operator("asset_checker.clear_naming_audit", text="", icon="X", emboss=False)
+        if not mc.naming_audit_open:
+            return
+        layout.label(text="Press Run to scan scene naming", icon="INFO")
+        return
 
+    right.operator("asset_checker.run_naming_audit", text="", icon="FILE_REFRESH")
     if not mc.naming_audit_open:
-        # Collapsed — one-line status badge
-        if NamingAudit._ran:
-            badge = layout.row(align=True)
-            badge.scale_y = 0.75
-            if NamingAudit.is_clean():
-                badge.label(text="  Scene naming is clean", icon="CHECKMARK")
-            else:
-                e, w = NamingAudit.error_count(), NamingAudit.warning_count()
-                if e:
-                    badge.label(text=f"  {e} error(s)", icon=SEVERITY_ICON[ERROR])
-                if w:
-                    badge.label(text=f"  {w} warning(s)", icon=SEVERITY_ICON[WARNING])
+        # Collapsed — status lives in the header row (no separate badge line)
+        if NamingAudit.is_clean():
+            right.label(text="clean", icon="CHECKMARK")
+        else:
+            e, w = NamingAudit.error_count(), NamingAudit.warning_count()
+            text = f"{e}E · {w}W" if (e and w) else (f"{e}E" if e else f"{w}W")
+            right.label(text=text, icon=SEVERITY_ICON[ERROR if e else WARNING])
         return
 
     # ── Expanded content ──────────────────────────────────────────────────────

@@ -537,6 +537,23 @@ class NamingAudit:
 
 # ── Operators ─────────────────────────────────────────────────────────────────
 
+def run_scene_audit(context=None) -> int:
+    """Run the scene naming audit against the active policy.
+
+    Shared by the manual Run button and the Validate operators (the audit
+    is a name-only pass — cheaper than a mesh checker, so RUN carries it).
+    Returns the blocking (WARNING+ERROR) count.
+    """
+    try:
+        addon_name = __name__.rsplit(".", 1)[0]
+        prefs  = bpy.context.preferences.addons[addon_name].preferences
+        policy = get_active_policy(prefs)
+    except Exception:
+        policy = get_active_policy(None)
+    NamingAudit.run(policy=policy)
+    return NamingAudit.error_count() + NamingAudit.warning_count()
+
+
 class ASSET_CHECKER_OT_run_naming_audit(bpy.types.Operator):
     """Run a full scene naming audit against the active naming policy"""
     bl_idname  = "asset_checker.run_naming_audit"
@@ -544,29 +561,11 @@ class ASSET_CHECKER_OT_run_naming_audit(bpy.types.Operator):
     bl_options = {'REGISTER'}
 
     def execute(self, context):
-        addon_name = __name__.rsplit(".", 1)[0]
-        try:
-            prefs  = context.preferences.addons[addon_name].preferences
-            policy = get_active_policy(prefs)
-        except Exception:
-            policy = get_active_policy(None)
-        NamingAudit.run(policy=policy)
-        blocking = NamingAudit.error_count() + NamingAudit.warning_count()
+        blocking = run_scene_audit(context)
         if blocking:
             self.report({'WARNING'}, f"Audit: {blocking} issue(s) in {len(NamingAudit._results)} result(s)")
         else:
             self.report({'INFO'}, "Audit: scene naming is clean")
-        return {'FINISHED'}
-
-
-class ASSET_CHECKER_OT_clear_naming_audit(bpy.types.Operator):
-    """Clear the naming audit results"""
-    bl_idname  = "asset_checker.clear_naming_audit"
-    bl_label   = "Clear Audit Results"
-    bl_options = {'REGISTER'}
-
-    def execute(self, context):
-        NamingAudit.clear()
         return {'FINISHED'}
 
 
