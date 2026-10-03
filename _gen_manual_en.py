@@ -47,7 +47,7 @@ def _save(doc, out):
 
 
 doc = ds.new_doc('STUKACH', 'User Guide',
-                 'BLENDER 5.2  -  V1.8.4  ·  MAYA 2025 - V1.3.0')
+                 'BLENDER 5.2  -  V1.8.5  ·  MAYA 2025 - V1.3.0')
 
 p(doc, 'STUKACH checks a scene for typical pipeline errors: topology, transforms, UVs, '
        'naming, materials and hierarchy structure. The artist sees the defects right in the '
@@ -109,7 +109,7 @@ p(doc, 'The panel works in one of two modes. Artist Mode is the artist working m
 h2(doc, '1.4 Two versions')
 add_table(doc, [
     ['', 'Blender version', 'Maya version'],
-    ['Version', 'v1.8.4', 'v1.3.0'],
+    ['Version', 'v1.8.5', 'v1.3.0'],
     ['Package', 'Blender 4.2+ extension (zip)', 'Maya 2025 Win x64 (python + C++ overlay plugin)'],
     ['Panel', 'View3D N-panel - STUKACH tab', 'Docked panel to the left of the Attribute Editor'],
     ['Checks', '42 + Scene Units', '43 + Scene Units + Empty Groups'],
@@ -287,7 +287,7 @@ p(doc, 'With Coordinator Mode on, the panel shows the verdict plate (ASSET STATU
        'the Artist Mode button in the toolbar.')
 
 h1(doc, '5. Checkers (Blender)')
-p(doc, '42 checks in 7 categories + Scene Units. The set and severity match the v1.8.4 code; '
+p(doc, '42 checks in 7 categories + Scene Units. The set and severity match the v1.8.5 code; '
        'thresholds of some checks are configurable in Preferences (the UV tab, the Checks tab - '
        'the Hard Edges chamfer width). Update checking is described in section 9.1.')
 
@@ -390,14 +390,18 @@ add_table(doc, [
 ], [3.4, 2.4, 5.9, 6.8], sev_col=1)
 
 h2(doc, '5.6 NAMING (6)')
-p(doc, 'Naming rules are configured in Preferences - Naming (object/group prefixes and '
-       'suffixes, mesh data; see section 9); the panel has no configuration fields. The checks '
-       'compare names against this policy; the scene-wide naming audit runs together with '
-       'Validate (the Naming Audit row shows the status).')
+p(doc, 'Naming is validated by the contract - a single name shape assembled from the policy: '
+       '[prefix] core [position] [_a] [_01] suffix. Slots are configured in Preferences - Naming '
+       '(prefixes, suffixes, positions; see section 9); the variant is a single a-z letter, the '
+       'number is two digits. The expected pattern is shown right in the Naming block; a mismatch '
+       'produces a single finding quoting it. Hygiene stays separate: ASCII, lowercase, no .001, '
+       'no default DCC names, no duplicates. The scene audit runs together with Validate; findings '
+       'live in the Naming block and object cards do not repeat them. The checkboxes collapse into '
+       'three group toggles: Object Naming / Mesh Data / Materials.')
 add_table(doc, [
     ['Check', 'Severity', 'What it looks for', 'Why it matters'],
     ['Object Name', 'WARNING', 'Default names (Cube, pCube1), .001 numbering, special '
-     'characters, capital letters, Cyrillic and any non-ASCII characters, prefix/suffix '
+     'characters, capital letters, Cyrillic and any non-ASCII characters, name-contract '
      'mismatches', 'Broken names break asset manager scripts and exact name matching'],
     ['Group Name', 'WARNING', 'The same rules for collections + the group prefix/suffix',
      'Broken naming breaks the hierarchy, LOD systems and shot assembly'],
@@ -610,11 +614,12 @@ add_table(doc, [
     ['UV', 'Texel Density: texture size, target TD (px/cm), tolerance (Target = 0 shows the '
      'value only); UV Padding: shell and tile-border thresholds; stretch and aspect ratio '
      'thresholds.'],
-    ['Naming', 'Objects and Groups: prefix/suffix lists (+/-); Mesh Data: the datablock '
-     'suffix list (_mesh, _geo, _grp by default; the first entry is the Fix button\'s '
-     'target); Hierarchy: the group suffix (_grp) and the functional whitelist (extends the '
-     '24 built-in layers). The panel itself has no naming fields anymore - configuration '
-     'lives here and in presets only.'],
+    ['Naming', 'Objects and Groups: prefix/suffix lists (+/-); Contract Positions: extra '
+     'position tokens (extending the 8 built-ins _l/_r/_front/_back/_top/_bottom/_left/'
+     '_right); Mesh Data: the datablock suffix list (_mesh, _geo, _grp by default; the first '
+     'entry is the Fix button\'s target); Hierarchy: the group suffix (_grp) and the '
+     'functional whitelist (extends the 24 built-in layers). The panel itself has no naming '
+     'fields - configuration lives here and in presets only.'],
     ['Checks', 'Hard Edges: the chamfer width threshold. An edge hugging a strip thinner than '
      'this percentage of the object size is a chamfer and is not flagged.'],
     ['Colors', 'The overlay color of every check, a two-column grid; applied to the viewport '
