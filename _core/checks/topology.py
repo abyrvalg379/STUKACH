@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
 """Pure topology evaluators: (MeshSnapshot, params) -> Finding | None.
 
-Ported 1:1 from MAYA_STUKACH core.py SnapshotCheck implementations
-(2026-10-03 strangler, stage 1).  Findings carry index-based elements;
-adapters render native component strings.
+Ported from the STUKACH addon implementations (strangler stage 2, 2026-10-03).
+Findings carry index-based elements; adapters render native component strings.
+lamina / starlike / missing_uvs / duplicate_verts are SELF-COMPUTED from the
+snapshot geometry — no DCC-provided flags required.
 """
+from __future__ import annotations
+
 from typing import Optional
 
 from ..model import MeshSnapshot, Finding, edge_length
@@ -57,14 +60,20 @@ def check_non_manifold(snap: MeshSnapshot) -> Optional[Finding]:
             if len(visited) < len(f_ids):
                 bad_verts.append(("vert", v))
 
-    # 3) lamina faces (same data the Lamina rule uses)
-    bad_faces = [("face", fi) for fi, is_lam in enumerate(snap.face_lamina) if is_lam]
+    # 3) lamina faces (same contour-repeat test the lamina rule uses)
+    bad_faces = []
+    for fi, verts in enumerate(snap.face_verts):
+        n = len(verts)
+        ekeys = set()
+        for i in range(n):
+            a, b = verts[i], verts[(i + 1) % n]
+            ekeys.add((a, b) if a < b else (b, a))
+        if len(set(verts)) < n or len(ekeys) < n:
+            bad_faces.append(("face", fi))
 
     # 4) isolated vertices (referenced by nothing)
     referenced = set(ve.keys()) | set(vf.keys())
-    iso = [("vert", v) for v in range(len(snap.points)) if ("vert", v) not in
-           set() and v not in referenced]
-    iso = [t for t in iso if t[1] not in referenced]
+    iso = [("vert", v) for v in range(len(snap.points)) if v not in referenced]
 
     bad_verts = list(dict.fromkeys(bad_verts + iso))
     elements = bad_edges + bad_faces + bad_verts
@@ -139,39 +148,98 @@ def check_boundary_edges(snap: MeshSnapshot) -> Optional[Finding]:
     return Finding("boundary_edges", "WARNING", len(bad), bad)
 
 
-def check_duplicate_verts(snap: MeshSnapshot, merge_dist: float = 1e-5) -> Optional[Finding]:
-    """Overlapping vertices within *merge_dist* (0.01 mm default).
+def _islands(snap: MeshSnapshot) -> list:
+    """Union-find over the edge graph → island id per vertex index."""
+    parent = list(range(len(snap.points)))
 
-    scipy.spatial.cKDTree; degrades silently to clean when scipy/numpy is
-    unavailable (adapters warn about the environment themselves)."""
+    def find(x):
+        root = x
+        while parent[root] != root:
+            root = parent[root]
+        while parent[x] != root:
+            parent[x], x = root, parent[x]
+        return root
+
+    for a, b in snap.edges:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[ra] = rb
+    return [find(i) for i in range(len(parent))]
+
+
+def check_duplicate_verts(snap: MeshSnapshot, merge_dist: float = 1e-5) -> Optional[Finding]:
+    """Overlapping vertices within *merge_dist* that belong to ONE shell.
+
+    Coincident verts of different shells (bolted plates, stacked parts) are
+    intentional hard-surface practice and are NOT flagged (Blender-parity).
+    numpy grid hash — no scipy required."""
+    import numpy as np
     n = len(snap.points)
     if n < 2:
         return None
-    try:
-        from scipy.spatial import cKDTree
-    except ImportError:
+    co = np.array(snap.points, dtype=np.float64)
+    finite = np.isfinite(co).all(axis=1)
+    reasonable = (np.abs(co) < 1e8).all(axis=1)
+    valid = np.where(finite & reasonable)[0]
+    if len(valid) < 2:
         return None
-    import numpy as np
-    co_all = np.array(snap.points, dtype=np.float64)
-    finite = np.isfinite(co_all).all(axis=1)
-    reasonable = (np.abs(co_all) < 1e8).all(axis=1)
-    mask = finite & reasonable
-    valid_idx = np.where(mask)[0]
-    co = co_all[mask]
-    if len(co) < 2:
+
+    inv = 1.0 / max(merge_dist, 1e-12)
+    g = np.floor(co[valid] * inv).astype(np.int64)
+    cells: dict = {}
+    for row, vi in zip(g, valid):
+        cells.setdefault(tuple(row), []).append(int(vi))
+
+    def _pairs_close(a_list, b_list):
+        out = []
+        for ia in a_list:
+            for ib in b_list:
+                if ia == ib:
+                    continue
+                d2 = float(((co[ia] - co[ib]) ** 2).sum())
+                if d2 <= merge_dist * merge_dist:
+                    out.append((ia, ib))
+        return out
+
+    pairs = []
+    for (cx, cy, cz), bucket in cells.items():
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for dz in (-1, 0, 1):
+                    neighbor = cells.get((cx + dx, cy + dy, cz + dz))
+                    if neighbor is None:
+                        continue
+                    pairs.extend(_pairs_close(bucket, neighbor))
+    if not pairs:
         return None
-    tree = cKDTree(co)
-    pairs = tree.query_pairs(r=merge_dist, output_type='ndarray')
-    if len(pairs) == 0:
+
+    islands = _islands(snap)
+    dup = set()
+    for ia, ib in pairs:
+        if islands[ia] == islands[ib]:   # same shell only
+            # find_doubles semantics: the higher index is the copy that
+            # merges into the surviving lower-index vertex — only it flags
+            dup.add(max(ia, ib))
+    if not dup:
         return None
-    dup_local = np.unique(pairs.ravel())
-    dup_mesh = np.sort(valid_idx[dup_local])
-    bad = [("vert", int(i)) for i in dup_mesh]
+    bad = [("vert", int(i)) for i in sorted(dup)]
     return Finding("duplicate_verts", "BLOCKER", len(bad), bad)
 
 
 def check_lamina(snap: MeshSnapshot) -> Optional[Finding]:
-    bad = [("face", i) for i, is_lamina in enumerate(snap.face_lamina) if is_lamina]
+    """Lamina faces — the contour repeats a vertex or traverses the same
+    edge twice, so the face has zero thickness (isLamina analog, computed)."""
+    bad = []
+    for fi, verts in enumerate(snap.face_verts):
+        n = len(verts)
+        if n < 2:
+            continue
+        ekeys = set()
+        for i in range(n):
+            a, b = verts[i], verts[(i + 1) % n]
+            ekeys.add((a, b) if a < b else (b, a))
+        if len(set(verts)) < n or len(ekeys) < n:
+            bad.append(("face", fi))
     if not bad:
         return None
     return Finding("lamina", "BLOCKER", len(bad), bad)
@@ -188,16 +256,156 @@ def check_zero_length_edges(snap: MeshSnapshot, tol: float = 1e-8) -> Optional[F
     return Finding("zero_length_edges", "BLOCKER", len(bad), bad)
 
 
-def check_starlike(snap: MeshSnapshot) -> Optional[Finding]:
-    """Non-starlike faces — polygon outline self-intersects (flag == False)."""
-    bad = [("face", i) for i, st in enumerate(snap.face_starlike) if st is False]
+def _outline_crosses(pts) -> bool:
+    """True if any two non-adjacent segments of the 2-D polygon intersect."""
+    n = len(pts)
+
+    def cross(o, a, b):
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+    def on_seg(a, b, p):
+        return (min(a[0], b[0]) - 1e-12 <= p[0] <= max(a[0], b[0]) + 1e-12 and
+                min(a[1], b[1]) - 1e-12 <= p[1] <= max(a[1], b[1]) + 1e-12)
+
+    for i in range(n):
+        a1, a2 = pts[i], pts[(i + 1) % n]
+        for j in range(i + 2, n):
+            if i == 0 and j == n - 1:
+                continue   # ring-adjacent segments share a vertex legitimately
+            b1, b2 = pts[j], pts[(j + 1) % n]
+            d1 = cross(b1, b2, a1)
+            d2 = cross(b1, b2, a2)
+            d3 = cross(a1, a2, b1)
+            d4 = cross(a1, a2, b2)
+            if ((d1 > 0 and d2 < 0) or (d1 < 0 and d2 > 0)) and \
+               ((d3 > 0 and d4 < 0) or (d3 < 0 and d4 > 0)):
+                return True
+            if d1 == 0 and on_seg(b1, b2, a1):
+                return True
+            if d2 == 0 and on_seg(b1, b2, a2):
+                return True
+            if d3 == 0 and on_seg(a1, a2, b1):
+                return True
+            if d4 == 0 and on_seg(a1, a2, b2):
+                return True
+    return False
+
+
+def _has_zero_edge(pts) -> bool:
+    """Zero-length contour edge (consecutive coincident verts — a 'stitched'
+    face).  Maya treats such faces as non-starlike."""
+    n = len(pts)
+    for i in range(n):
+        x1, y1 = pts[i]
+        x2, y2 = pts[(i + 1) % n]
+        if (x2 - x1) ** 2 + (y2 - y1) ** 2 <= 1e-12:
+            return True
+    return False
+
+
+def _centroid_sees_all(pts) -> bool:
+    """Vertex-averaged centroid must lie inside the polygon AND on the inner
+    side of every edge (concave faces whose centroid cannot see the whole
+    outline are non-starlike — isStarlike parity)."""
+    n = len(pts)
+    area2 = 0.0
+    for i in range(n):
+        x1, y1 = pts[i]
+        x2, y2 = pts[(i + 1) % n]
+        area2 += x1 * y2 - x2 * y1
+    if abs(area2) < 1e-12:
+        return True   # degenerate projection — the crossing test decides
+    orient = 1.0 if area2 > 0 else -1.0
+    cx = sum(p[0] for p in pts) / n
+    cy = sum(p[1] for p in pts) / n
+
+    inside = False
+    j = n - 1
+    for i in range(n):
+        xi, yi = pts[i]
+        xj, yj = pts[j]
+        if (yi > cy) != (yj > cy) and \
+                cx < (xj - xi) * (cy - yi) / (yj - yi) + xi:
+            inside = not inside
+        j = i
+    if not inside:
+        return False
+
+    for i in range(n):
+        x1, y1 = pts[i]
+        x2, y2 = pts[(i + 1) % n]
+        cr = (x2 - x1) * (cy - y1) - (y2 - y1) * (cx - x1)
+        if cr * orient < -1e-12:
+            return False
+    return True
+
+
+def check_starlike(snap: MeshSnapshot,
+                   zero_area_threshold: float = 1e-10) -> Optional[Finding]:
+    """Non-starlike faces (quads and n-gons; tris cannot self-intersect).
+
+    The contour is projected onto the face plane (dominant Newell axis
+    dropped; degenerate normal → flattest vertex axis) and tested with
+    outline-crossing, zero-edge and centroid-visibility probes.  Faces
+    claimed by zero_area / lamina are excluded — one defect, one finding."""
+    zero_area = {fi for fi, area in enumerate(snap.face_area)
+                 if area < zero_area_threshold}
+    lamina = set()
+    for fi, verts in enumerate(snap.face_verts):
+        n = len(verts)
+        ekeys = set()
+        for i in range(n):
+            a, b = verts[i], verts[(i + 1) % n]
+            ekeys.add((a, b) if a < b else (b, a))
+        if len(set(verts)) < n or len(ekeys) < n:
+            lamina.add(fi)
+    claimed = zero_area | lamina
+
+    pts3 = snap.points
+    bad = []
+    for fi, verts in enumerate(snap.face_verts):
+        if fi in claimed or len(verts) < 4:
+            continue
+        poly = [pts3[v] for v in verts]
+        # dominant Newell axis
+        nx = ny = nz = 0.0
+        n = len(poly)
+        for i in range(n):
+            a, b = poly[i], poly[(i + 1) % n]
+            nx += (a[1] - b[1]) * (a[2] + b[2])
+            ny += (a[2] - b[2]) * (a[0] + b[0])
+            nz += (a[0] - b[0]) * (a[1] + b[1])
+        if nx * nx + ny * ny + nz * nz < 1e-20:
+            spreads = [max(p[k] for p in poly) - min(p[k] for p in poly)
+                       for k in range(3)]
+            if sum(1 for s in spreads if s <= 1e-12) >= 2:
+                continue   # contour is a line — zero_area's domain
+            ax = min(range(3), key=lambda k: spreads[k])
+        else:
+            ax = max(range(3), key=lambda k: abs((nx, ny, nz)[k]))
+        keep = [k for k in range(3) if k != ax]
+        pts = [(p[keep[0]], p[keep[1]]) for p in poly]
+        if (_outline_crosses(pts) or _has_zero_edge(pts)
+                or not _centroid_sees_all(pts)):
+            bad.append(("face", fi))
     if not bad:
         return None
     return Finding("starlike", "WARNING", len(bad), bad)
 
 
-def check_missing_uvs(snap: MeshSnapshot) -> Optional[Finding]:
-    bad = [("face", i) for i, uvs in enumerate(snap.face_uvs) if uvs is None]
+def check_missing_uvs(snap: MeshSnapshot, zero_sq: float = 1e-12) -> Optional[Finding]:
+    """Faces without usable UV mapping: no layer at all (adapter passes
+    None), or every loop of the face sits at (0, 0) — unmapped leftovers."""
+    bad = []
+    for fi, uvs in enumerate(snap.face_uvs):
+        if uvs is None:
+            bad.append(("face", fi))
+            continue
+        # addon parity: a face counts as mapped unless EVERY loop sits at
+        # (0, 0); NaN coordinates fail the <= test and read as mapped
+        if all(u * u + v * v <= zero_sq
+               for u, v in zip(uvs[0::2], uvs[1::2])):
+            bad.append(("face", fi))
     if not bad:
         return None
     return Finding("missing_uvs", "WARNING", len(bad), bad)

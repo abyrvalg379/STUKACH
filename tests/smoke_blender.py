@@ -502,13 +502,13 @@ def st_core_parity():
     """Stage-2 tranche 1: the vendored stukach_core, fed by the Mesh adapter,
     must agree with the addon's own checks on every garden object.
 
-    Parity set deliberately excludes lamina/starlike (adapter placeholders),
-    missing_uvs (richer addon semantics) and duplicate_verts (core degrades
-    without scipy, which stock Blender does not ship)."""
+    The pure-geometry rules are self-computed in the core (lamina/starlike
+    contours, all-zero UVs, scipy-free duplicate verts with shell filter)."""
     adapter = importlib.import_module(MOD + ".core_adapter")
     sck = importlib.import_module(MOD + "._core")
     enabled = {"triangles", "ngons", "zero_area", "poles", "boundary_edges",
-               "isolated_verts", "zero_length_edges", "face_aspect_ratio"}
+               "isolated_verts", "zero_length_edges", "face_aspect_ratio",
+               "lamina", "starlike", "missing_uvs", "duplicate_verts"}
     compared = 0
     objects = 0
     mismatches = []

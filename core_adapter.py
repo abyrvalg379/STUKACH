@@ -1,18 +1,16 @@
 # -*- coding: utf-8 -*-
 """Blender adapter: Mesh (OBJECT mode) -> stukach_core.MeshSnapshot.
 
-Stage-2 tranche 1 of the strangler: builds the DCC-free core snapshot from a
-bpy Mesh with numpy foreach_get reads.  Parity-proven rules (see the smoke
-core_parity step): triangles, ngons, zero_area, poles, boundary_edges,
-isolated_verts, zero_length_edges, face_aspect_ratio.
+Stage-2 of the strangler: builds the DCC-free core snapshot from a bpy Mesh
+with numpy foreach_get reads.  The pure-geometry rules (triangles, ngons,
+zero_area, poles, boundary_edges, isolated_verts, zero_length_edges,
+face_aspect_ratio, lamina, starlike, missing_uvs, duplicate_verts) are
+computed by the core from this snapshot and are parity-proven against the
+addon checks by the smoke core_parity step (16/16 gate).
 
-NOT covered yet (do not enable these core rules on this snapshot):
-  * lamina / starlike — Blender computes them from BMesh, not Mesh; the
-    adapter fills neutral placeholders,
-  * missing_uvs — the addon's semantics (all-loops-at-0,0 counts as missing)
-    is richer than the core's None-only rule,
-  * duplicate_verts — the core degrades to clean without scipy, which stock
-    Blender does not ship.
+lamina/starlike fields stay neutral placeholders: since stage-2 tranche 2
+the core computes both from the contour geometry, the adapter flags are
+informational only.
 """
 import numpy
 

@@ -24,8 +24,9 @@ RULES: Dict[str, tuple] = {
     "duplicate_verts":    ("BLOCKER", topology.check_duplicate_verts, {"merge_dist": 1e-5}),
     "lamina":             ("BLOCKER", topology.check_lamina, {}),
     "zero_length_edges":  ("BLOCKER", topology.check_zero_length_edges, {"tol": 1e-8}),
-    "starlike":           ("WARNING", topology.check_starlike, {}),
-    "missing_uvs":        ("WARNING", topology.check_missing_uvs, {}),
+    "starlike":           ("WARNING", topology.check_starlike,
+                          {"zero_area_threshold": 1e-10}),
+    "missing_uvs":        ("WARNING", topology.check_missing_uvs, {"zero_sq": 1e-12}),
     # surface
     "face_aspect_ratio":  ("INFO",    surface.check_face_aspect_ratio, {"threshold": 6.0}),
     # symmetry
