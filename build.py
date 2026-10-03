@@ -46,6 +46,7 @@ FILES = [
     "_core/checks/surface.py",
     "_core/checks/symmetry.py",
     "_core/checks/scene.py",
+    "_core/checks/uv.py",
 ]
 
 

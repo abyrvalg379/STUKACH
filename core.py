@@ -1568,25 +1568,23 @@ class UVSingleSet(BaseCheck):
         self.metric_text: str = ""
 
     def set_datas(self):
-        obj = self._parent._object
-        me  = obj.data
-        n   = len(me.uv_layers)
-        if n == 1:
-            self._count      = 0
-            self._bbox       = ()
-            self.metric_text = ""
+        finding = _sck_core.uv.check_uv_single_set(self._parent.core_snapshot())
+        self._count = 1 if finding is not None else 0
+        self._bbox = ()
+        self.metric_text = ""
+        if not self._count:
             return
-        self._count = 1
+        me = self._parent._object.data
+        n = len(me.uv_layers)
         if n == 0:
             self.metric_text = "No UV map"
         else:
             names = ", ".join(l.name for l in me.uv_layers)
             self.metric_text = f"{n} UV maps: {names}"
-        mw = obj.matrix_world
-        corners = [mw @ mathutils.Vector(c) for c in obj.bound_box]
-        edge_idx = [0,1,1,2,2,3,3,0, 4,5,5,6,6,7,7,4, 0,4,1,5,2,6,3,7]
+        mw = self._parent._object.matrix_world
+        corners = [mw @ mathutils.Vector(c) for c in self._parent._object.bound_box]
+        edge_idx = [0, 1, 1, 2, 2, 3, 3, 0, 4, 5, 5, 6, 6, 7, 7, 4, 0, 4, 1, 5, 2, 6, 3, 7]
         self._bbox = tuple((corners[i].x, corners[i].y, corners[i].z) for i in edge_idx)
-
     def get_edges(self, offset: float):
         return self._bbox
 
@@ -1789,127 +1787,26 @@ class UVMicroShellCheck(BaseCheck):
         self._micro_tri_uvs: List = []
 
     def set_datas(self):
-        me = self._parent._object.data
         self._micro_tri_uvs.clear()
-        self._count = 0
-        if not me.uv_layers.active:
+        finding = _sck_core.uv.check_uv_micro_shell(self._parent.core_snapshot())
+        self._count = finding.count if finding is not None else 0
+        if finding is None:
             return
-
+        # visuals stay DCC-side: fan-triangulate the offending faces' UV
+        # contours (detection lives in the core)
+        bad = {i for (t, i) in finding.elements if t == "face"}
         bm = self._parent.bm_object
         uv_layer = bm.loops.layers.uv.active
         if not uv_layer:
             return
-
-        # ── Triangle index buffers — allocated as numpy directly ──────────────
-        # Avoids the slow Python-list → numpy conversion for large meshes.
-        import numpy as np
-        if me.is_editmode:
-            # EDIT mode: canonical BMesh snapshot (me.* is stale here).
-            snap = _edit_uv_data(bm)
-            if snap is None:
-                return
-            tri_loop_np = snap['tri_loop']
-            tri_poly_np = snap['loop_face'][tri_loop_np[:, 0]]
-            n_tris = len(tri_loop_np)
-            if n_tris == 0:
-                return
-        else:
-            me.calc_loop_triangles()
-            n_tris = len(me.loop_triangles)
-            if n_tris == 0:
-                return
-
-            tri_loop_np = np.empty(n_tris * 3, dtype=np.int32)
-            me.loop_triangles.foreach_get("loops", tri_loop_np)     # C-level, no Python iter
-
-            tri_poly_np = np.empty(n_tris, dtype=np.int32)
-            me.loop_triangles.foreach_get("polygon_index", tri_poly_np)
-
-        # ── Island-based detection (fully vectorised) ──────────────────────────
-        # All reads go through me.* foreach_get into numpy; no Python loop over
-        # triangles.  uv_np is read here independently (not from flat_uvs cache)
-        # so we get float32 numpy indexing for free.
-        membership = _uv_island_membership(me, _UV_MICRO_SHELL_MAX_POLYS, bm=bm)
-        if membership is not None:
-            poly_to_island, _flat_uvs_unused, _ps, _pt = membership
-            n_polys_p2i = len(poly_to_island)
-            n_islands    = (max(poly_to_island) + 1) if poly_to_island else 0
-
-            # Read UVs into numpy for fast indexed access
-            uv_np = _get_uv_np(me, bm=bm)
-            if uv_np is None:
-                return
-            n_loops = len(uv_np)
-
-            tri_l  = tri_loop_np.reshape(n_tris, 3)
-            pi_arr = tri_poly_np                              # (n_tris,)
-
-            # Filter triangles whose poly index is within bounds
-            valid  = pi_arr < n_polys_p2i
-            if not valid.any():
-                return
-
-            pi_v   = pi_arr[valid]
-            tri_lv = tri_l[valid]
-
-            # Per-triangle island index
-            p2i_arr = np.array(poly_to_island, dtype=np.int32)
-            ii_arr  = p2i_arr[pi_v]                          # (n_valid_tris,)
-
-            # UV triangle vertices
-            uv0 = uv_np[tri_lv[:, 0]]
-            uv1 = uv_np[tri_lv[:, 1]]
-            uv2 = uv_np[tri_lv[:, 2]]
-            a = uv1 - uv0;  b = uv2 - uv0
-            tri_areas = np.abs(a[:, 0] * b[:, 1] - a[:, 1] * b[:, 0]) * 0.5
-
-            # Sum areas per island (bincount with float weights)
-            island_area = np.bincount(ii_arr, weights=tri_areas.astype(np.float64),
-                                      minlength=n_islands)
-
-            micro_mask_isl = island_area < _MICRO_SHELL_ISLAND_AREA
-            micro_islands_arr = np.where(micro_mask_isl)[0]
-            self._count = len(micro_islands_arr)
-
-            if self._count:
-                micro_isl_set = set(micro_islands_arr.tolist())
-                tri_is_micro  = np.isin(ii_arr, micro_islands_arr)
-                mu0 = uv0[tri_is_micro];  mu1 = uv1[tri_is_micro];  mu2 = uv2[tri_is_micro]
-                self._micro_tri_uvs = [
-                    ((float(mu0[i, 0]), float(mu0[i, 1])),
-                     (float(mu1[i, 0]), float(mu1[i, 1])),
-                     (float(mu2[i, 0]), float(mu2[i, 1])))
-                    for i in range(len(mu0))
-                ]
-            return
-
-        # ── Fallback: per-triangle (mesh > _UV_MICRO_SHELL_MAX_POLYS) ─────────
-        # tri_loop_np is already a numpy array — zero-copy reshape.
-        uv_np = _get_uv_np(me, bm=bm)
-        if uv_np is None:
-            return
-
-        tri_l = tri_loop_np.reshape(n_tris, 3)       # free reshape, no copy
-        uv0 = uv_np[tri_l[:, 0]];  uv1 = uv_np[tri_l[:, 1]];  uv2 = uv_np[tri_l[:, 2]]
-        a = uv1 - uv0;  b = uv2 - uv0
-        areas = np.abs(a[:, 0] * b[:, 1] - a[:, 1] * b[:, 0]) * 0.5
-
-        micro_mask = areas < _MICRO_SHELL_UV_AREA
-        if not micro_mask.any():
-            self._count = 0
-            return
-
-        micro_idx  = np.where(micro_mask)[0]
-        micro_poly = set(tri_poly_np[micro_idx].tolist())
-        micro_tris = [
-            ((float(uv0[i, 0]), float(uv0[i, 1])),
-             (float(uv1[i, 0]), float(uv1[i, 1])),
-             (float(uv2[i, 0]), float(uv2[i, 1])))
-            for i in micro_idx
-        ]
-        self._micro_tri_uvs = micro_tris
-        self._count = len(micro_poly)
-
+        bm.faces.ensure_lookup_table()
+        for fi in sorted(bad):
+            if fi >= len(bm.faces):
+                continue
+            uvs = [(l[uv_layer].uv.x, l[uv_layer].uv.y)
+                   for l in bm.faces[fi].loops]
+            for i in range(1, len(uvs) - 1):
+                self._micro_tri_uvs.append((uvs[0], uvs[i], uvs[i + 1]))
     def get_edges(self, offset: float):
         return ()
 
@@ -2741,136 +2638,25 @@ class UVUDIMBounds(BaseCheck):
     _UDIM_BOUNDS_MAX_POLYS: int = 500_000
 
     def set_datas(self):
-        import numpy as np
-        me = self._parent._object.data
         self._bad_tri_uvs.clear()
         self._count = 0
-
-        if not me.uv_layers.active or not me.polygons:
+        finding = _sck_core.uv.check_uv_udim_bounds(self._parent.core_snapshot())
+        self._count = finding.count if finding is not None else 0
+        if finding is None:
             return
-
+        bad = {i for (t, i) in finding.elements if t == "face"}
         bm = self._parent.bm_object
-        _EPS = 1e-5
-
-        # ── Primary: _uv_island_membership (shared _uv_membership_cache) ──────
-        # UVOverlapCheck and UVPaddingCheck run before this check (see CHECK_TYPES
-        # order) and populate _uv_membership_cache — so most objects get a free
-        # cache hit here.  flat_uvs is reused directly (no BMesh face iteration).
-        membership = _uv_island_membership(me, self._UDIM_BOUNDS_MAX_POLYS, bm=bm)
-
-        if membership is None:
-            # Mesh > 100k polys — fall back to shared _uv_island_cache (pre-built
-            # bbox, very cheap if cache is warm from UVUDIMReady).
-            islands_shared = _detect_uv_islands(me, bm=bm)
-            if not islands_shared:
-                return
-            bad_polys: Set[int] = set()
-            bad_count = 0
-            for polys, u_min, v_min, u_max, v_max in islands_shared:
-                if (math.floor(u_max - _EPS) > math.floor(u_min + _EPS) or
-                        math.floor(v_max - _EPS) > math.floor(v_min + _EPS)):
-                    bad_count += 1
-                    bad_polys.update(polys)
-            self._count = bad_count
-            if not bad_polys:
-                return
-            # Visual triangles (BMesh path — only for truly large meshes here)
-            uv_layer = bm.loops.layers.uv.active
-            if uv_layer:
-                for l0, l1, l2 in bm.calc_loop_triangles():
-                    if l0.face.index in bad_polys:
-                        self._bad_tri_uvs.append((
-                            (l0[uv_layer].uv.x, l0[uv_layer].uv.y),
-                            (l1[uv_layer].uv.x, l1[uv_layer].uv.y),
-                            (l2[uv_layer].uv.x, l2[uv_layer].uv.y),
-                        ))
+        uv_layer = bm.loops.layers.uv.active
+        if not uv_layer:
             return
-
-        # ── Have membership: vectorised bbox via numpy — no BMesh face loop ───
-        poly_to_island, _flat_uvs_unused, _ps_unused, poly_total_l = membership
-        n_polys = len(poly_to_island)
-        if n_polys == 0:
-            return
-
-        n_islands = max(poly_to_island) + 1
-
-        # Read UVs (C-level in OBJECT mode; BMesh fallback in EDIT mode)
-        uv_np = _get_uv_np(me, bm=bm)
-        if uv_np is None:
-            return
-        n_loops = len(uv_np)
-
-        # Per-loop island index via np.repeat (poly_total expands p2i to per-loop)
-        p2i      = np.array(poly_to_island, dtype=np.int32)
-        pt       = np.array(poly_total_l,   dtype=np.int32)
-        loop_isl = np.repeat(p2i, pt)               # (n_loops,)
-
-        # Island UV bboxes — np.minimum/maximum.at for scatter-accumulate
-        INF = np.float32(1e18)
-        isl_u_min = np.full(n_islands,  INF, dtype=np.float32)
-        isl_u_max = np.full(n_islands, -INF, dtype=np.float32)
-        isl_v_min = np.full(n_islands,  INF, dtype=np.float32)
-        isl_v_max = np.full(n_islands, -INF, dtype=np.float32)
-        np.minimum.at(isl_u_min, loop_isl, uv_np[:, 0])
-        np.maximum.at(isl_u_max, loop_isl, uv_np[:, 0])
-        np.minimum.at(isl_v_min, loop_isl, uv_np[:, 1])
-        np.maximum.at(isl_v_max, loop_isl, uv_np[:, 1])
-
-        # Which islands cross a tile boundary?
-        bad_isl_mask = (
-            (np.floor(isl_u_max - _EPS) > np.floor(isl_u_min + _EPS)) |
-            (np.floor(isl_v_max - _EPS) > np.floor(isl_v_min + _EPS))
-        )
-        bad_isl_arr  = np.where(bad_isl_mask)[0]
-        self._count  = len(bad_isl_arr)
-        if not self._count:
-            return
-
-        # Collect bad polygon indices
-        bad_isl_set  = set(bad_isl_arr.tolist())
-        bad_poly_set = {fi for fi, isl in enumerate(poly_to_island)
-                        if isl in bad_isl_set}
-
-        # ── Visual triangles — snapshot in EDIT mode, me.loop_triangles otherwise ─
-        if me.is_editmode:
-            # me.* is stale here; reuse the canonical snapshot (same ordering
-            # as uv_np).
-            snap = _edit_uv_data(bm)
-            if snap is None:
-                return
-            tri_l = snap['tri_loop']
-            tri_poly_np = snap['loop_face'][tri_l[:, 0]]
-            if len(tri_l) == 0:
-                return
-        else:
-            me.calc_loop_triangles()
-            n_tris = len(me.loop_triangles)
-            if n_tris == 0:
-                return
-
-            tri_loop_np = np.empty(n_tris * 3, dtype=np.int32)
-            me.loop_triangles.foreach_get("loops", tri_loop_np)
-            tri_poly_np = np.empty(n_tris, dtype=np.int32)
-            me.loop_triangles.foreach_get("polygon_index", tri_poly_np)
-            tri_l = tri_loop_np.reshape(n_tris, 3)
-
-        # Vectorised bad-poly mask via np.isin
-        bad_poly_arr  = np.fromiter(bad_poly_set, dtype=np.int32, count=len(bad_poly_set))
-        bad_poly_mask = np.isin(tri_poly_np, bad_poly_arr)
-        if not bad_poly_mask.any():
-            return
-
-        bad_tri_l = tri_l[bad_poly_mask]            # (n_bad, 3)
-        bt0 = uv_np[bad_tri_l[:, 0]]
-        bt1 = uv_np[bad_tri_l[:, 1]]
-        bt2 = uv_np[bad_tri_l[:, 2]]
-        self._bad_tri_uvs = [
-            ((float(bt0[i, 0]), float(bt0[i, 1])),
-             (float(bt1[i, 0]), float(bt1[i, 1])),
-             (float(bt2[i, 0]), float(bt2[i, 1])))
-            for i in range(len(bt0))
-        ]
-
+        bm.faces.ensure_lookup_table()
+        for fi in sorted(bad):
+            if fi >= len(bm.faces):
+                continue
+            uvs = [(l[uv_layer].uv.x, l[uv_layer].uv.y)
+                   for l in bm.faces[fi].loops]
+            for i in range(1, len(uvs) - 1):
+                self._bad_tri_uvs.append((uvs[0], uvs[i], uvs[i + 1]))
     def get_edges(self, offset: float) -> Tuple:
         return ()
 

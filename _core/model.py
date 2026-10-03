@@ -54,6 +54,7 @@ class MeshSnapshot:
     world_matrix: Tuple[float, ...] = ()
     rotate_pivot: Tuple[float, float, float] = (0.0, 0.0, 0.0)
     parent_types: List[str] = field(default_factory=list)             # adapter node types of parents
+    uv_set_count: Optional[int] = None                                # None = adapter didn't report
 
     scene: Dict = field(default_factory=dict)   # e.g. {"short_names": {name: count}}
 

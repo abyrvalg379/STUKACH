@@ -22,6 +22,7 @@ CORE_DELEGATED = frozenset({
     "non_manifold", "lamina", "starlike", "duplicate_verts",
     "symmetry_x", "symmetry_y", "symmetry_z",
     "duplicated_names", "trailing_numbers", "parent_geometry",
+    "uv_single_set", "uv_udim_bounds", "uv_micro_shell",
 })
 
 
@@ -29,6 +30,8 @@ def build_snapshot(me, node: str = "", shape: str = "",
                    parent_types=None, scene=None):
     """Build a stukach_core MeshSnapshot from a bpy Mesh (OBJECT mode data)."""
     from . import _core
+
+    uv_set_count = len(me.uv_layers)
 
     n_verts = len(me.vertices)
     co = numpy.empty(n_verts * 3, dtype=numpy.float64)
@@ -85,6 +88,7 @@ def build_snapshot(me, node: str = "", shape: str = "",
         edge_conn=edge_conn,
         parent_types=list(parent_types or []),
         scene=dict(scene or {}),
+        uv_set_count=uv_set_count,
     )
 
 
@@ -130,4 +134,5 @@ def build_snapshot_from_bm(bm, node: str = "", shape: str = "",
         edge_conn=edge_conn,
         parent_types=list(parent_types or []),
         scene=dict(scene or {}),
+        uv_set_count=len(bm.loops.layers.uv),
     )

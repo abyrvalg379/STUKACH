@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Callable, Dict, Optional
 
 from .model import MeshSnapshot, Finding
-from .checks import topology, surface, symmetry, scene
+from .checks import topology, surface, symmetry, scene, uv
 
 # rule id → (severity, evaluator callable, param name → default)
 RULES: Dict[str, tuple] = {
@@ -27,6 +27,10 @@ RULES: Dict[str, tuple] = {
     "starlike":           ("WARNING", topology.check_starlike,
                           {"zero_area_threshold": 1e-10}),
     "missing_uvs":        ("WARNING", topology.check_missing_uvs, {"zero_sq": 1e-12}),
+    # uv
+    "uv_single_set":      ("WARNING", uv.check_uv_single_set, {"expected": 1}),
+    "uv_udim_bounds":     ("BLOCKER", uv.check_uv_udim_bounds, {"eps": 1e-5}),
+    "uv_micro_shell":     ("WARNING", uv.check_uv_micro_shell, {"island_area": 1e-5}),
     # surface
     "face_aspect_ratio":  ("INFO",    surface.check_face_aspect_ratio, {"threshold": 6.0}),
     # symmetry
