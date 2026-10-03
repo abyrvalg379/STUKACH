@@ -390,6 +390,27 @@ def st_registry_sync():
     return "42 checks, severity map and categories in sync"
 
 
+def st_registry_dump():
+    """Dump the checker registry as JSON for tests/gen_checkers_doc.py and
+    the CI freshness gate.  Deterministic content: sorted keys, first
+    docstring line only."""
+    import json as _json
+    dump = {}
+    for key, cls in core.CHECK_TYPES.items():
+        doc = (cls.__doc__ or "").strip().splitlines()
+        dump[key] = {
+            "severity": ui.CHECK_SEVERITY.get(key, "WARNING"),
+            "category": props_mod._CATEGORY_OF.get(key, ""),
+            "doc": doc[0].strip() if doc else "",
+        }
+    out = os.environ.get("STUKACH_REGISTRY_OUT") or os.path.join(
+        tempfile.gettempdir(), "stukach_registry_dump.json")
+    with open(out, "w", encoding="utf-8", newline="\n") as fh:
+        _json.dump(dump, fh, indent=2, sort_keys=True)
+        fh.write("\n")
+    return f"{len(dump)} checks -> {out}"
+
+
 def st_validate():
     garden_names = [o.name for o in bpy.data.objects if o.type == "MESH"]
     bpy.ops.asset_checker.validate_scene("EXEC_DEFAULT")
@@ -643,6 +664,7 @@ def main():
     step("clean_scene", st_clean_scene)
     step("enable_checks", st_enable_checks)
     step("registry_sync", st_registry_sync)
+    step("registry_dump", st_registry_dump)
 
     make_garden()
     step("validate_scene", st_validate)

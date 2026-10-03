@@ -69,5 +69,18 @@ jobs:
 
       - name: Run smoke test
         shell: bash
+        env:
+          STUKACH_REGISTRY_OUT: ${{ runner.temp }}/stukach_registry_dump.json
         run: |
           python tests/run_smoke.py --blender "$BLENDER_BIN" --timeout 420
+
+      # The checker reference (docs/CHECKS.md) is generated from the code
+      # registries - a registry change without the regenerated file fails CI.
+      - name: Checker reference is fresh
+        if: matrix.os == 'ubuntu-latest' && matrix.blender == '5.2.2'
+        shell: bash
+        env:
+          STUKACH_REGISTRY_OUT: ${{ runner.temp }}/stukach_registry_dump.json
+        run: |
+          python -m pip install --quiet numpy
+          python tests/gen_checkers_doc.py --check
