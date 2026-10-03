@@ -20,7 +20,7 @@ import pymupdf
 
 SOFFICE = r'C:\Program Files\LibreOffice\program\soffice.exe'
 # TOC placeholder helper — resolve via environment, keep machine paths out of git
-PLACEHOLDER = os.environ.get('STUKACH_TOC_HELPER', 'add_toc_placeholders.py')
+PLACEHOLDER = os.environ.get('TOC_HELPER', 'add_toc_placeholders.py')
 
 
 def convert(name):
