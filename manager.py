@@ -130,10 +130,10 @@ class MeshCheckObject:
         self._transform_key: tuple = ()  # (loc, rot, scale) — transform dirty flag
         self._name_key: tuple = ()   # (obj.name, mesh data name) — rename dirty flag
         self._mat_udim_map: dict = {}
-        # Shared KD-tree for SymmetryX / SymmetryY / SymmetryZ (built once per topology change)
-        self._sym_kd_key:   tuple = ()
-        self._sym_kd_cache  = None   # mathutils.kdtree.KDTree
-        self._sym_kd_co           = None   # numpy (n_verts, 3) float32, rebuilt per topology  # mat_name → set of (tile_u, tile_v)
+        # Core symmetry batch (X/Y/Z findings) — shared per update cycle;
+        # whichever axis check runs first computes all three via the core
+        self._sym_batch:      object = None
+        self._sym_batch_key:  tuple = ()
         self._zf_kd_key: tuple = ()  # (mesh_key, transform_key) - inter z-fighting KD cache stamp
         self._zf_kd_cache = None   # (kd, centroids, aabb_min, aabb_max)
         self._core_snap = None        # vendored-core MeshSnapshot, shared per update cycle
@@ -1009,7 +1009,7 @@ class MeshCheck:
 
         # Per-object world-space face centroids + KD-tree over them - feeds
         # the coincident-parallel-faces pass inside the pair loop below.
-        # Cached per (mesh, transform) like _sym_kd - Live re-runs this pass
+        # Cached per (mesh, transform) like _core_snap - Live re-runs this pass
         # on every flush and rebuilding the KD tree each time would dominate.
         def _centroid_kd(mc_obj):
             # matrix_world, not _transform_key: a parent rotating around the

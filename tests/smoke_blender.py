@@ -530,7 +530,7 @@ def st_core_parity():
     enabled = {"triangles", "ngons", "zero_area", "poles", "boundary_edges",
                "isolated_verts", "zero_length_edges", "face_aspect_ratio",
                "lamina", "starlike", "missing_uvs", "duplicate_verts",
-               "non_manifold"}
+               "non_manifold", "symmetry_x", "symmetry_y", "symmetry_z"}
     compared = 0
     objects = 0
     mismatches = []

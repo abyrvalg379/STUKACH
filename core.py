@@ -3107,79 +3107,22 @@ class SymmetryCheck(BaseCheck):
         self._asym_verts: List[int] = []
 
     def set_datas(self):
-        import numpy as np
-        bm = self._parent.bm_object
-        bm.verts.ensure_lookup_table()
-        self._asym_verts.clear()
-        n_verts = len(bm.verts)
-        if not n_verts:
-            self._count = 0
-            return
-
-        # ── Shared numpy coords cache — built once for all 3 axis checks ──────
-        # All 3 SymmetryX/Y/Z share the same parent.  The first check reads
-        # vertex coords via foreach_get into a numpy float32 array; the others
-        # reuse the same array (zero copy).
-        topo_key = (len(bm.verts), len(bm.edges), len(bm.faces))
+        # All 3 axis checks share ONE core batch pass: coords convert once,
+        # the packed key set sorts once (the addon used to sort per axis).
+        # The batch is cached on the parent per update-cycle stamp — the
+        # first axis check pays for all three, siblings read the cache.
         par = self._parent
-        if par._sym_kd_key != topo_key:
-            me = par._object.data
-            if me.is_editmode:
-                # me.vertices is stale in EDIT mode — read the live edit-BMesh
-                # (BMVertSeq has no foreach_get — build the array directly).
-                co_np = np.array([v.co[:] for v in bm.verts], dtype=np.float32)
-            else:
-                co_np = np.empty(n_verts * 3, dtype=np.float32)
-                me.vertices.foreach_get("co", co_np)
-            co_np = co_np.reshape(n_verts, 3)
-            par._sym_kd_key   = topo_key
-            par._sym_kd_co    = co_np   # numpy (n_verts, 3) float32
-            par._sym_kd_cache = None
+        me = par._object.data
+        key = (par._mesh_key, par._uv_key, me.is_editmode)
+        if par._sym_batch is None or par._sym_batch_key != key:
+            snap = par.core_snapshot()
+            par._sym_batch = _sck_core.symmetry.check_symmetry_batch(snap)
+            par._sym_batch_key = key
+        finding = par._sym_batch.get(self._AXIS)
+        if finding is None:
+            self._asym_verts = []
         else:
-            co_np = par._sym_kd_co      # reuse cached numpy array
-
-        # ── Numpy set-membership via packed int64 + searchsorted ─────────────
-        # 1. Round coords to grid → integer (gx, gy, gz).
-        # 2. Pack each triple into one int64 to enable np.sort + np.searchsorted.
-        # 3. Mirror the relevant axis; binary-search for each mirrored key in the
-        #    sorted original set.  Missing keys → asymmetric vertex.
-        #
-        # SHIFT/SPAN cover ±(SHIFT/inv) metres (≈ ±1 km at thr=0.001).
-        # Packed max ≈ (2·SHIFT)^3 ≈ 6.4e13 — well within int64.
-        thr  = self._THRESHOLD
-        axis = self._AXIS
-        inv  = 1.0 / max(thr, 1e-9)
-
-        SHIFT = 1_000_000        # grid units; covers ±1000 m at default thr=0.001
-        SPAN  = 2 * SHIFT + 1
-
-        gi = np.round(co_np * inv).astype(np.int64)   # (n_verts, 3)
-
-        # Clamp to avoid overflow in packing (anything outside ±SHIFT is already
-        # asymmetric by definition, so clipping is correct).
-        gi = np.clip(gi, -SHIFT, SHIFT)
-        gc = gi + SHIFT                                # shift to [0, 2·SHIFT]
-
-        # Pack: x * SPAN² + y * SPAN + z
-        packed = (gc[:, 0] * SPAN + gc[:, 1]) * SPAN + gc[:, 2]
-        packed_sorted = np.sort(packed)
-
-        # Build mirrored pack keys (negate the mirror axis before shifting)
-        mi = gc.copy()
-        if axis == 0:
-            mi[:, 0] = (-gi[:, 0]).clip(-SHIFT, SHIFT) + SHIFT
-        elif axis == 1:
-            mi[:, 1] = (-gi[:, 1]).clip(-SHIFT, SHIFT) + SHIFT
-        else:
-            mi[:, 2] = (-gi[:, 2]).clip(-SHIFT, SHIFT) + SHIFT
-        m_packed = (mi[:, 0] * SPAN + mi[:, 1]) * SPAN + mi[:, 2]
-
-        # Binary search: a vertex is asymmetric if its mirror key is absent
-        idx = np.searchsorted(packed_sorted, m_packed)
-        idx = np.clip(idx, 0, len(packed_sorted) - 1)
-        asym_mask = packed_sorted[idx] != m_packed
-
-        self._asym_verts = list(np.where(asym_mask)[0].tolist())
+            self._asym_verts = [i for (t, i) in finding.elements if t == "vert"]
         self._count = len(self._asym_verts)
 
     def get_edges(self, offset: float) -> Tuple:
@@ -3381,51 +3324,59 @@ class DuplicateVertices(BaseCheck):
     def __init__(self, parent):
         super().__init__(parent)
         self._dup_idx: List[int] = []
-        self._dup_pair_idx: List[int] = []   # flagged verts ∪ their merge targets
-
-    @staticmethod
-    def _vert_islands(bm) -> list:
-        """Union-find over the edge graph → island id per vert index."""
-        parent = list(range(len(bm.verts)))
-
-        def find(x: int) -> int:
-            root = x
-            while parent[root] != root:
-                root = parent[root]
-            while parent[x] != root:      # path compression
-                parent[x], x = root, parent[x]
-            return root
-
-        for e in bm.edges:
-            a, b = e.verts[0].index, e.verts[1].index
-            ra, rb = find(a), find(b)
-            if ra != rb:
-                parent[ra] = rb
-        return [find(i) for i in range(len(parent))]
+        self._dup_pair_idx: List[int] = []   # flagged verts ∪ their merge targets (lazy)
+        self._pairs_key: tuple = ()
 
     def set_datas(self):
-        bm = self._parent.bm_object
-        self._dup_idx = []
-        self._dup_pair_idx = []
-        if not bm.verts:
-            self._count = 0
-            return
-        result = bmesh.ops.find_doubles(bm, verts=list(bm.verts), dist=self._MERGE_DIST)
-        targetmap = result['targetmap']
-        if not targetmap:
-            self._count = 0
-            return
-        islands = self._vert_islands(bm)
-        self._dup_idx = [v.index for v, t in targetmap.items()
-                         if islands[v.index] == islands[t.index]]
+        # Detection lives in the vendored core (numpy grid, find_doubles
+        # semantics, same-shell filter) — read through the shared snapshot.
+        finding = _sck_core.topology.check_duplicate_verts(
+            self._parent.core_snapshot(), self._MERGE_DIST)
+        if finding is None:
+            self._dup_idx = []
+        else:
+            self._dup_idx = [i for (t, i) in finding.elements if t == "vert"]
         self._count = len(self._dup_idx)
-        if self._count:
-            # Both pair members are needed for select/fix — merging with only
-            # half of each pair selected would be a no-op.
-            same_island = [(v, t) for v, t in targetmap.items()
-                           if islands[v.index] == islands[t.index]]
-            self._dup_pair_idx = sorted({*(v.index for v, _ in same_island),
-                                         *(t.index for _, t in same_island)})
+        self._dup_pair_idx = []
+        self._pairs_key = ()
+
+    def _ensure_pairs(self):
+        """Resolve merge partners for the flagged verts — select/fix needs
+        BOTH pair members (merging with half of each pair selected is a
+        no-op), while the core finding carries only the senior index of each
+        pair.  Partners come from a cell grid over the shared snapshot's
+        points; this is click-time interaction, not a rule, so it stays
+        DCC-side and lazy."""
+        par = self._parent
+        me = par._object.data
+        key = (par._mesh_key, par._uv_key, me.is_editmode)
+        if self._pairs_key == key and self._dup_pair_idx:
+            return
+        snap = par.core_snapshot()
+        pts = snap.points
+        dist = self._MERGE_DIST
+        d2 = dist * dist
+        inv = 1.0 / dist
+        cell = {}
+        for i, (x, y, z) in enumerate(pts):
+            cell.setdefault((round(x * inv), round(y * inv),
+                             round(z * inv)), []).append(i)
+        partners = set()
+        for i in self._dup_idx:
+            x, y, z = pts[i]
+            cx, cy, cz = round(x * inv), round(y * inv), round(z * inv)
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    for dz in (-1, 0, 1):
+                        for j in cell.get((cx + dx, cy + dy, cz + dz), ()):
+                            if j == i:
+                                continue
+                            px, py, pz = pts[j]
+                            ex, ey, ez = px - x, py - y, pz - z
+                            if ex * ex + ey * ey + ez * ez <= d2:
+                                partners.add(j)
+        self._dup_pair_idx = sorted(set(self._dup_idx) | partners)
+        self._pairs_key = key
 
     def get_edges(self, offset: float) -> Tuple:
         return ()
@@ -3449,6 +3400,7 @@ class DuplicateVertices(BaseCheck):
         return tuple(coords)
 
     def get_select_data(self):
+        self._ensure_pairs()
         return ('VERT', self._dup_pair_idx or self._dup_idx)
 
 

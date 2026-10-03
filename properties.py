@@ -864,6 +864,11 @@ class ASSET_CHECKER_OT_fix_merge_by_distance(bpy.types.Operator):
         merged_objs = 0
         for obj, mc_obj in list(_problem_objects("duplicate_verts")):
             checker = mc_obj._checks.get("duplicate_verts")
+            if checker is not None and hasattr(checker, "_ensure_pairs"):
+                try:
+                    checker._ensure_pairs()   # lazy: resolve partners now
+                except Exception as e:
+                    alog(f"[AssetChecker] dup pairs {obj.name}: {e}")
             pair_idx = list(getattr(checker, '_dup_pair_idx', []) or [])
             if not pair_idx:
                 continue
