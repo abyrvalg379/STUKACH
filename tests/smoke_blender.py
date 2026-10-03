@@ -508,7 +508,8 @@ def st_core_parity():
     sck = importlib.import_module(MOD + "._core")
     enabled = {"triangles", "ngons", "zero_area", "poles", "boundary_edges",
                "isolated_verts", "zero_length_edges", "face_aspect_ratio",
-               "lamina", "starlike", "missing_uvs", "duplicate_verts"}
+               "lamina", "starlike", "missing_uvs", "duplicate_verts",
+               "non_manifold"}
     compared = 0
     objects = 0
     mismatches = []

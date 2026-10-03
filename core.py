@@ -918,16 +918,25 @@ class NonManifold(BaseCheck):
         return ""
 
     def set_datas(self):
-        bm = self._parent.bm_object
-        bm.edges.ensure_lookup_table()
-        self._tjunction_idx = []
-        self._wire_idx      = []
-        for e in bm.edges:
-            nf = len(e.link_faces)
-            if nf > 2:
-                self._tjunction_idx.append(e.index)
-            elif nf == 0:
-                self._wire_idx.append(e.index)
+        from .core_adapter import build_snapshot, build_snapshot_from_bm
+
+        obj = self._parent._object
+        me = obj.data
+        if me.is_editmode:
+            snap = build_snapshot_from_bm(self._parent.bm_object,
+                                          node=obj.name, shape=me.name)
+        else:
+            snap = build_snapshot(me, node=obj.name, shape=me.name)
+
+        finding = _sck_core.topology.check_non_manifold(snap)
+        # wire edges (conn == 0) are visualised, never counted — the core
+        # finding carries only the counted T-junctions, wire comes from the
+        # snapshot's connectivity (one int pass)
+        self._wire_idx = [i for i, c in enumerate(snap.edge_conn) if c == 0]
+        if finding is None:
+            self._tjunction_idx = []
+            return
+        self._tjunction_idx = [i for (t, i) in finding.elements if t == "edge"]
 
     def _edge_coords(self, indices, bm, wm, offset):
         coords = []

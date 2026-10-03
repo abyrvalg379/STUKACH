@@ -28,67 +28,22 @@ def check_ngons(snap: MeshSnapshot) -> Optional[Finding]:
 
 
 def check_non_manifold(snap: MeshSnapshot) -> Optional[Finding]:
-    ve = snap.vert_edges()
-    vf = snap.vert_faces()
-    ef = snap.edge_faces()
+    """Non-manifold EDGES only (Blender-parity semantics).
 
-    # 1) non-manifold edges: shared by more than 2 faces
-    bad_edges = [("edge", eid) for eid, conn in enumerate(snap.edge_conn) if conn > 2]
-
-    # 2) non-contiguous vertex fans: faces around a vertex must form one fan
-    #    (shared-edge walk) — catches two islands sharing a single vertex
-    bad_verts = []
-    for v, f_ids in vf.items():
-        e_ids = ve.get(v, ())
-        if len(f_ids) > 1 and len(e_ids) > 1:
-            fset = set(f_ids)
-            adj = {f: set() for f in f_ids}
-            for e in e_ids:
-                shared = [f for f in ef.get(e, ()) if f in fset]
-                for i in range(len(shared)):
-                    for j in range(i + 1, len(shared)):
-                        adj[shared[i]].add(shared[j])
-                        adj[shared[j]].add(shared[i])
-            visited = {f_ids[0]}
-            queue = [f_ids[0]]
-            while queue:
-                cur = queue.pop()
-                for nb in adj[cur]:
-                    if nb not in visited:
-                        visited.add(nb)
-                        queue.append(nb)
-            if len(visited) < len(f_ids):
-                bad_verts.append(("vert", v))
-
-    # 3) lamina faces (same contour-repeat test the lamina rule uses)
-    bad_faces = []
-    for fi, verts in enumerate(snap.face_verts):
-        n = len(verts)
-        ekeys = set()
-        for i in range(n):
-            a, b = verts[i], verts[(i + 1) % n]
-            ekeys.add((a, b) if a < b else (b, a))
-        if len(set(verts)) < n or len(ekeys) < n:
-            bad_faces.append(("face", fi))
-
-    # 4) isolated vertices (referenced by nothing)
-    referenced = set(ve.keys()) | set(vf.keys())
-    iso = [("vert", v) for v in range(len(snap.points)) if v not in referenced]
-
-    bad_verts = list(dict.fromkeys(bad_verts + iso))
-    elements = bad_edges + bad_faces + bad_verts
-    if not elements:
+    T-junction edges (shared by more than 2 faces) are the counted defect —
+    they break subdivision, booleans and some exporters.  Wire edges
+    (shared by no face — leftovers after internal-face deletion) are
+    reported in the metric for visualisation but never count toward the
+    verdict.  Open borders (one face) are intentional and belong to
+    boundary_edges.  Vertex-fan and isolated-vertex defects are NOT part of
+    this rule: isolated verts have their own rule (isolated_verts), and
+    lamina faces belong to lamina (no double-counting)."""
+    tj = [("edge", i) for i, conn in enumerate(snap.edge_conn) if conn > 2]
+    wire = [i for i, conn in enumerate(snap.edge_conn) if conn == 0]
+    if not tj:
         return None
-    parts = []
-    if bad_edges:
-        parts.append("%d edges" % len(bad_edges))
-    if bad_faces:
-        parts.append("%d lamina" % len(bad_faces))
-    if bad_verts:
-        parts.append("%d verts" % len(bad_verts))
-    return Finding("non_manifold", "BLOCKER", len(elements), elements,
-                   metric=" + ".join(parts))
-
+    metric = "+ %d wire" % len(wire) if wire else ""
+    return Finding("non_manifold", "BLOCKER", len(tj), tj, metric=metric)
 
 def check_zero_area(snap: MeshSnapshot, threshold: float = 1e-10) -> Optional[Finding]:
     bad = [("face", fi) for fi, area in enumerate(snap.face_area) if area < threshold]
