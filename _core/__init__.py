@@ -10,6 +10,7 @@ Public API:
     naming (contract + hygiene validators), verdict/merge
 """
 from .model import MeshSnapshot, Finding, edge_length
+from .checks import topology, surface, symmetry, scene
 from .registry import RULES, run_checks
 from . import naming
 from .verdict import verdict, merge

@@ -1,5 +1,7 @@
 # -*- coding:utf-8 -*-
 import bpy
+
+from . import _core as _sck_core   # vendored DCC-free core (stage 2)
 import bmesh
 import math
 import mathutils
@@ -4088,151 +4090,50 @@ class SharpEdgesNotHard(_EdgeOverlay, BaseCheck):
 class Starlike(_EdgeOverlay, _FanFaceOverlay, BaseCheck):
     """Non-starlike faces — polygon outline self-intersects.
 
-    Maya isStarlike() analog: the contour is projected onto the face plane
-    (dominant normal axis dropped) and non-adjacent segments are tested for
-    intersection.  Triangles cannot self-intersect and never flag."""
+    Stage-2 strangler: detection lives in the vendored core
+    (stukach_core.topology.check_starlike — Newell-axis projection,
+    outline crossing / zero-edge / centroid-visibility probes, with
+    zero_area/lamina claim exclusion).  This class renders the finding:
+    flagged faces + their perimeter edges for the overlay."""
 
     def __init__(self, parent):
         super().__init__(parent)
         self._faces_idx: List[int] = []
         self._edges_idx: List[int] = []
 
-    @staticmethod
-    def _outline_crosses(pts):
-        """True if any two non-adjacent segments of the 2-D polygon intersect."""
-        n = len(pts)
-
-        def cross(o, a, b):
-            return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
-
-        def on_seg(a, b, p):
-            return (min(a[0], b[0]) - 1e-12 <= p[0] <= max(a[0], b[0]) + 1e-12 and
-                    min(a[1], b[1]) - 1e-12 <= p[1] <= max(a[1], b[1]) + 1e-12)
-
-        for i in range(n):
-            a1, a2 = pts[i], pts[(i + 1) % n]
-            for j in range(i + 2, n):
-                if i == 0 and j == n - 1:
-                    continue   # ring-adjacent segments share a vertex legitimately
-                b1, b2 = pts[j], pts[(j + 1) % n]
-                d1 = cross(b1, b2, a1)
-                d2 = cross(b1, b2, a2)
-                d3 = cross(a1, a2, b1)
-                d4 = cross(a1, a2, b2)
-                if ((d1 > 0 and d2 < 0) or (d1 < 0 and d2 > 0)) and \
-                   ((d3 > 0 and d4 < 0) or (d3 < 0 and d4 > 0)):
-                    return True
-                # touching / collinear cases (pinch vertices, T-spikes)
-                if d1 == 0 and on_seg(b1, b2, a1):
-                    return True
-                if d2 == 0 and on_seg(b1, b2, a2):
-                    return True
-                if d3 == 0 and on_seg(a1, a2, b1):
-                    return True
-                if d4 == 0 and on_seg(a1, a2, b2):
-                    return True
-        return False
-
     def set_datas(self):
-        bm = self._parent.bm_object
-        bm.faces.ensure_lookup_table()
-        self._faces_idx = []
-        self._edges_idx = []
-        # Ownership: more specific degenerate checks claim the face first
-        # (both run earlier in CHECK_TYPES, so their indices are fresh).
-        # Starlike reports only what they left — one defect, one finding.
-        claimed = set()
-        mc_props = bpy.context.window_manager.mesh_check_props
-        for key in ("zero_area", "lamina"):
-            if not getattr(mc_props, key, False):
-                continue
-            other = self._parent._checks.get(key)
-            if other is not None:
-                claimed.update(getattr(other, "_faces_idx", []) or [])
-        for f in bm.faces:
-            if f.index in claimed:
-                continue
-            if len(f.verts) < 4:
-                continue
-            n = f.normal
-            if n.length_squared < 1e-20:
-                # Degenerate Newell normal (symmetric bowtie cancels out) —
-                # project along the flattest vertex axis instead.  One ~zero
-                # spread = planar face (fine, axis == its normal); two = the
-                # contour is a line — zero-area, another check's domain.
-                spreads = [max(v.co[k] for v in f.verts) - min(v.co[k] for v in f.verts)
-                           for k in range(3)]
-                if sum(1 for s in spreads if s <= 1e-12) >= 2:
-                    continue
-                ax = min(range(3), key=lambda k: spreads[k])
-            else:
-                ax = max(range(3), key=lambda k: abs(n[k]))
-            keep = [k for k in range(3) if k != ax]
-            pts = [(v.co[keep[0]], v.co[keep[1]]) for v in f.verts]
-            if (self._outline_crosses(pts)
-                    or self._has_zero_edge(pts)
-                    or not self._centroid_sees_all(pts)):
-                self._faces_idx.append(f.index)
-                self._edges_idx.extend(e.index for e in f.edges)
+        from .core_adapter import build_snapshot, build_snapshot_from_bm
+
+        obj = self._parent._object
+        me = obj.data
+        if me.is_editmode:
+            snap = build_snapshot_from_bm(self._parent.bm_object,
+                                          node=obj.name, shape=me.name)
+        else:
+            snap = build_snapshot(me, node=obj.name, shape=me.name)
+
+        finding = _sck_core.topology.check_starlike(snap)
+        if finding is None:
+            self._faces_idx = []
+            self._edges_idx = []
+            self._count = 0
+            return
+
+        self._faces_idx = [i for (etype, i) in finding.elements if etype == "face"]
+        # perimeter edges of the flagged faces for the outline overlay
+        lookup = {(a, b) if a < b else (b, a): i
+                  for i, (a, b) in enumerate(snap.edges)}
+        eids = set()
+        for etype, fi in finding.elements:
+            verts = snap.face_verts[fi]
+            nv = len(verts)
+            for k in range(nv):
+                a, b = verts[k], verts[(k + 1) % nv]
+                eid = lookup.get((a, b) if a < b else (b, a))
+                if eid is not None:
+                    eids.add(eid)
+        self._edges_idx = sorted(eids)
         self._count = len(self._faces_idx)
-        self._edges_idx = list(dict.fromkeys(self._edges_idx))
-
-    @staticmethod
-    def _has_zero_edge(pts):
-        """Zero-length edge in the contour (consecutive coincident verts —
-        a 'stitched' face).  Maya treats such faces as non-starlike."""
-        n = len(pts)
-        for i in range(n):
-            x1, y1 = pts[i]
-            x2, y2 = pts[(i + 1) % n]
-            if (x2 - x1) ** 2 + (y2 - y1) ** 2 <= 1e-12:
-                return True
-        return False
-
-    @staticmethod
-    def _centroid_sees_all(pts):
-        """Maya isStarlike() parity: the vertex-averaged centroid must lie
-        inside the polygon AND on the inner side of every edge (i.e. the
-        whole outline is visible from it).  Concave faces whose centroid
-        falls outside — or that it cannot fully see — are non-starlike,
-        exactly like Maya flags them."""
-        n = len(pts)
-        area2 = 0.0
-        for i in range(n):
-            x1, y1 = pts[i]
-            x2, y2 = pts[(i + 1) % n]
-            area2 += x1 * y2 - x2 * y1
-        if abs(area2) < 1e-12:
-            return True   # degenerate projection — the crossing test decides
-        orient = 1.0 if area2 > 0 else -1.0
-        cx = sum(p[0] for p in pts) / n
-        cy = sum(p[1] for p in pts) / n
-
-        # centroid must be inside the polygon (ray casting)
-        inside = False
-        j = n - 1
-        for i in range(n):
-            xi, yi = pts[i]
-            xj, yj = pts[j]
-            if (yi > cy) != (yj > cy) and \
-                    cx < (xj - xi) * (cy - yi) / (yj - yi) + xi:
-                inside = not inside
-            j = i
-        if not inside:
-            return False
-
-        # centroid must see every edge: inner side of each edge line
-        for i in range(n):
-            x1, y1 = pts[i]
-            x2, y2 = pts[(i + 1) % n]
-            cr = (x2 - x1) * (cy - y1) - (y2 - y1) * (cx - x1)
-            if cr * orient < -1e-12:
-                return False
-        return True
-
-    def get_select_data(self):
-        return ('FACE', self._faces_idx)
-
 
 class MissingUVs(_FanFaceOverlay, BaseCheck):
     """Faces without usable UV mapping (Maya unmapped-face analog).

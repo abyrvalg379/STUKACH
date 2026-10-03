@@ -73,3 +73,45 @@ def build_snapshot(me, node: str = "", shape: str = ""):
         edge_smooth=[False] * n_edges,
         edge_conn=edge_conn,
     )
+
+
+def build_snapshot_from_bm(bm, node: str = "", shape: str = ""):
+    """BMesh variant for EDIT mode (me.* is stale there).  Reads the same
+    data the OBJECT-mode adapter does, straight off the live BMesh."""
+    from . import _core
+
+    bm.verts.ensure_lookup_table()
+    bm.edges.ensure_lookup_table()
+    bm.faces.ensure_lookup_table()
+
+    points = [(v.co.x, v.co.y, v.co.z) for v in bm.verts]
+    face_verts = [tuple(v.index for v in f.verts) for f in bm.faces]
+    face_area = [f.calc_area() for f in bm.faces]
+    edges = [(e.verts[0].index, e.verts[1].index) for e in bm.edges]
+    edge_conn = [len(e.link_faces) for e in bm.edges]
+
+    uvl = bm.loops.layers.uv.active
+    if uvl is None and len(bm.loops.layers.uv):
+        uvl = bm.loops.layers.uv[0]
+    if uvl is not None:
+        face_uvs = []
+        for f in bm.faces:
+            face_uvs.append(tuple(c for l in f.loops for c in (l[uvl].uv.x, l[uvl].uv.y)))
+    else:
+        face_uvs = [None] * len(bm.faces)
+
+    return _core.MeshSnapshot(
+        node=node or shape,
+        shape=shape,
+        short_name=node,
+        shape_short=shape,
+        points=points,
+        face_verts=face_verts,
+        face_area=face_area,
+        face_lamina=[False] * len(bm.faces),
+        face_starlike=[True] * len(bm.faces),
+        face_uvs=face_uvs,
+        edges=edges,
+        edge_smooth=[e.smooth for e in bm.edges],
+        edge_conn=edge_conn,
+    )
