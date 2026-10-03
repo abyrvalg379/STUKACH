@@ -10,7 +10,7 @@ Pipeline asset validation addon for Blender.
 
 *Документация на русском: [README.ru.md](README.ru.md)*
 
-**Blender 4.2+ (tested on 5.2) · v1.8.4 · Author: Maksim Kovalev**
+**Blender 4.2+ (tested on 5.2) · v1.8.5 · Author: Maksim Kovalev**
 
 ### Compatibility
 
