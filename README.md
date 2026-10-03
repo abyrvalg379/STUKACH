@@ -47,7 +47,7 @@ The **STUKACH** tab appears in the N-Panel (View3D and UV Editor).
 
 ## Check Categories
 
-42 checks in 7 categories, plus the scene-level **Scene Units** check (no checkbox in the grid). The **Hierarchy Validator** is a separate subsystem with its own Scan — 9 structural rules (2 ERROR + 7 WARNING; object naming is the NAMING category's job), not counted here.
+42 checks in 7 categories, plus the scene-level **Scene Units** check (no checkbox in the grid). The **Hierarchy Validator** is a separate subsystem with its own Scan — 10 structural rules (2 ERROR + 8 WARNING; object naming is the NAMING category's job), not counted here.
 
 ### TOPOLOGY
 | Check | Severity | Description |

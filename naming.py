@@ -58,9 +58,14 @@ NAMING_RULES = {
         "lowercase": True,
         "allowed_suffixes": [
             "_grp", "_geo", "_proxy",
-            "_hero", "_mid", "_bg",
+            "_l", "_r",
             "_left", "_right", "_front", "_back", "_top", "_bottom",
+            "_mask_dust", "_mask_dirt", "_mask_leaks",
+            "_clean", "_damaged", "_interior", "_notail",
         ],
+        # Plan-class markers (hero / mid / bg) are PREFIXES in the pipeline
+        # (hero_tower_geo), so they are deliberately NOT suffixes here —
+        # a name ending in "_hero" gets the no-suffix hint on purpose.
         # All entries MUST be lowercase — comparison is done on name.lower()
         "forbidden_base_names": [
             # ── Blender ──
@@ -222,6 +227,17 @@ class NamingValidator:
                 rule="forbidden_chars",
             ))
 
+        # ── ERROR: non-ASCII characters (Cyrillic etc.) ─────────────────────
+        # Pipeline names are a-z, 0-9, _ only; note the lowercase rule can't
+        # catch Cyrillic ('дом' == 'дом'.lower()), so this is its own guard.
+        if not name.isascii():
+            results.append(ValidationResult(
+                object_name=name, check="obj_naming",
+                severity=ERROR,
+                message=f"Non-ASCII characters in '{name}' (a-z, 0-9, _ only)",
+                rule="non_ascii",
+            ))
+
         # ── ERROR: Blender duplicate-numbering suffix (applies to any name) ──
         # e.g. "myobject.001" means Blender auto-renamed it due to a conflict.
         if cls._pat_blender_num.search(name):
@@ -272,26 +288,29 @@ class NamingValidator:
 
         # WARNING: configured suffixes present but name matches none.
         # INFO fallback: no policy → use NAMING_RULES allowed_suffixes.
-        if req_suffixes:
-            if not any(name_lower.endswith(s) for s in req_suffixes):
-                short = ", ".join(req_suffixes[:3])
-                ellipsis = "…" if len(req_suffixes) > 3 else ""
-                results.append(ValidationResult(
-                    object_name=name, check="obj_naming",
-                    severity=WARNING,
-                    message=f"Missing required suffix ({short}{ellipsis})",
-                    rule="missing_suffix",
-                ))
-        else:
-            allowed = rules.get("allowed_suffixes", [])
-            if allowed and not any(name_lower.endswith(s) for s in allowed):
-                short = ", ".join(allowed[:3])
-                results.append(ValidationResult(
-                    object_name=name, check="obj_naming",
-                    severity=INFO,
-                    message=f"No recommended suffix ({short}…)",
-                    rule="no_suffix",
-                ))
+        # EMPTY objects are exempt: their suffix (_grp) is the hierarchy
+        # validator's job — one problem, one verdict, no double flagging.
+        if obj.type != 'EMPTY':
+            if req_suffixes:
+                if not any(name_lower.endswith(s) for s in req_suffixes):
+                    short = ", ".join(req_suffixes[:3])
+                    ellipsis = "…" if len(req_suffixes) > 3 else ""
+                    results.append(ValidationResult(
+                        object_name=name, check="obj_naming",
+                        severity=WARNING,
+                        message=f"Missing required suffix ({short}{ellipsis})",
+                        rule="missing_suffix",
+                    ))
+            else:
+                allowed = rules.get("allowed_suffixes", [])
+                if allowed and not any(name_lower.endswith(s) for s in allowed):
+                    short = ", ".join(allowed[:3])
+                    results.append(ValidationResult(
+                        object_name=name, check="obj_naming",
+                        severity=INFO,
+                        message=f"No recommended suffix ({short}…)",
+                        rule="no_suffix",
+                    ))
 
         return results
 
@@ -323,6 +342,15 @@ class NamingValidator:
                 severity=ERROR,
                 message=f"Forbidden characters in '{name}'",
                 rule="forbidden_chars",
+            ))
+
+        # ERROR: non-ASCII characters (Cyrillic etc.) — a-z, 0-9, _ only
+        if not name.isascii():
+            results.append(ValidationResult(
+                object_name=name, check="col_naming",
+                severity=ERROR,
+                message=f"Non-ASCII characters in '{name}' (a-z, 0-9, _ only)",
+                rule="non_ascii",
             ))
 
         # ERROR: Blender auto-numbering conflict
@@ -690,6 +718,28 @@ class HierarchyValidator:
 
     DEFAULT_GRP_SUFFIX = "_grp"
 
+    @classmethod
+    def child_name_pattern(cls, base: str):
+        """Regex for legal mesh CORE names inside a group with *base*.
+
+        Match against the name WITHOUT the mesh suffix (_geo/_proxy) — use
+        mesh_core() first.  Pipeline conventions this accepts:
+          <base>            wall             (wall_geo       in wall_grp)
+          <base>_NN         window_01        (two-digit numbering)
+          <base>_<letter>   window_a         (variant type, single a-z letter)
+          <base>_<letter>_NN  window_a_01    (variant + number)
+          <base>_l / _r     wing_front_l     (symmetry)
+        """
+        return _re.compile(
+            r'^' + _re.escape(base) + r'(_l|_r|_[a-z])?(_\d{2})?$'
+        )
+
+    @staticmethod
+    def mesh_core(name_lo: str) -> str:
+        """Name without the trailing mesh suffix ('window_a_01_geo' →
+        'window_a_01') — the suffix is neutral for base-name matching."""
+        return _re.sub(r'_(geo|proxy)$', '', name_lo)
+
     # ── Scene fingerprint & staleness ──────────────────────────────────────────
 
     @staticmethod
@@ -862,6 +912,28 @@ class HierarchyValidator:
                 role=_ROLE_SCENE,
             ))
 
+        # Single-root scene: the root group should carry the asset name —
+        # which, by pipeline convention, is the .blend filename.
+        if len(asset_root_objs) == 1 and bpy.data.filepath:
+            import os as _os
+            raw_base = _os.path.splitext(bpy.path.basename(bpy.data.filepath))[0]
+            asset_base = _re.sub(r"[^a-z0-9_]+", "_", raw_base.lower()).strip("_")
+            if asset_base:
+                root_obj = asset_root_objs[0]
+                root_lo = root_obj.name.lower()
+                root_base = (root_lo[:-len(grp_suffix)]
+                             if root_lo.endswith(grp_suffix) else root_lo)
+                if root_base != asset_base:
+                    issues.append(HierarchyIssue(
+                        obj_name=root_obj.name, severity=WARNING,
+                        rule="root_name_mismatch",
+                        message=(
+                            f"Root group '{root_obj.name}' does not match the "
+                            f"asset name '{asset_base}' (from the .blend filename)"
+                        ),
+                        role=_ROLE_ASSET_ROOT,
+                    ))
+
         # Per-object validation
         for obj in scene_objects:
             role = node_roles.get(obj.name, _ROLE_ORPHAN_MESH)
@@ -958,24 +1030,23 @@ class HierarchyValidator:
                 ))
 
             # WARNING: mesh name doesn't match parent group base name.
-            # Numbered siblings must use TWO digits (bolt_01, bolt_02) —
-            # single-digit bolt_1 is a violation (user convention).
+            # Legal forms (see child_name_pattern): <base>, <base>_NN
+            # (two digits — bolt_1 is a violation), <base>_<letter>,
+            # <base>_<letter>_NN, <base>_l / <base>_r.
             if role == _ROLE_MESH_UNDER_GROUP and obj.parent is not None:
                 parent_lo = obj.parent.name.lower()
                 # strip the group suffix to get the shared base
                 parent_base = (parent_lo[:-len(grp_suffix)]
                                if parent_lo.endswith(grp_suffix) else parent_lo)
-                # Valid: parent_base  OR  parent_base_<two digits>
-                pat = _re.compile(
-                    r'^' + _re.escape(parent_base) + r'(_\d{2})?$'
-                )
-                if not pat.match(name_lo):
+                pat = cls.child_name_pattern(parent_base)
+                # compare CORE names — the mesh suffix (_geo/_proxy) is neutral
+                if not pat.match(cls.mesh_core(name_lo)):
                     issues.append(HierarchyIssue(
                         obj_name=name, severity=WARNING,
                         rule="parent_mismatch",
                         message=(
-                            f"Expected '{parent_base}' or '{parent_base}_NN' "
-                            f"(two digits), got '{name}'"
+                            f"Expected '{parent_base}', '{parent_base}_NN', "
+                            f"'{parent_base}_a' / '_l' variants, got '{name}'"
                         ),
                         role=role,
                     ))
@@ -1057,6 +1128,7 @@ HIER_RULE_LABELS: dict = {
     "empty_group":             "Empty group",
     "no_asset_root":           "No asset root",
     "multiple_asset_roots":    "Multiple asset roots",
+    "root_name_mismatch":      "Root name ≠ asset name",
 }
 
 
@@ -1255,21 +1327,28 @@ class ASSET_CHECKER_OT_hierarchy_fix_renumber(bpy.types.Operator):
         for parent, children in groups.items():
             p_lo = parent.name.lower()
             base = p_lo[:-len(suffix)] if p_lo.endswith(suffix) else p_lo
-            pat = re.compile(r'^' + re.escape(base) + r'(_\d{2})?$')
+            # same legal-form pattern the validator uses, on CORE names
+            # (window_a_01, wing_front_l are legal and never renumbered);
+            # each child keeps its own mesh suffix on rename
+            pat = HierarchyValidator.child_name_pattern(base)
             legal_nums = set()
+            cores: dict = {}
             for ch in children:
-                if pat.match(ch.name.lower()):
-                    m = re.search(r'_(\d{2})$', ch.name.lower())
+                core = HierarchyValidator.mesh_core(ch.name.lower())
+                cores[ch.name] = core
+                if pat.match(core):
+                    m = re.search(r'_(\d{2})$', core)
                     if m:
                         legal_nums.add(int(m.group(1)))
             # violators ordered by their current trailing number (0 if none)
-            viol = [ch for ch in children if not pat.match(ch.name.lower())]
+            viol = [ch for ch in children if not pat.match(cores[ch.name])]
             viol.sort(key=lambda ch: (lambda m: int(m.group(1)) if m else 0)(
-                re.search(r'_(\d+)$', ch.name.lower())))
+                re.search(r'_(\d+)$', cores[ch.name])))
             slot = 1
             for ch in viol:
+                mesh_sfx = ch.name.lower()[len(cores[ch.name]):]   # '' | _geo | _proxy
                 while True:
-                    candidate = f"{base}_{slot:02d}"
+                    candidate = f"{base}_{slot:02d}{mesh_sfx}"
                     if slot in legal_nums or _name_taken(candidate, tuple(children)):
                         slot += 1
                         continue

@@ -464,6 +464,18 @@ def st_hierarchy():
                                 "forbidden_base_name", "lowercase"}
     expect(not naming_leftovers,
            f"naming rules leaked into hierarchy scan: {sorted(naming_leftovers)}")
+    # regulation child-name forms (unit-level, pure regex — no scene needed):
+    # <base>, <base>_NN, <base>_a, <base>_a_01, <base>_l / _r are legal
+    pat = naming.HierarchyValidator.child_name_pattern("window")
+    for legal in ("window", "window_01", "window_a", "window_a_01",
+                  "window_l", "window_r"):
+        expect(pat.match(legal) is not None,
+               f"regulation-legal name '{legal}' rejected by parent pattern")
+    for bad in ("window_1", "window_001", "window_aa", "windowa_01"):
+        expect(pat.match(bad) is None,
+               f"illegal name '{bad}' accepted by parent pattern")
+    expect(naming.HierarchyValidator.mesh_core("window_a_01_geo") == "window_a_01",
+           "mesh_core did not strip the _geo suffix")
     expect(result.objects_scanned >= 10,
            f"hierarchy scanned only {result.objects_scanned} objects")
     eff = naming.hierarchy_effective_issues(result)

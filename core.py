@@ -1434,7 +1434,10 @@ class MaterialCheck(BaseCheck):
     def set_datas(self):
         self._count = sum(
             1 for slot in self._parent._object.material_slots
-            if slot.material and not slot.material.name.lower().endswith("_mat")
+            if slot.material and (
+                not slot.material.name.lower().endswith("_mat")
+                or not slot.material.name.isascii()   # pipeline names are a-z, 0-9, _
+            )
         )
 
     def get_edges(self, offset: float):
