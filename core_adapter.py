@@ -23,11 +23,12 @@ CORE_DELEGATED = frozenset({
     "symmetry_x", "symmetry_y", "symmetry_z",
     "duplicated_names", "trailing_numbers", "parent_geometry",
     "uv_single_set", "uv_udim_bounds", "uv_micro_shell", "uv_overlap",
+    "uv_stretch", "uv_texel_density",
 })
 
 
 def build_snapshot(me, node: str = "", shape: str = "",
-                   parent_types=None, scene=None):
+                   parent_types=None, scene=None, world_matrix=None):
     """Build a stukach_core MeshSnapshot from a bpy Mesh (OBJECT mode data)."""
     from . import _core
 
@@ -89,11 +90,12 @@ def build_snapshot(me, node: str = "", shape: str = "",
         parent_types=list(parent_types or []),
         scene=dict(scene or {}),
         uv_set_count=uv_set_count,
+        world_matrix=tuple(world_matrix or ()),
     )
 
 
 def build_snapshot_from_bm(bm, node: str = "", shape: str = "",
-                           parent_types=None, scene=None):
+                           parent_types=None, scene=None, world_matrix=None):
     """BMesh variant for EDIT mode (me.* is stale there).  Reads the same
     data the OBJECT-mode adapter does, straight off the live BMesh."""
     from . import _core
@@ -135,4 +137,5 @@ def build_snapshot_from_bm(bm, node: str = "", shape: str = "",
         parent_types=list(parent_types or []),
         scene=dict(scene or {}),
         uv_set_count=len(bm.loops.layers.uv),
+        world_matrix=tuple(world_matrix or ()),
     )

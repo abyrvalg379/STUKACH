@@ -1753,126 +1753,45 @@ class UVTexelDensity(BaseCheck):
         self._density: float = 0.0
         self._uv_area: float = 0.0
         self._world_area: float = 0.0
+        self._metric: str = ""
 
     @property
     def metric_text(self) -> str:
-        if self._world_area < 1e-10:
-            return "Texel Density: N/A"
-        try:
-            addon_name = __name__.rsplit(".", 1)[0]
-            prefs = bpy.context.preferences.addons[addon_name].preferences
-            target_td = getattr(prefs, 'uv_td_target', 0.0)
-        except Exception:
-            target_td = 0.0
-        if target_td > 0.0:
-            return f"TD: {self._density:.2f} / {target_td:.2f} px/cm"
-        return f"TD: {self._density:.2f} px/cm"
+        return self._metric
 
     def set_datas(self):
-        me = self._parent._object.data
-        obj = self._parent._object
         self._uv_area = 0.0
         self._world_area = 0.0
         self._density = 0.0
         self._count = 0
 
-        if not me.uv_layers.active or not me.polygons:
-            return
-
-        # ── UV layer existence check via BMesh (race-condition safe) ──────────
-        bm = self._parent.bm_object
-        if not bm.loops.layers.uv.active:
-            return
-
-        # ── All data reads via me.* foreach_get into numpy arrays (fully vectorized) ──
-        # TD is an aggregate scalar — small transient inconsistency in edit mode is acceptable.
-        import numpy as np
-
-        if me.is_editmode:
-            # EDIT mode: canonical BMesh snapshot (me.* is stale here).
-            snap = _edit_uv_data(bm)
-            if snap is None:
-                return
-            tri_l = snap['tri_loop']
-            tri_v = snap['tri_vert']
-            co_np = snap['co']
-            uv_np = snap['uv']
-            n_tris = len(tri_l)
-            if n_tris == 0:
-                return
-        else:
-            me.calc_loop_triangles()
-            n_tris = len(me.loop_triangles)
-            if n_tris == 0:
-                return
-
-            # C-level bulk reads directly into numpy buffers
-            uv_np = _get_uv_np(me, bm=bm)
-            if uv_np is None:
-                return
-
-            n_verts = len(me.vertices)
-            co_np = np.empty(n_verts * 3, dtype=np.float32)
-            me.vertices.foreach_get("co", co_np)
-            co_np = co_np.reshape(n_verts, 3)
-
-            tri_l = np.empty(n_tris * 3, dtype=np.int32)
-            me.loop_triangles.foreach_get("loops", tri_l)
-            tri_l = tri_l.reshape(n_tris, 3)
-
-            tri_v = np.empty(n_tris * 3, dtype=np.int32)
-            me.loop_triangles.foreach_get("vertices", tri_v)
-            tri_v = tri_v.reshape(n_tris, 3)
-
-        # ── UV area — vectorized 2D cross product ─────────────────────────────
-        uv0 = uv_np[tri_l[:, 0]]   # (n_tris, 2)
-        uv1 = uv_np[tri_l[:, 1]]
-        uv2 = uv_np[tri_l[:, 2]]
-        a_uv = uv1 - uv0;  b_uv = uv2 - uv0
-        uv_area = float(np.abs(a_uv[:, 0] * b_uv[:, 1] - a_uv[:, 1] * b_uv[:, 0]).sum()) * 0.5
-
-        # ── World area — vectorized cross product with world matrix ───────────
-        wm = obj.matrix_world
-        wm33 = np.array([[wm[0][0], wm[0][1], wm[0][2]],
-                         [wm[1][0], wm[1][1], wm[1][2]],
-                         [wm[2][0], wm[2][1], wm[2][2]]], dtype=np.float32)
-        v0 = co_np[tri_v[:, 0]];  v1 = co_np[tri_v[:, 1]];  v2 = co_np[tri_v[:, 2]]
-        e1 = (v1 - v0) @ wm33.T   # (n_tris, 3) — edge vectors in world space
-        e2 = (v2 - v0) @ wm33.T
-        cx = e1[:, 1] * e2[:, 2] - e1[:, 2] * e2[:, 1]
-        cy = e1[:, 2] * e2[:, 0] - e1[:, 0] * e2[:, 2]
-        cz = e1[:, 0] * e2[:, 1] - e1[:, 1] * e2[:, 0]
-        world_area = float(np.sqrt(cx * cx + cy * cy + cz * cz).sum()) * 0.5
-
-        self._world_area = world_area
-        self._uv_area = uv_area
-
-        if world_area < 1e-10 or uv_area < 1e-10:
-            return
-
-        # ── Preferences ─────────────────────────────────────────────────────
+        # preferences (falls back to the core's registry defaults)
         try:
             addon_name = __name__.rsplit(".", 1)[0]
             prefs = bpy.context.preferences.addons[addon_name].preferences
-            tex_size  = self._TD_TEX_SIZES.get(getattr(prefs, 'uv_td_texture_size', '2'), 2048)
-            target_td = getattr(prefs, 'uv_td_target',    0.0)
+            tex_size = self._TD_TEX_SIZES.get(
+                getattr(prefs, 'uv_td_texture_size', '2'), 2048)
+            target_td = getattr(prefs, 'uv_td_target', 0.0)
             tolerance = getattr(prefs, 'uv_td_tolerance', 20.0) / 100.0
         except Exception:
-            tex_size  = 2048
+            tex_size = 2048
             target_td = 0.0
             tolerance = 0.20
+        try:
+            unit_scale = bpy.context.scene.unit_settings.scale_length
+        except Exception:
+            unit_scale = 1.0
 
-        scale_length = bpy.context.scene.unit_settings.scale_length
-        if scale_length < 1e-10:
-            scale_length = 1.0
-
-        # TD (px/cm) = tex_size × √uv_area / (√world_area_m² × 100 × scale_length)
-        self._density = (tex_size * math.sqrt(uv_area)) / (math.sqrt(world_area) * 100.0 * scale_length)
-
-        if target_td > 0.0:
-            deviation = abs(self._density - target_td) / target_td
-            self._count = 1 if deviation > tolerance else 0
-
+        finding = _sck_core.uv.check_uv_texel_density(
+            self._parent.core_snapshot(),
+            tex_size=tex_size, target_td=target_td,
+            tolerance=tolerance, unit_scale=unit_scale)
+        if finding is None:
+            self._metric = "Texel Density: N/A"
+            self._count = 0
+            return
+        self._count = finding.count
+        self._metric = finding.metric or ""
     def get_edges(self, offset: float) -> Tuple:
         return ()
 
@@ -1900,181 +1819,63 @@ class UVStretch(BaseCheck):
         self._stretched_uv_verts:   List = []   # [(u,v), ...] triangulated, UV-space
 
     def set_datas(self):
-        import numpy as np
-        me = self._parent._object.data
-        obj = self._parent._object
-        self._stretched_face_verts.clear()
+        self._stretched_face_verts = []
+        self._stretched_face_norms = []
+        self._stretched_face_edges = []
+        self._stretched_uv_verts = []
         self._count = 0
 
-        if not me.uv_layers.active:
-            return
-
-        # ── Fully vectorized via numpy ──────────────────────────────────────────
-        # EDIT mode: ALL sources come from the canonical BMesh snapshot —
-        # me.* sizes/indices are stale and don't match BMesh loop order.
-        if me.is_editmode:
-            snap = _edit_uv_data(self._parent.bm_object)
-            if snap is None:
-                return
-            n_polys = snap['n_faces']
-            if n_polys > _UV_STRETCH_MAX_POLYS:
-                return
-            n_verts = snap['n_verts']
-            n_loops = snap['n_loops']
-            ps = snap['face_start']
-            pt = snap['face_len']
-            lv = snap['loop_vert']
-            vc = snap['co']
-        else:
-            n_polys = len(me.polygons)
-            if n_polys > _UV_STRETCH_MAX_POLYS:
-                return
-            n_verts = len(me.vertices)
-            n_loops = len(me.loops)
-
-            # Polygon → loop start / total
-            ps = np.empty(n_polys, dtype=np.int32)
-            pt = np.empty(n_polys, dtype=np.int32)
-            me.polygons.foreach_get("loop_start", ps)
-            me.polygons.foreach_get("loop_total", pt)
-
-            lv = np.empty(n_loops, dtype=np.int32)
-            me.loops.foreach_get("vertex_index", lv)
-
-            vc = np.empty(n_verts * 3, dtype=np.float32)
-            me.vertices.foreach_get("co", vc)
-            vc = vc.reshape(n_verts, 3)
-
-        # Threshold from preferences, fallback to default
         try:
             addon_name = __name__.rsplit(".", 1)[0]
             prefs = bpy.context.preferences.addons[addon_name].preferences
-            threshold = getattr(prefs, 'uv_stretch_threshold', _UV_STRETCH_DEFAULT_THRESHOLD)
+            threshold = getattr(prefs, 'uv_stretch_threshold',
+                                _UV_STRETCH_DEFAULT_THRESHOLD)
         except Exception:
             threshold = _UV_STRETCH_DEFAULT_THRESHOLD
 
-        # Per-loop: which polygon it belongs to + size + start of that polygon
-        poly_ids      = np.repeat(np.arange(n_polys, dtype=np.int32), pt)  # (n_loops,)
-        loop_poly_sz  = pt[poly_ids]                                         # (n_loops,)
-        loop_poly_st  = ps[poly_ids]                                         # (n_loops,)
+        finding = _sck_core.uv.check_uv_stretch(
+            self._parent.core_snapshot(), threshold=threshold)
+        self._count = finding.count if finding is not None else 0
+        if finding is None or self._count == 0:
+            return
 
-        # Offset of each loop within its polygon
-        loop_idx         = np.arange(n_loops, dtype=np.int32)
-        off_in_poly      = loop_idx - loop_poly_st                           # (n_loops,)
-
-        # Ring-wrap next / prev loop indices
-        loop_next = loop_poly_st + (off_in_poly + 1)               % loop_poly_sz
-        loop_prev = loop_poly_st + (off_in_poly + loop_poly_sz - 1) % loop_poly_sz
-
-        cur_co  = vc[lv]            # (n_loops, 3)
-        next_co = vc[lv[loop_next]] # (n_loops, 3)
-        prev_co = vc[lv[loop_prev]] # (n_loops, 3)
-
-        # 3D corner angle at each loop (replicates loop.calc_angle())
-        e0 = next_co - cur_co       # edge to next vert
-        e1 = prev_co - cur_co       # edge to prev vert
-        mag0 = np.sqrt((e0 * e0).sum(axis=1))
-        mag1 = np.sqrt((e1 * e1).sum(axis=1))
-        valid_3d = (mag0 > 1e-10) & (mag1 > 1e-10)
-        cos_3d = np.where(valid_3d,
-                          np.clip((e0 * e1).sum(axis=1) / np.where(valid_3d, mag0 * mag1, 1.0),
-                                  -1.0, 1.0),
-                          0.0)
-        mesh_angle = np.arccos(cos_3d)  # (n_loops,)
-
-        # UV angle at each loop
+        # visuals: world-space fan + perimeter of the flagged faces
+        # (detection lives in the core)
+        from mathutils import Matrix
+        bad = {i for (t, i) in finding.elements if t == "face"}
+        obj = self._parent._object
         bm = self._parent.bm_object
-        uv_flat = _get_uv_np(me, bm=bm)
-        if uv_flat is None:
-            return
-
-        cur_uv  = uv_flat
-        next_uv = uv_flat[loop_next]
-        prev_uv = uv_flat[loop_prev]
-
-        ax = next_uv[:, 0] - cur_uv[:, 0]
-        ay = next_uv[:, 1] - cur_uv[:, 1]
-        bx = prev_uv[:, 0] - cur_uv[:, 0]
-        by = prev_uv[:, 1] - cur_uv[:, 1]
-        mag_a = np.sqrt(ax * ax + ay * ay)
-        mag_b = np.sqrt(bx * bx + by * by)
-        valid_uv = (mag_a > 1e-10) & (mag_b > 1e-10)
-        cos_uv = np.where(valid_uv,
-                          np.clip((ax * bx + ay * by) / np.where(valid_uv, mag_a * mag_b, 1.0),
-                                  -1.0, 1.0),
-                          0.0)
-        uv_angle = np.arccos(cos_uv)  # (n_loops,)
-
-        # Stretched loop mask
-        stretched_loops = valid_3d & valid_uv & (np.abs(mesh_angle - uv_angle) > threshold)
-
-        # Reduce to faces: any stretched loop → stretched face
-        bad_face_mask = np.zeros(n_polys, dtype=bool)
-        np.bitwise_or.at(bad_face_mask, poly_ids, stretched_loops)
-        bad_face_indices = np.where(bad_face_mask)[0]
-        self._count = int(len(bad_face_indices))
-
-        if self._count == 0:
-            return
-
-        # Build world-space triangle coords for face overlay (fan-triangulation)
+        bm.verts.ensure_lookup_table()
+        bm.faces.ensure_lookup_table()
+        uv_layer = bm.loops.layers.uv.active
         wm = obj.matrix_world
-        wm3 = np.array(wm.to_3x3(), dtype=np.float32)
-        wm_t = np.array([wm.translation.x, wm.translation.y, wm.translation.z], dtype=np.float32)
-
-        # Polygon normals — to offset face overlay above surface
-        pn = np.empty(n_polys * 3, dtype=np.float32)
-        me.polygons.foreach_get("normal", pn)
-        pn = pn.reshape(n_polys, 3)
-        wm3_inv_T = np.linalg.inv(wm3).T
-        pn_ws = pn @ wm3_inv_T
-        mag = np.sqrt((pn_ws * pn_ws).sum(axis=1, keepdims=True))
-        pn_ws /= np.where(mag > 1e-10, mag, 1.0)
-
-        # UV coords (flat list indexed by loop)
-        uv_flat = _get_uv_np(me, bm=bm)   # bm fetched above via bm_object
-
-        face_verts = []
-        face_norms = []
-        face_edges = []   # perimeter edge pairs for outline
-        uv_verts   = []
-
-        for fi in bad_face_indices:
-            s = int(ps[fi]); nv = int(pt[fi])
-            verts_ws = vc[lv[s:s + nv]] @ wm3.T + wm_t   # (nv, 3)
-            nx, ny, nz = float(pn_ws[fi, 0]), float(pn_ws[fi, 1]), float(pn_ws[fi, 2])
-            v0 = verts_ws[0]
-            # Fan triangulation — faces
+        n_mat = wm.to_3x3().inverted().transposed()
+        for fi in sorted(bad):
+            if fi >= len(bm.faces):
+                continue
+            face = bm.faces[fi]
+            nx, ny, nz = (n_mat @ face.normal).normalized()
+            vs = [wm @ v.co for v in face.verts]
+            uvs = ([(l[uv_layer].uv.x, l[uv_layer].uv.y) for l in face.loops]
+                   if uv_layer else [])
+            nv = len(vs)
             for k in range(1, nv - 1):
-                face_verts.extend([
-                    (float(v0[0]),           float(v0[1]),           float(v0[2])),
-                    (float(verts_ws[k,0]),   float(verts_ws[k,1]),   float(verts_ws[k,2])),
-                    (float(verts_ws[k+1,0]), float(verts_ws[k+1,1]), float(verts_ws[k+1,2])),
+                self._stretched_face_verts.extend([
+                    (vs[0].x, vs[0].y, vs[0].z),
+                    (vs[k].x, vs[k].y, vs[k].z),
+                    (vs[k + 1].x, vs[k + 1].y, vs[k + 1].z),
                 ])
-                face_norms.extend([(nx, ny, nz)] * 3)
-            # Perimeter edges (polygon boundary for outline)
+                self._stretched_face_norms.extend([(nx, ny, nz)] * 3)
             for k in range(nv):
-                a = verts_ws[k];  b = verts_ws[(k + 1) % nv]
-                face_edges.extend([
-                    (float(a[0]), float(a[1]), float(a[2])),
-                    (float(b[0]), float(b[1]), float(b[2])),
+                a, b = vs[k], vs[(k + 1) % nv]
+                self._stretched_face_edges.extend([
+                    (a.x, a.y, a.z), (b.x, b.y, b.z),
                 ])
-            # UV face triangles
-            if uv_flat is not None:
-                uv = uv_flat[s:s + nv]   # (nv, 2) UV per loop
-                uv0 = uv[0]
+            if uvs:
                 for k in range(1, nv - 1):
-                    uv_verts.extend([
-                        (float(uv0[0]),    float(uv0[1])),
-                        (float(uv[k,0]),   float(uv[k,1])),
-                        (float(uv[k+1,0]), float(uv[k+1,1])),
+                    self._stretched_uv_verts.extend([
+                        uvs[0], uvs[k], uvs[k + 1],
                     ])
-
-        self._stretched_face_verts = face_verts
-        self._stretched_face_norms = face_norms
-        self._stretched_face_edges = face_edges
-        self._stretched_uv_verts   = uv_verts
-
     def get_edges(self, offset: float) -> Tuple:
         """Perimeter outline of stretched faces in 3D — visible even on small faces."""
         if not self._stretched_face_edges or not self._stretched_face_norms:

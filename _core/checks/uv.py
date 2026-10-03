@@ -342,3 +342,124 @@ def check_uv_overlap(snap: MeshSnapshot, max_tris: int = 80_000,
         return None
     return Finding("uv_overlap", "BLOCKER", len(flagged_polys),
                    [("face", fi) for fi in sorted(flagged_polys)])
+
+
+# ── UV stretch + texel density ───────────────────────────────────────────────
+
+def check_uv_stretch(snap: MeshSnapshot, threshold: float = 0.5) -> Optional[Finding]:
+    """Faces whose UV corner angles deviate from the 3-D corner angles by
+    more than *threshold* radians — any stretched corner flags the face.
+
+    3-D angles are measured in LOCAL space (the addon compares me.vertices
+    coords, not world positions); degenerate corners (zero-length edges in
+    3-D or UV) are skipped, not flagged."""
+    from math import acos, sqrt
+    pts = snap.points
+    bad: List[tuple] = []
+    for fi, verts in enumerate(snap.face_verts):
+        uvs = snap.face_uvs[fi] if fi < len(snap.face_uvs) else None
+        if uvs is None:
+            continue
+        nv = len(verts)
+        stretched = False
+        for i in range(nv):
+            j = (i + 1) % nv
+            k = (i - 1) % nv
+            p0 = pts[verts[i]]
+            e0 = (pts[verts[j]][0] - p0[0], pts[verts[j]][1] - p0[1],
+                  pts[verts[j]][2] - p0[2])
+            e1 = (pts[verts[k]][0] - p0[0], pts[verts[k]][1] - p0[1],
+                  pts[verts[k]][2] - p0[2])
+            m0 = sqrt(e0[0] * e0[0] + e0[1] * e0[1] + e0[2] * e0[2])
+            m1 = sqrt(e1[0] * e1[0] + e1[1] * e1[1] + e1[2] * e1[2])
+            if m0 <= 1e-10 or m1 <= 1e-10:
+                continue
+            cos3 = (e0[0] * e1[0] + e0[1] * e1[1] + e0[2] * e1[2]) / (m0 * m1)
+            cos3 = 1.0 if cos3 > 1.0 else (-1.0 if cos3 < -1.0 else cos3)
+            u0 = (uvs[i * 2], uvs[i * 2 + 1])
+            au = (uvs[j * 2] - u0[0], uvs[j * 2 + 1] - u0[1])
+            av = (uvs[k * 2] - u0[0], uvs[k * 2 + 1] - u0[1])
+            ma = sqrt(au[0] * au[0] + au[1] * au[1])
+            mb = sqrt(av[0] * av[0] + av[1] * av[1])
+            if ma <= 1e-10 or mb <= 1e-10:
+                continue
+            cosu = (au[0] * av[0] + au[1] * av[1]) / (ma * mb)
+            cosu = 1.0 if cosu > 1.0 else (-1.0 if cosu < -1.0 else cosu)
+            if abs(acos(cos3) - acos(cosu)) > threshold:
+                stretched = True
+                break
+        if stretched:
+            bad.append(("face", fi))
+    if not bad:
+        return None
+    return Finding("uv_stretch", "WARNING", len(bad), bad)
+
+
+def check_uv_texel_density(snap: MeshSnapshot, tex_size: int = 2048,
+                           target_td: float = 0.0, tolerance: float = 0.20,
+                           unit_scale: float = 1.0) -> Optional[Finding]:
+    """Texel density px/cm: TD = tex_size x sqrt(uv_area) / (sqrt(world_area)
+    x 100 x unit_scale).  Aggregates over fan-triangulated UV contours and
+    world-space triangles (world_matrix 3x3, translation irrelevant).
+
+    count is 0 unless a *target_td* is set — then 1 when the deviation
+    exceeds *tolerance* (fraction).  The Finding is returned even when clean
+    so direct callers can read the density from ``metric``."""
+    from math import sqrt
+    wm = snap.world_matrix
+    if len(wm) >= 11:
+        m00, m01, m02 = wm[0], wm[1], wm[2]
+        m10, m11, m12 = wm[4], wm[5], wm[6]
+        m20, m21, m22 = wm[8], wm[9], wm[10]
+    else:
+        m00 = m11 = m22 = 1.0
+        m01 = m02 = m10 = m12 = m20 = m21 = 0.0
+
+    uv_area = 0.0
+    world_area = 0.0
+    pts = snap.points
+    for fi, verts in enumerate(snap.face_verts):
+        uvs = snap.face_uvs[fi] if fi < len(snap.face_uvs) else None
+        if uvs is None:
+            continue
+        nv = len(verts)
+        p0 = pts[verts[0]]
+        for i in range(1, nv - 1):
+            uv_ax = uvs[i * 2] - uvs[0]
+            uv_ay = uvs[i * 2 + 1] - uvs[1]
+            uv_bx = uvs[(i + 1) * 2] - uvs[0]
+            uv_by = uvs[(i + 1) * 2 + 1] - uvs[1]
+            uv_area += abs(uv_ax * uv_by - uv_ay * uv_bx) * 0.5
+
+            p1 = pts[verts[i]]
+            p2 = pts[verts[(i + 1) % nv]]
+            ax, ay, az = p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]
+            bx, by, bz = p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]
+            # edges through the world 3x3 (translation is irrelevant for area)
+            e1 = (ax * m00 + ay * m01 + az * m02,
+                  ax * m10 + ay * m11 + az * m12,
+                  ax * m20 + ay * m21 + az * m22)
+            e2 = (bx * m00 + by * m01 + bz * m02,
+                  bx * m10 + by * m11 + bz * m12,
+                  bx * m20 + by * m21 + bz * m22)
+            cx = e1[1] * e2[2] - e1[2] * e2[1]
+            cy = e1[2] * e2[0] - e1[0] * e2[2]
+            cz = e1[0] * e2[1] - e1[1] * e2[0]
+            world_area += sqrt(cx * cx + cy * cy + cz * cz) * 0.5
+
+    if world_area < 1e-10 or uv_area < 1e-10:
+        return None
+
+    scale = unit_scale if unit_scale > 1e-10 else 1.0
+    density = (tex_size * sqrt(uv_area)) / (sqrt(world_area) * 100.0 * scale)
+
+    count = 0
+    if target_td > 0.0:
+        deviation = abs(density - target_td) / target_td
+        count = 1 if deviation > tolerance else 0
+
+    if target_td > 0.0:
+        metric = "TD: %.2f / %.2f px/cm" % (density, target_td)
+    else:
+        metric = "TD: %.2f px/cm" % density
+    return Finding("uv_texel_density", "WARNING", count, [], metric=metric)

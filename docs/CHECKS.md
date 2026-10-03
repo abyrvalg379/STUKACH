@@ -3,7 +3,7 @@
 Generated from the code registries — do not edit by hand.
 Regenerate: run the smoke test, then `python tests/gen_checkers_doc.py`.
 
-## Core rules (stukach_core) — 25
+## Core rules (stukach_core) — 27
 
 DCC-free rules shared by every STUKACH build. Severity is decided by
 the registry; each DCC layer maps the verdicts onto its own UI.
@@ -26,6 +26,8 @@ the registry; each DCC layer maps the verdicts onto its own UI.
 | `uv_udim_bounds` | BLOCKER | eps=1e-05 | UV islands whose bbox spans more than one 1x1 UDIM tile — such shells land on several tiles and break single-tile texture assignments. |
 | `uv_micro_shell` | WARNING | island_area=1e-05 | UV islands whose total UV area is below *island_area* — collapsed or forgotten shells too small to receive meaningful texture detail (≈ 6px x 6px at 2048 for the default threshold). |
 | `uv_overlap` | BLOCKER | max_tris=80000 | Overlapping UV triangles from DIFFERENT islands (inter-island overlaps — the common pipeline problem; manually folded intra-island shells are the documented blind spot). |
+| `uv_stretch` | WARNING | threshold=0.5 | Faces whose UV corner angles deviate from the 3-D corner angles by more than *threshold* radians — any stretched corner flags the face. |
+| `uv_texel_density` | INFO | tex_size=2048, target_td=0.0, tolerance=0.2, unit_scale=1.0 | Texel density px/cm: TD = tex_size x sqrt(uv_area) / (sqrt(world_area) x 100 x unit_scale). |
 | `face_aspect_ratio` | INFO | threshold=6.0 | Quad faces whose aspect ratio exceeds *threshold* (tris/ngons skip). |
 | `symmetry_x` | INFO | axis=0, threshold=0.001 | A vertex is asymmetric when its mirror key is absent. |
 | `symmetry_y` | INFO | axis=1, threshold=0.001 | A vertex is asymmetric when its mirror key is absent. |
@@ -80,8 +82,8 @@ via the parity gate in the smoke test).
 | `uv_overlap` | BLOCKER | UV | core | UV-overlap: island filter + 2D grid broad-phase + exact triangle-triangle test. |
 | `uv_padding` | INFO | UV |  | UV island padding — cross-object, per-UDIM-tile. |
 | `uv_single_set` | WARNING | UV | core | Ровно один UV-сет — не больше и не меньше. |
-| `uv_stretch` | WARNING | UV |  | UV stretch: detects faces where UV angles deviate significantly from 3D mesh angles. |
-| `uv_texel_density` | INFO | UV |  | Texel density in px/cm using a configurable reference texture size. |
+| `uv_stretch` | WARNING | UV | core | UV stretch: detects faces where UV angles deviate significantly from 3D mesh angles. |
+| `uv_texel_density` | INFO | UV | core | Texel density in px/cm using a configurable reference texture size. |
 | `uv_udim_bounds` | BLOCKER | UV | core | UV islands crossing UDIM tile boundaries. |
 | `z_fighting` | BLOCKER | TOPOLOGY |  | Coplanar face overlap — intra-object (self) and inter-object (other tracked meshes). |
 | `zero_area` | BLOCKER | TOPOLOGY |  | Degenerate faces with (near-)zero area — collapsed geometry. |

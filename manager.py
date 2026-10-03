@@ -246,15 +246,18 @@ class MeshCheckObject:
             scene_ctx = {"short_names": names}
         except Exception:
             scene_ctx = {}
+        world = tuple(c for row in self._object.matrix_world for c in row)
         if me.is_editmode:
             snap = build_snapshot_from_bm(self.bm_object,
                                           node=self._object.name, shape=me.name,
                                           parent_types=parent_types,
-                                          scene=scene_ctx)
+                                          scene=scene_ctx,
+                                          world_matrix=world)
         else:
             snap = build_snapshot(me, node=self._object.name, shape=me.name,
                                   parent_types=parent_types,
-                                  scene=scene_ctx)
+                                  scene=scene_ctx,
+                                  world_matrix=world)
         self._core_snap = snap
         self._core_snap_key = key
         return snap
