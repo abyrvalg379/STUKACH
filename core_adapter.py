@@ -22,7 +22,7 @@ CORE_DELEGATED = frozenset({
     "non_manifold", "lamina", "starlike", "duplicate_verts",
     "symmetry_x", "symmetry_y", "symmetry_z",
     "duplicated_names", "trailing_numbers", "parent_geometry",
-    "uv_single_set", "uv_udim_bounds", "uv_micro_shell",
+    "uv_single_set", "uv_udim_bounds", "uv_micro_shell", "uv_overlap",
 })
 
 

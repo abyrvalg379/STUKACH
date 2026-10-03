@@ -31,6 +31,7 @@ RULES: Dict[str, tuple] = {
     "uv_single_set":      ("WARNING", uv.check_uv_single_set, {"expected": 1}),
     "uv_udim_bounds":     ("BLOCKER", uv.check_uv_udim_bounds, {"eps": 1e-5}),
     "uv_micro_shell":     ("WARNING", uv.check_uv_micro_shell, {"island_area": 1e-5}),
+    "uv_overlap":         ("BLOCKER", uv.check_uv_overlap, {"max_tris": 80000}),
     # surface
     "face_aspect_ratio":  ("INFO",    surface.check_face_aspect_ratio, {"threshold": 6.0}),
     # symmetry

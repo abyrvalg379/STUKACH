@@ -1617,125 +1617,27 @@ class UVOverlapCheck(BaseCheck):
         self._overlap_tri_uvs: List = []
 
     def set_datas(self):
-        me = self._parent._object.data
         self._overlap_tri_uvs.clear()
         self._count = 0
-        if not me.uv_layers.active:
+        finding = _sck_core.uv.check_uv_overlap(self._parent.core_snapshot())
+        self._count = finding.count if finding is not None else 0
+        if finding is None:
             return
-
-        # UV layer existence check via BMesh (avoids stale me.uv_layers in edit mode)
+        # visuals: fan-triangulate the flagged polys' UV contours
+        # (detection lives in the core)
+        bad = {i for (t, i) in finding.elements if t == "face"}
         bm = self._parent.bm_object
-        if not bm.loops.layers.uv.active:
+        uv_layer = bm.loops.layers.uv.active
+        if not uv_layer:
             return
-
-        # ── Data reads via numpy foreach_get (C-level, no Python tri loop) ──────
-        import numpy as np
-        if me.is_editmode:
-            # EDIT mode: canonical BMesh snapshot (me.* is stale, me loop
-            # indices don't match BMesh loop order).
-            snap = _edit_uv_data(bm)
-            if snap is None:
-                return
-            tri_loop_np = snap['tri_loop']
-            n_tris = len(tri_loop_np)
-            if n_tris == 0 or n_tris > _UV_OVERLAP_MAX_TRIS:
-                return
-            tri_poly_np = snap['loop_face'][tri_loop_np[:, 0]]
-            uv_np = snap['uv']
-        else:
-            me.calc_loop_triangles()
-            n_tris = len(me.loop_triangles)
-            if n_tris == 0:
-                return
-            if n_tris > _UV_OVERLAP_MAX_TRIS:
-                return
-
-            tri_loop_np = np.empty(n_tris * 3, dtype=np.int32)
-            me.loop_triangles.foreach_get("loops", tri_loop_np)
-            tri_loop_np = tri_loop_np.reshape(n_tris, 3)
-
-            tri_poly_np = np.empty(n_tris, dtype=np.int32)
-            me.loop_triangles.foreach_get("polygon_index", tri_poly_np)
-
-            # UV read: C-level in OBJECT mode
-            uv_np = _get_uv_np(me, bm=bm)
-            if uv_np is None:
-                return
-
-        # Per-triangle UV vertices (fancy indexing — fast C-level gather)
-        uv0 = uv_np[tri_loop_np[:, 0]]   # (n_tris, 2)
-        uv1 = uv_np[tri_loop_np[:, 1]]   # (n_tris, 2)
-        uv2 = uv_np[tri_loop_np[:, 2]]   # (n_tris, 2)
-
-        # NaN/inf UVs (degenerate geometry) crash the grid broad-phase with
-        # "cannot convert float NaN to integer" — drop those triangles before
-        # any coordinate math (same class of guard as the UDIM-map fix).
-        _finite = (np.isfinite(uv0) & np.isfinite(uv1) & np.isfinite(uv2)).all(axis=1)
-        if not _finite.all():
-            tri_loop_np = tri_loop_np[_finite]
-            tri_poly_np = tri_poly_np[_finite]
-            uv0, uv1, uv2 = uv0[_finite], uv1[_finite], uv2[_finite]
-            if len(uv0) == 0:
-                self._count = 0
-                return
-
-        # Per-triangle AABB (vectorised) — convert to Python lists once for the
-        # grid phase (Python list element access is faster than numpy scalar access).
-        u_min_l = np.minimum(np.minimum(uv0[:, 0], uv1[:, 0]), uv2[:, 0]).tolist()
-        v_min_l = np.minimum(np.minimum(uv0[:, 1], uv1[:, 1]), uv2[:, 1]).tolist()
-        u_max_l = np.maximum(np.maximum(uv0[:, 0], uv1[:, 0]), uv2[:, 0]).tolist()
-        v_max_l = np.maximum(np.maximum(uv0[:, 1], uv1[:, 1]), uv2[:, 1]).tolist()
-
-        tri_poly_list = tri_poly_np.tolist()   # int list for fast Python lookup
-
-        # Stage 1 — island membership (shared cache hit if other UV checks ran first)
-        tri_island_list: List = []
-        membership = _uv_island_membership(me, _UV_PADDING_MAX_POLYS, bm=self._parent.bm_object)
-        if membership:
-            poly_to_island = membership[0]
-            n_p2i = len(poly_to_island)
-            p2i_np = np.array(poly_to_island, dtype=np.int32)
-            valid  = tri_poly_np < n_p2i
-            isl_np = np.where(valid, p2i_np[tri_poly_np.clip(0, n_p2i - 1)], -1)
-            tri_island_list = isl_np.tolist()
-
-        # Stage 2 — 2D grid broad-phase using pre-computed AABB lists
-        candidates = _uv_grid_candidates_fast(
-            u_min_l, v_min_l, u_max_l, v_max_l,
-            tri_poly_list, tri_island_list if tri_island_list else None,
-            grid_size=128,
-        )
-
-        flagged_polys:    Set[int] = set()
-        flagged_tri_idxs: Set[int] = set()
-
-        # Build UV tuples lazily — only for candidate pairs, not for all n_tris.
-        # For well-packed UV this is <1% of triangles; avoids the full O(n) loop.
-        _uv_cache: dict = {}   # tri_index → ((u0,v0),(u1,v1),(u2,v2))
-
-        def get_tri_uvs(k):
-            t = _uv_cache.get(k)
-            if t is None:
-                t = ((float(uv0[k, 0]), float(uv0[k, 1])),
-                     (float(uv1[k, 0]), float(uv1[k, 1])),
-                     (float(uv2[k, 0]), float(uv2[k, 1])))
-                _uv_cache[k] = t
-            return t
-
-        for i, j in candidates:
-            # AABB pre-filter — Python float list access, no numpy overhead
-            if (u_max_l[i] < u_min_l[j] or u_max_l[j] < u_min_l[i] or
-                    v_max_l[i] < v_min_l[j] or v_max_l[j] < v_min_l[i]):
+        bm.faces.ensure_lookup_table()
+        for fi in sorted(bad):
+            if fi >= len(bm.faces):
                 continue
-            if _uv_tris_truly_overlap(get_tri_uvs(i), get_tri_uvs(j)):
-                flagged_polys.add(tri_poly_list[i])
-                flagged_polys.add(tri_poly_list[j])
-                flagged_tri_idxs.add(i)
-                flagged_tri_idxs.add(j)
-
-        self._overlap_tri_uvs = [get_tri_uvs(k) for k in flagged_tri_idxs]
-        self._count = len(flagged_polys)
-
+            uvs = [(l[uv_layer].uv.x, l[uv_layer].uv.y)
+                   for l in bm.faces[fi].loops]
+            for i in range(1, len(uvs) - 1):
+                self._overlap_tri_uvs.append((uvs[0], uvs[i], uvs[i + 1]))
     def get_edges(self, offset: float):
         return ()
 

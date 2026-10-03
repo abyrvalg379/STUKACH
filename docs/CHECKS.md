@@ -3,7 +3,7 @@
 Generated from the code registries — do not edit by hand.
 Regenerate: run the smoke test, then `python tests/gen_checkers_doc.py`.
 
-## Core rules (stukach_core) — 24
+## Core rules (stukach_core) — 25
 
 DCC-free rules shared by every STUKACH build. Severity is decided by
 the registry; each DCC layer maps the verdicts onto its own UI.
@@ -25,6 +25,7 @@ the registry; each DCC layer maps the verdicts onto its own UI.
 | `uv_single_set` | WARNING | expected=1 | Exactly one UV set on the mesh (extra sets double the texture work; none at all is missing_uvs' territory — this rule just counts sets). |
 | `uv_udim_bounds` | BLOCKER | eps=1e-05 | UV islands whose bbox spans more than one 1x1 UDIM tile — such shells land on several tiles and break single-tile texture assignments. |
 | `uv_micro_shell` | WARNING | island_area=1e-05 | UV islands whose total UV area is below *island_area* — collapsed or forgotten shells too small to receive meaningful texture detail (≈ 6px x 6px at 2048 for the default threshold). |
+| `uv_overlap` | BLOCKER | max_tris=80000 | Overlapping UV triangles from DIFFERENT islands (inter-island overlaps — the common pipeline problem; manually folded intra-island shells are the documented blind spot). |
 | `face_aspect_ratio` | INFO | threshold=6.0 | Quad faces whose aspect ratio exceeds *threshold* (tris/ngons skip). |
 | `symmetry_x` | INFO | axis=0, threshold=0.001 | A vertex is asymmetric when its mirror key is absent. |
 | `symmetry_y` | INFO | axis=1, threshold=0.001 | A vertex is asymmetric when its mirror key is absent. |
@@ -76,7 +77,7 @@ via the parity gate in the smoke test).
 | `unused_data` | WARNING | CLEANUP |  | Detects unused/stale mesh data that is safe to remove. |
 | `uv_material_udim` | BLOCKER | UV |  | One UDIM tile must not contain UV shells from different material groups. |
 | `uv_micro_shell` | WARNING | UV | core | Detects UV islands whose total UV area is below a minimum threshold. |
-| `uv_overlap` | BLOCKER | UV |  | UV-overlap: island filter + 2D grid broad-phase + exact triangle-triangle test. |
+| `uv_overlap` | BLOCKER | UV | core | UV-overlap: island filter + 2D grid broad-phase + exact triangle-triangle test. |
 | `uv_padding` | INFO | UV |  | UV island padding — cross-object, per-UDIM-tile. |
 | `uv_single_set` | WARNING | UV | core | Ровно один UV-сет — не больше и не меньше. |
 | `uv_stretch` | WARNING | UV |  | UV stretch: detects faces where UV angles deviate significantly from 3D mesh angles. |

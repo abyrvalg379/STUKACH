@@ -534,7 +534,8 @@ def st_core_parity():
                "lamina", "starlike", "missing_uvs", "duplicate_verts",
                "non_manifold", "symmetry_x", "symmetry_y", "symmetry_z",
                "duplicated_names", "trailing_numbers", "parent_geometry",
-               "uv_single_set", "uv_udim_bounds", "uv_micro_shell"}
+               "uv_single_set", "uv_udim_bounds", "uv_micro_shell",
+               "uv_overlap"}
     compared = 0
     objects = 0
     mismatches = []
