@@ -395,6 +395,7 @@ def st_registry_dump():
     the CI freshness gate.  Deterministic content: sorted keys, first
     docstring line only."""
     import json as _json
+    adapter = importlib.import_module(MOD + ".core_adapter")
     dump = {}
     for key, cls in core.CHECK_TYPES.items():
         doc = (cls.__doc__ or "").strip().splitlines()
@@ -402,6 +403,7 @@ def st_registry_dump():
             "severity": ui.CHECK_SEVERITY.get(key, "WARNING"),
             "category": props_mod._CATEGORY_OF.get(key, ""),
             "doc": doc[0].strip() if doc else "",
+            "core_delegated": key in adapter.CORE_DELEGATED,
         }
     out = os.environ.get("STUKACH_REGISTRY_OUT") or os.path.join(
         tempfile.gettempdir(), "stukach_registry_dump.json")
@@ -530,10 +532,15 @@ def st_core_parity():
     enabled = {"triangles", "ngons", "zero_area", "poles", "boundary_edges",
                "isolated_verts", "zero_length_edges", "face_aspect_ratio",
                "lamina", "starlike", "missing_uvs", "duplicate_verts",
-               "non_manifold", "symmetry_x", "symmetry_y", "symmetry_z"}
+               "non_manifold", "symmetry_x", "symmetry_y", "symmetry_z",
+               "duplicated_names", "trailing_numbers", "parent_geometry"}
     compared = 0
     objects = 0
     mismatches = []
+    # the same scene context the real update cycle feeds the adapter with
+    scene_names = {}
+    for o in bpy.context.scene.objects:
+        scene_names[o.name] = scene_names.get(o.name, 0) + 1
     for obj, mc_obj in list(MeshCheck.objects.items()):
         try:
             me = obj.data
@@ -543,7 +550,11 @@ def st_core_parity():
         if me is None or getattr(me, "is_editmode", False):
             continue
         objects += 1
-        snap = adapter.build_snapshot(me, node=name)
+        par = obj.parent
+        p_types = ["mesh"] if (par is not None and par.type == "MESH") else []
+        snap = adapter.build_snapshot(me, node=name,
+                                      parent_types=p_types,
+                                      scene={"short_names": scene_names})
         findings = {f.rule: f.count for f in sck.run_checks(snap, enabled=enabled)}
         for rule in sorted(enabled):
             chk = mc_obj._checks.get(rule)

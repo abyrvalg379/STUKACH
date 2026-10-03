@@ -40,27 +40,27 @@ via the parity gate in the smoke test).
 
 | Check | Severity | Category | Core | Description |
 |---|---|---|---|---|
-| `boundary_edges` | INFO | TOPOLOGY | core | Рёбра с ровно одной смежной гранью (открытые края меша). |
+| `boundary_edges` | INFO | TOPOLOGY |  | Рёбра с ровно одной смежной гранью (открытые края меша). |
 | `col_naming` | WARNING | NAMING |  | Коллекции объекта: нейминг через NamingValidator (configurable policy). |
 | `duplicate_verts` | BLOCKER | TOPOLOGY | core | Overlapping vertices within 0.1 mm — would merge on Merge by Distance. |
 | `duplicated_names` | BLOCKER | NAMING | core | Exact object name used by more than one object in the scene. |
-| `face_aspect_ratio` | INFO | TOPOLOGY | core | Quad faces whose aspect ratio exceeds the threshold. |
-| `isolated_verts` | WARNING | TOPOLOGY | core | Vertices not connected to any edge — cleanup issue. |
+| `face_aspect_ratio` | INFO | TOPOLOGY |  | Quad faces whose aspect ratio exceeds the threshold. |
+| `isolated_verts` | WARNING | TOPOLOGY |  | Vertices not connected to any edge — cleanup issue. |
 | `lamina` | BLOCKER | TOPOLOGY | core | Lamina faces — zero-thickness geometry folded onto itself. |
 | `mat_assignment` | BLOCKER | MATERIALS |  | Каждый слот должен иметь материал; объект не должен быть без слотов. |
 | `mat_numbering` | WARNING | NAMING |  | Material names must not contain Blender auto-numbering (.001, .002 ...). |
 | `mat_suffix` | WARNING | MATERIALS |  | Material names must end with the configured suffix (default '_mat'). |
 | `mesh_data_naming` | WARNING | NAMING |  | Mesh datablock must not keep Blender auto-names ('Mesh.101'). |
 | `missing_textures` | BLOCKER | MATERIALS |  | Обнаруживает материалы объекта с отсутствующими текстурными файлами. |
-| `missing_uvs` | WARNING | UV | core | Faces without usable UV mapping (Maya unmapped-face analog). |
+| `missing_uvs` | WARNING | UV |  | Faces without usable UV mapping (Maya unmapped-face analog). |
 | `modifier_stack` | WARNING | TRANSFORMS |  | Unapplied modifiers on the object. |
-| `ngons` | BLOCKER | TOPOLOGY | core | Faces with more than four vertices (n-gons). |
+| `ngons` | BLOCKER | TOPOLOGY |  | Faces with more than four vertices (n-gons). |
 | `non_applied_transform` | BLOCKER | TRANSFORMS |  | Object carries rotation/scale that should be applied to the mesh. |
 | `non_manifold` | BLOCKER | TOPOLOGY | core | Non-manifold edge detector. |
 | `obj_naming` | WARNING | NAMING |  | Object names: hygiene rules + the naming contract (stukach_core.naming). |
 | `origin_at_zero` | INFO | TRANSFORMS |  | Object origin (pivot point) is not at world zero (0, 0, 0). |
 | `parent_geometry` | WARNING | TRANSFORMS | core | Object parented under another MESH object — breaks export hierarchies. |
-| `poles` | INFO | TOPOLOGY | core | Pole vertices (3 or 5+ connected edges) on interior geometry. |
+| `poles` | INFO | TOPOLOGY |  | Pole vertices (3 or 5+ connected edges) on interior geometry. |
 | `scale` | BLOCKER | TRANSFORMS |  | Scale != 1.0 по любой оси — bbox-маркер, толстая линия. |
 | `sharp_edges_not_hard` | WARNING | TOPOLOGY |  | Sharp edges (dihedral angle >= 30°) that are NOT marked sharp. |
 | `starlike` | WARNING | TOPOLOGY | core | Non-starlike faces — polygon outline self-intersects. |
@@ -68,8 +68,8 @@ via the parity gate in the smoke test).
 | `symmetry_y` | INFO | SYMMETRY | core | Asymmetric vertices on the Y axis — mirror position missing. |
 | `symmetry_z` | INFO | SYMMETRY | core | Asymmetric vertices on the Z axis — mirror position missing. |
 | `trailing_numbers` | WARNING | NAMING | core | Object name ends with digits (Cube.001-style leftovers). |
-| `triangles` | INFO | TOPOLOGY | core | Triangulated faces — the pipeline expects quads. |
-| `uncentered_pivots` | INFO | TRANSFORMS | core | Pivot further than 5% of the bbox diagonal from the bbox center. |
+| `triangles` | INFO | TOPOLOGY |  | Triangulated faces — the pipeline expects quads. |
+| `uncentered_pivots` | INFO | TRANSFORMS |  | Pivot further than 5% of the bbox diagonal from the bbox center. |
 | `unused_data` | WARNING | CLEANUP |  | Detects unused/stale mesh data that is safe to remove. |
 | `uv_material_udim` | BLOCKER | UV |  | One UDIM tile must not contain UV shells from different material groups. |
 | `uv_micro_shell` | WARNING | UV |  | Detects UV islands whose total UV area is below a minimum threshold. |
@@ -80,5 +80,5 @@ via the parity gate in the smoke test).
 | `uv_texel_density` | INFO | UV |  | Texel density in px/cm using a configurable reference texture size. |
 | `uv_udim_bounds` | BLOCKER | UV |  | UV islands crossing UDIM tile boundaries. |
 | `z_fighting` | BLOCKER | TOPOLOGY |  | Coplanar face overlap — intra-object (self) and inter-object (other tracked meshes). |
-| `zero_area` | BLOCKER | TOPOLOGY | core | Degenerate faces with (near-)zero area — collapsed geometry. |
-| `zero_length_edges` | BLOCKER | TOPOLOGY | core | Edges of (near-)zero length — degenerate geometry from merges/booleans. |
+| `zero_area` | BLOCKER | TOPOLOGY |  | Degenerate faces with (near-)zero area — collapsed geometry. |
+| `zero_length_edges` | BLOCKER | TOPOLOGY |  | Edges of (near-)zero length — degenerate geometry from merges/booleans. |

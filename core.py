@@ -4150,18 +4150,12 @@ class DuplicatedNames(BaseCheck):
         self._metric = ""
 
     def set_datas(self):
-        obj = self._parent._object
-        self._count = 0
-        self._metric = ""
-        try:
-            scene_objs = bpy.context.scene.objects
-        except Exception:
-            return
-        name = obj.name
-        n = sum(1 for o in scene_objs if o.name == name)
-        if n > 1:
-            self._count = 1
-            self._metric = f"'{name}' used by {n} objects"
+        # Detection in the vendored core: the snapshot carries the scene's
+        # short-name census (adapter fills it per update cycle)
+        finding = _sck_core.scene.check_duplicated_names(
+            self._parent.core_snapshot())
+        self._count = 1 if finding is not None else 0
+        self._metric = finding.metric if finding is not None else ""
 
     @property
     def metric_text(self) -> str:
@@ -4177,8 +4171,9 @@ class TrailingNumbers(BaseCheck):
     _RE_TRAILING = re.compile(r'\d+$')
 
     def set_datas(self):
-        obj = self._parent._object
-        self._count = 1 if self._RE_TRAILING.search(obj.name) else 0
+        finding = _sck_core.scene.check_trailing_numbers(
+            self._parent.core_snapshot())
+        self._count = 1 if finding is not None else 0
 
     def get_edges(self, offset: float):
         return ()
@@ -4239,10 +4234,14 @@ class ParentGeometry(BaseCheck):
         self._parent_name = ""
 
     def set_datas(self):
+        # Detection in the vendored core (adapter fills parent_types); the
+        # parent NAME stays a rendering detail on this side
+        finding = _sck_core.scene.check_parent_geometry(
+            self._parent.core_snapshot())
         p = self._parent._object.parent
-        bad = p is not None and p.type == 'MESH'
+        bad = finding is not None
         self._count = 1 if bad else 0
-        self._parent_name = p.name if bad else ""
+        self._parent_name = p.name if bad and p is not None else ""
 
     @property
     def metric_text(self) -> str:

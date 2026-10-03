@@ -95,7 +95,9 @@ def render(dump: dict, rules: dict) -> str:
     ]
     for key in sorted(dump):
         info = dump[key]
-        in_core = "core" if key in rules else ""
+        # honest delegation: the dump carries the addon's CORE_DELEGATED set —
+        # a name match with a core rule is NOT evidence of delegation
+        in_core = "core" if info.get("core_delegated") else ""
         lines.append(f"| `{key}` | {info['severity']} | {info['category']} | "
                      f"{in_core} | {_cell(_summary(info['doc']))} |")
     lines.append("")

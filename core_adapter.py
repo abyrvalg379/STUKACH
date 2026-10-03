@@ -6,7 +6,7 @@ with numpy foreach_get reads.  The pure-geometry rules (triangles, ngons,
 zero_area, poles, boundary_edges, isolated_verts, zero_length_edges,
 face_aspect_ratio, lamina, starlike, missing_uvs, duplicate_verts) are
 computed by the core from this snapshot and are parity-proven against the
-addon checks by the smoke core_parity step (16/16 gate).
+addon checks by the smoke core_parity step (19/19 gate).
 
 lamina/starlike fields stay neutral placeholders: since stage-2 tranche 2
 the core computes both from the contour geometry, the adapter flags are
@@ -15,7 +15,18 @@ informational only.
 import numpy
 
 
-def build_snapshot(me, node: str = "", shape: str = ""):
+# Checks whose detection runs in the vendored core (updated per tranche).
+# The CHECKS.md "Core" column is driven by this set via the smoke dump —
+# name matches with core RULES are NOT delegation evidence.
+CORE_DELEGATED = frozenset({
+    "non_manifold", "lamina", "starlike", "duplicate_verts",
+    "symmetry_x", "symmetry_y", "symmetry_z",
+    "duplicated_names", "trailing_numbers", "parent_geometry",
+})
+
+
+def build_snapshot(me, node: str = "", shape: str = "",
+                   parent_types=None, scene=None):
     """Build a stukach_core MeshSnapshot from a bpy Mesh (OBJECT mode data)."""
     from . import _core
 
@@ -72,10 +83,13 @@ def build_snapshot(me, node: str = "", shape: str = ""):
         edges=edges,
         edge_smooth=[False] * n_edges,
         edge_conn=edge_conn,
+        parent_types=list(parent_types or []),
+        scene=dict(scene or {}),
     )
 
 
-def build_snapshot_from_bm(bm, node: str = "", shape: str = ""):
+def build_snapshot_from_bm(bm, node: str = "", shape: str = "",
+                           parent_types=None, scene=None):
     """BMesh variant for EDIT mode (me.* is stale there).  Reads the same
     data the OBJECT-mode adapter does, straight off the live BMesh."""
     from . import _core
@@ -114,4 +128,6 @@ def build_snapshot_from_bm(bm, node: str = "", shape: str = ""):
         edges=edges,
         edge_smooth=[e.smooth for e in bm.edges],
         edge_conn=edge_conn,
+        parent_types=list(parent_types or []),
+        scene=dict(scene or {}),
     )

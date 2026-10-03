@@ -233,11 +233,28 @@ class MeshCheckObject:
         if self._core_snap is not None and key == self._core_snap_key:
             return self._core_snap
         from .core_adapter import build_snapshot, build_snapshot_from_bm
+        # scene-level context the core scene rules read: parent type + the
+        # short-name census of the scene (rebuilt per cycle — renames flip
+        # the name_key and force a fresh cycle before these go stale)
+        parent = self._object.parent
+        parent_types = ["mesh"] if (parent is not None
+                                    and parent.type == "MESH") else []
+        try:
+            names = {}
+            for o in bpy.context.scene.objects:
+                names[o.name] = names.get(o.name, 0) + 1
+            scene_ctx = {"short_names": names}
+        except Exception:
+            scene_ctx = {}
         if me.is_editmode:
             snap = build_snapshot_from_bm(self.bm_object,
-                                          node=self._object.name, shape=me.name)
+                                          node=self._object.name, shape=me.name,
+                                          parent_types=parent_types,
+                                          scene=scene_ctx)
         else:
-            snap = build_snapshot(me, node=self._object.name, shape=me.name)
+            snap = build_snapshot(me, node=self._object.name, shape=me.name,
+                                  parent_types=parent_types,
+                                  scene=scene_ctx)
         self._core_snap = snap
         self._core_snap_key = key
         return snap
