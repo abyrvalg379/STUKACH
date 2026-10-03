@@ -39,6 +39,8 @@ FILES = [
     "_core/__init__.py",
     "_core/model.py",
     "_core/registry.py",
+    "_core/naming.py",
+    "_core/verdict.py",
     "_core/checks/__init__.py",
     "_core/checks/topology.py",
     "_core/checks/surface.py",

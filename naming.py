@@ -17,6 +17,7 @@ import re
 import bpy
 from .manager import alog
 from dataclasses import dataclass
+from ._core import naming as _core_naming
 from typing import List
 
 # ── Severity ──────────────────────────────────────────────────────────────────
@@ -256,165 +257,32 @@ class NamingValidator:
     def validate_object(cls, obj, policy: dict = None) -> List[ValidationResult]:
         """Return a list of ValidationResult for obj.  May be empty (= clean).
 
-        *policy* – result of get_active_policy().  When None (or empty lists),
-        only the immutable code-level rules are applied and prefix/suffix
-        requirements are skipped.
-        """
-        cls._ensure_cache()
-        name: str = obj.name
-        results: List[ValidationResult] = []
-
-        # ── ERROR: empty / whitespace-only name ─────────────────────────────
-        if not name.strip():
-            return [ValidationResult(
-                object_name=name, check="obj_naming",
-                severity=ERROR, message="Empty object name",
-                rule="empty_name",
-            )]
-
-        name_lower = name.lower()
-        rules = NAMING_RULES["object"]
-
-        # ── ERROR: forbidden filesystem characters or spaces ────────────────
-        if cls._pat_forbidden_chars.search(name):
-            results.append(ValidationResult(
-                object_name=name, check="obj_naming",
-                severity=ERROR,
-                message=f"Forbidden characters or spaces in '{name}'",
-                rule="forbidden_chars",
-            ))
-
-        # ── ERROR: non-ASCII characters (Cyrillic etc.) ─────────────────────
-        # Pipeline names are a-z, 0-9, _ only; note the lowercase rule can't
-        # catch Cyrillic ('дом' == 'дом'.lower()), so this is its own guard.
-        if not name.isascii():
-            results.append(ValidationResult(
-                object_name=name, check="obj_naming",
-                severity=ERROR,
-                message=f"Non-ASCII characters in '{name}' (a-z, 0-9, _ only)",
-                rule="non_ascii",
-            ))
-
-        # ── ERROR: Blender duplicate-numbering suffix (applies to any name) ──
-        # e.g. "myobject.001" means Blender auto-renamed it due to a conflict.
-        if cls._pat_blender_num.search(name):
-            results.append(ValidationResult(
-                object_name=name, check="obj_naming",
-                severity=ERROR,
-                message=f"Blender auto-numbering (name conflict): '{name}'",
-                rule="blender_numbering",
-            ))
-
-        # ── ERROR: default DCC-generated base name ──────────────────────────
-        # Strip all numbering first so "Cube.001" and "pCube1" both reduce
-        # to their forbidden base.  "cube_hero" stays "cube_hero" → OK.
-        base = cls._strip_numbering(name_lower)
-        if base in cls._forbidden_set or name_lower in cls._forbidden_set:
-            results.append(ValidationResult(
-                object_name=name, check="obj_naming",
-                severity=ERROR,
-                message=f"Default DCC-generated name: '{name}'",
-                rule="forbidden_base_name",
-            ))
-
-        # ── WARNING: uppercase letters ───────────────────────────────────────
-        if rules.get("lowercase") and name != name_lower:
-            results.append(ValidationResult(
-                object_name=name, check="obj_naming",
-                severity=WARNING,
-                message=f"Name must be lowercase: '{name}'",
-                rule="lowercase",
-            ))
-
-        # ── Naming Contract: one verdict for the whole name shape ────────────
-        # [prefix] core [position] [_a] [_01] suffix — matched on the
-        # lowercased name (letter case is the hygiene rules' job above).
-        # EMPTY objects are exempt: their _grp suffix is the hierarchy
-        # validator's job (one problem, one verdict).
-        contract = NamingContract.build(policy or {}, "object")
-        if contract is not None and obj.type != 'EMPTY':
-            regex, template = contract
-            if not regex.match(name_lower):
-                results.append(ValidationResult(
-                    object_name=name, check="obj_naming",
-                    severity=WARNING,
-                    message=f"Does not match the contract: {template}",
-                    rule="contract_mismatch",
-                ))
-
-        return results
+        *policy* - result of get_active_policy().  The math lives in the
+        vendored DCC-free core (stukach_core.naming); this wrapper maps the
+        core findings onto Blender result records."""
+        core_findings = _core_naming.validate_object_name(
+            obj.name, obj.type, policy or {})
+        return [
+            ValidationResult(
+                object_name=obj.name, check=f["check"],
+                severity=f["severity"], message=f["message"], rule=f["rule"])
+            for f in core_findings
+        ]
 
     # ── Collection validation ────────────────────────────────────────────────
     @classmethod
     def validate_collection(cls, col, policy: dict = None) -> List[ValidationResult]:
         """Return naming issues for a Blender collection.  May be empty (= clean).
 
-        Applies the same immutable checks as validate_object (chars, numbering,
-        case) plus policy-driven prefix / suffix checks from the "collection"
-        domain.  There is no forbidden-base-name list for collections.
-        """
-        name: str = col.name
-        results: List[ValidationResult] = []
-
-        if not name.strip():
-            return [ValidationResult(
-                object_name=name, check="col_naming",
-                severity=ERROR, message="Empty collection name",
-                rule="empty_name",
-            )]
-
-        name_lower = name.lower()
-
-        # ERROR: forbidden filesystem characters
-        if cls._pat_forbidden_chars.search(name):
-            results.append(ValidationResult(
-                object_name=name, check="col_naming",
-                severity=ERROR,
-                message=f"Forbidden characters in '{name}'",
-                rule="forbidden_chars",
-            ))
-
-        # ERROR: non-ASCII characters (Cyrillic etc.) — a-z, 0-9, _ only
-        if not name.isascii():
-            results.append(ValidationResult(
-                object_name=name, check="col_naming",
-                severity=ERROR,
-                message=f"Non-ASCII characters in '{name}' (a-z, 0-9, _ only)",
-                rule="non_ascii",
-            ))
-
-        # ERROR: Blender auto-numbering conflict
-        if cls._pat_blender_num.search(name):
-            results.append(ValidationResult(
-                object_name=name, check="col_naming",
-                severity=ERROR,
-                message=f"Blender auto-numbering: '{name}'",
-                rule="blender_numbering",
-            ))
-
-        # WARNING: uppercase letters
-        if name != name_lower:
-            results.append(ValidationResult(
-                object_name=name, check="col_naming",
-                severity=WARNING,
-                message=f"Name must be lowercase: '{name}'",
-                rule="lowercase",
-            ))
-
-        # Naming Contract (collection shape: [prefix] core [position] [_a]
-        # [_01] suffix) — same one-verdict model as objects.
-        contract = NamingContract.build(policy or {}, "collection")
-        if contract is not None:
-            regex, template = contract
-            if not regex.match(name_lower):
-                results.append(ValidationResult(
-                    object_name=name, check="col_naming",
-                    severity=WARNING,
-                    message=f"Does not match the contract: {template}",
-                    rule="contract_mismatch",
-                ))
-
-        return results
+        The math lives in the vendored core; this wrapper maps the findings."""
+        core_findings = _core_naming.validate_collection_name(
+            col.name, policy or {})
+        return [
+            ValidationResult(
+                object_name=col.name, check=f["check"],
+                severity=f["severity"], message=f["message"], rule=f["rule"])
+            for f in core_findings
+        ]
 
 
 # ── NamingMarker ──────────────────────────────────────────────────────────────
