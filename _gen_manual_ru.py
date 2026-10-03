@@ -3,14 +3,16 @@ r"""STUKACH - Руководство пользователя (RU). Генера
 
 Стиль наследует _gen_docx.py (Arial, синие заголовки, фирменные таблицы).
 Запуск:  python _gen_manual_ru.py
-Выход:   D:\AI\ZCode\Project\STUKACH\out\blender\STUKACH_Manual_RU.docx
+Выход:   docs/STUKACH_Manual_RU.docx
 """
 
 import json
+import os
 
 import _docstyle as ds
 
-OUT = r'D:\AI\ZCode\Project\STUKACH\work\docs\STUKACH_Manual_RU.docx'
+OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                   'docs', 'STUKACH_Manual_RU.docx')
 
 
 def h1(doc, text):

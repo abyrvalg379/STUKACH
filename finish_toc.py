@@ -19,8 +19,8 @@ import sys
 import pymupdf
 
 SOFFICE = r'C:\Program Files\LibreOffice\program\soffice.exe'
-PLACEHOLDER = os.path.expanduser(
-    r'~/.zcode/cli/plugins/cache/zcode-plugins-official/documents/0.1.7/skills/docx/scripts/add_toc_placeholders.py')
+# TOC placeholder helper — resolve via environment, keep machine paths out of git
+PLACEHOLDER = os.environ.get('STUKACH_TOC_HELPER', 'add_toc_placeholders.py')
 
 
 def convert(name):
