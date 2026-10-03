@@ -3948,9 +3948,10 @@ class _FanFaceOverlay:
 class Lamina(_EdgeOverlay, _FanFaceOverlay, BaseCheck):
     """Lamina faces — zero-thickness geometry folded onto itself.
 
-    Maya isLamina() analog: the face contour traverses the same edge twice
-    or repeats a vertex, so the face has no thickness.  Breaks booleans,
-    subdivision and exporters."""
+    Stage-2 strangler: detection lives in the vendored core
+    (stukach_core.topology.check_lamina — the contour repeats a vertex or
+    traverses an edge twice).  The class renders the finding: flagged
+    faces plus their perimeter edges for the outline overlay."""
 
     def __init__(self, parent):
         super().__init__(parent)
@@ -3958,26 +3959,37 @@ class Lamina(_EdgeOverlay, _FanFaceOverlay, BaseCheck):
         self._edges_idx: List[int] = []
 
     def set_datas(self):
-        bm = self._parent.bm_object
-        bm.faces.ensure_lookup_table()
-        self._faces_idx = []
-        bad_edges = set()
-        for f in bm.faces:
-            vs = [v.index for v in f.verts]
-            n = len(vs)
-            ekeys = []
-            for i in range(n):
-                a, b = vs[i], vs[(i + 1) % n]
-                ekeys.append((a, b) if a < b else (b, a))
-            if len(set(vs)) < n or len(set(ekeys)) < n:
-                self._faces_idx.append(f.index)
-                bad_edges.update(e.index for e in f.edges)
+        from .core_adapter import build_snapshot, build_snapshot_from_bm
+
+        obj = self._parent._object
+        me = obj.data
+        if me.is_editmode:
+            snap = build_snapshot_from_bm(self._parent.bm_object,
+                                          node=obj.name, shape=me.name)
+        else:
+            snap = build_snapshot(me, node=obj.name, shape=me.name)
+
+        finding = _sck_core.topology.check_lamina(snap)
+        if finding is None:
+            self._faces_idx = []
+            self._edges_idx = []
+            self._count = 0
+            return
+
+        self._faces_idx = [i for (etype, i) in finding.elements if etype == "face"]
+        lookup = {(a, b) if a < b else (b, a): i
+                  for i, (a, b) in enumerate(snap.edges)}
+        eids = set()
+        for etype, fi in finding.elements:
+            verts = snap.face_verts[fi]
+            nv = len(verts)
+            for k in range(nv):
+                a, b = verts[k], verts[(k + 1) % nv]
+                eid = lookup.get((a, b) if a < b else (b, a))
+                if eid is not None:
+                    eids.add(eid)
+        self._edges_idx = sorted(eids)
         self._count = len(self._faces_idx)
-        self._edges_idx = sorted(bad_edges)
-
-    def get_select_data(self):
-        return ('FACE', self._faces_idx)
-
 
 class ZeroLengthEdges(_EdgeOverlay, BaseCheck):
     """Edges of (near-)zero length — degenerate geometry from merges/booleans."""
