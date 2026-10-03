@@ -38,6 +38,29 @@ bevel-aware + custom-normals skip, Blender 4.2+ support, manuals v1.8.0.
   5.2, the CI matrix is the gate; Blender API breaking changes get a major
   bump.
 
+## Hierarchy redesign — one scan, one flat list (planned)
+The hierarchy block grew features across three phases (stale badge, per-root
+tree, rule aggregation, per-node ignores, five fix buttons, skeleton
+generator) and became hard to follow: two display modes, a full node tree
+that duplicates the Outliner, naming findings double-counted with the
+NAMING category, and a fix-button row that lives apart from the list.
+Redesign, mockup first:
+- **One display mode** — the list always shows problems only; the full node
+  tree is gone (the Outliner already shows structure).
+- **Per-root sections** — each asset root is a section with its issue rows;
+  a clean root is a single line with a checkmark; "not connected to any
+  root" stays as its own section.
+- **Anti-wall-of-text kept** — inside a root, findings collapse into rule
+  rows ("Missing group suffix ×5 · samples") that expand per object; the
+  Fix button sits on the rule row, where the problem is ("Create root" on
+  the no-root finding, "Connect" on the orphans section).
+- **Naming rules leave the hierarchy** (forbidden chars, .001 numbering,
+  default DCC names, lowercase — already the NAMING category's job); the
+  9 structural rules remain.
+- **Skeleton** moves to the block header — it generates, it doesn't fix.
+- Unchanged underneath: scan API (HierarchyResult), per-node ignores,
+  stale detection, Live auto-scan, reports, Next Issue, coordinator gate.
+
 ## Inter-object Z-fighting — open semantic question
 Exact duplicates and overlapping-face pairs are caught (KD-tree centroid
 pass).  Strictly parallel planes with a small offset are NOT, and cannot be

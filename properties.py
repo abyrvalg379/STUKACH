@@ -3194,12 +3194,6 @@ class MeshCheckProperties(PropertyGroup):
         default=False,
         description="Expand / collapse the Hierarchy validator block",
     )
-    # Hierarchy block — flat list of problem objects instead of full tree
-    hierarchy_issues_only: BoolProperty(
-        name="Issues Only",
-        default=False,
-        description="Show only objects with hierarchy findings (off = full tree per asset root)",
-    )
 
     # Naming Audit block — section collapse toggle
     naming_audit_open: BoolProperty(

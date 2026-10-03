@@ -688,11 +688,6 @@ class HierarchyValidator:
         'hi', 'lo', 'mid', 'cache', 'cloth', 'hair', 'fluid',
     })
 
-    # Reuse compiled patterns from NamingValidator (set after NamingValidator defined)
-    _pat_blender_num     = NamingValidator._pat_blender_num
-    _pat_forbidden_chars = NamingValidator._pat_forbidden_chars
-    _pat_trailing_digits = NamingValidator._pat_trailing_digits
-
     DEFAULT_GRP_SUFFIX = "_grp"
 
     # ── Scene fingerprint & staleness ──────────────────────────────────────────
@@ -769,9 +764,6 @@ class HierarchyValidator:
                 issues=[], asset_roots=[], node_roles={},
                 children_of={}, objects_scanned=0,
             )
-
-        # Ensure NamingValidator forbidden-name cache is warm
-        NamingValidator._ensure_cache()
 
         grp_suffix = cls._grp_suffix(prefs)
 
@@ -897,51 +889,15 @@ class HierarchyValidator:
     @classmethod
     def _validate_node(cls, obj, role: str, layer_names: set, grp_suffix: str = "_grp",
                        has_children: bool = True) -> list:
-        """Return HierarchyIssue list for a single object."""
+        """Return HierarchyIssue list for a single object.
+
+        Structural rules only — object naming (case, forbidden characters,
+        .001 numbering, default DCC names) is the NAMING category's job;
+        duplicating it here double-counted findings in statuses and reports.
+        """
         issues  = []
         name    = obj.name
         name_lo = name.lower()
-
-        # ── Common rules — all object types ──────────────────────────────────
-
-        # ERROR: forbidden filesystem characters / spaces
-        if cls._pat_forbidden_chars.search(name):
-            issues.append(HierarchyIssue(
-                obj_name=name, severity=ERROR,
-                rule="forbidden_chars",
-                message=f"Forbidden characters or spaces: '{name}'",
-                role=role,
-            ))
-
-        # ERROR: Blender auto-numbering (.001 suffix = name conflict)
-        if cls._pat_blender_num.search(name):
-            issues.append(HierarchyIssue(
-                obj_name=name, severity=ERROR,
-                rule="blender_numbering",
-                message=f"Blender numbering conflict: '{name}'",
-                role=role,
-            ))
-
-        # ERROR: default DCC-generated base name
-        base = cls._pat_trailing_digits.sub(
-            "", cls._pat_blender_num.sub("", name_lo)
-        ).rstrip("_")
-        if base in NamingValidator._forbidden_set or name_lo in NamingValidator._forbidden_set:
-            issues.append(HierarchyIssue(
-                obj_name=name, severity=ERROR,
-                rule="forbidden_base_name",
-                message=f"Default DCC name: '{name}'",
-                role=role,
-            ))
-
-        # WARNING: uppercase letters
-        if name != name_lo:
-            issues.append(HierarchyIssue(
-                obj_name=name, severity=WARNING,
-                rule="lowercase",
-                message=f"Name must be lowercase: '{name}'",
-                role=role,
-            ))
 
         # ── EMPTY-specific rules ──────────────────────────────────────────────
         if obj.type == 'EMPTY':
@@ -1089,13 +1045,10 @@ def hierarchy_ignored_pairs(result) -> list:
     return out
 
 
-# Human-readable rule names for the aggregated view
+# Human-readable rule names for the aggregated view (structural rules only —
+# naming rules live in the NAMING check category)
 HIER_RULE_LABELS: dict = {
-    "blender_numbering":       "Blender numbering (.001)",
     "missing_grp_suffix":      "Missing group suffix",
-    "forbidden_chars":         "Forbidden characters",
-    "forbidden_base_name":     "Default DCC name",
-    "lowercase":               "Uppercase in name",
     "unknown_functional_layer": "Unknown functional layer",
     "orphan_empty":            "Orphan empty",
     "orphan_mesh":             "Orphan mesh",
@@ -1107,24 +1060,6 @@ HIER_RULE_LABELS: dict = {
 }
 
 
-def hierarchy_rule_summary(eff_issues) -> list:
-    """Aggregate blocking issues into one row per rule — anti-wall-of-text.
-
-    Returns ERROR groups first, then WARNING, each sorted by count desc:
-    [(rule, severity, count, sample_obj_names), …]
-    """
-    agg: dict = {}
-    for issue in eff_issues:
-        if issue.severity not in (WARNING, ERROR):
-            continue
-        entry = agg.setdefault(issue.rule,
-                               {"sev": issue.severity, "count": 0, "samples": []})
-        entry["count"] += 1
-        if issue.obj_name != "[scene]" and len(entry["samples"]) < 3:
-            entry["samples"].append(issue.obj_name)
-    out = [(rule, e["sev"], e["count"], e["samples"]) for rule, e in agg.items()]
-    out.sort(key=lambda t: (0 if t[1] == ERROR else 1, -t[2]))
-    return out
 
 
 # ── Operators ──────────────────────────────────────────────────────────────────
@@ -1157,18 +1092,6 @@ class ASSET_CHECKER_OT_scan_hierarchy(bpy.types.Operator):
                 f"Hierarchy: {result.blocking_count} issue(s)  "
                 f"({result.objects_scanned} objects scanned)",
             )
-        return {'FINISHED'}
-
-
-class ASSET_CHECKER_OT_clear_hierarchy(bpy.types.Operator):
-    """Clear the hierarchy scan results"""
-    bl_idname  = "asset_checker.clear_hierarchy"
-    bl_label   = "Clear Hierarchy"
-    bl_options = {'REGISTER'}
-
-    def execute(self, context):
-        from .manager import MeshCheck
-        MeshCheck.hierarchy_result = None
         return {'FINISHED'}
 
 

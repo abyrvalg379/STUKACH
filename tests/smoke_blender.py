@@ -453,10 +453,17 @@ def st_hierarchy():
     result = naming.HierarchyValidator.scan_scene(prefs=prefs)
     MeshCheck.hierarchy_result = result
     rules = {i.rule for i in result.issues}
-    wanted = {"missing_grp_suffix", "orphan_mesh", "blender_numbering",
+    # structural rules only — naming rules belong to the NAMING category
+    # (base_1_geo is a parentless EMPTY, so it classifies as an asset root
+    # and fires multiple_asset_roots, not orphan_empty)
+    wanted = {"missing_grp_suffix", "multiple_asset_roots", "orphan_mesh",
               "mesh_under_mesh", "parent_mismatch"}
     missing = wanted - rules
     expect(not missing, f"hierarchy rules not detected: {missing} (got {sorted(rules)})")
+    naming_leftovers = rules & {"blender_numbering", "forbidden_chars",
+                                "forbidden_base_name", "lowercase"}
+    expect(not naming_leftovers,
+           f"naming rules leaked into hierarchy scan: {sorted(naming_leftovers)}")
     expect(result.objects_scanned >= 10,
            f"hierarchy scanned only {result.objects_scanned} objects")
     eff = naming.hierarchy_effective_issues(result)

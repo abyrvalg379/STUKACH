@@ -90,7 +90,6 @@ classes = (
     naming.ASSET_CHECKER_OT_run_naming_audit,
     naming.ASSET_CHECKER_OT_clear_naming_audit,
     naming.ASSET_CHECKER_OT_scan_hierarchy,
-    naming.ASSET_CHECKER_OT_clear_hierarchy,
     naming.ASSET_CHECKER_OT_hierarchy_toggle_root,
     naming.ASSET_CHECKER_OT_hierarchy_toggle_rule,
     naming.ASSET_CHECKER_OT_hierarchy_ignore_toggle,
