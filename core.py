@@ -918,15 +918,7 @@ class NonManifold(BaseCheck):
         return ""
 
     def set_datas(self):
-        from .core_adapter import build_snapshot, build_snapshot_from_bm
-
-        obj = self._parent._object
-        me = obj.data
-        if me.is_editmode:
-            snap = build_snapshot_from_bm(self._parent.bm_object,
-                                          node=obj.name, shape=me.name)
-        else:
-            snap = build_snapshot(me, node=obj.name, shape=me.name)
+        snap = self._parent.core_snapshot()
 
         finding = _sck_core.topology.check_non_manifold(snap)
         # wire edges (conn == 0) are visualised, never counted — the core
@@ -3968,15 +3960,7 @@ class Lamina(_EdgeOverlay, _FanFaceOverlay, BaseCheck):
         self._edges_idx: List[int] = []
 
     def set_datas(self):
-        from .core_adapter import build_snapshot, build_snapshot_from_bm
-
-        obj = self._parent._object
-        me = obj.data
-        if me.is_editmode:
-            snap = build_snapshot_from_bm(self._parent.bm_object,
-                                          node=obj.name, shape=me.name)
-        else:
-            snap = build_snapshot(me, node=obj.name, shape=me.name)
+        snap = self._parent.core_snapshot()
 
         finding = _sck_core.topology.check_lamina(snap)
         if finding is None:
@@ -4123,15 +4107,7 @@ class Starlike(_EdgeOverlay, _FanFaceOverlay, BaseCheck):
         self._edges_idx: List[int] = []
 
     def set_datas(self):
-        from .core_adapter import build_snapshot, build_snapshot_from_bm
-
-        obj = self._parent._object
-        me = obj.data
-        if me.is_editmode:
-            snap = build_snapshot_from_bm(self._parent.bm_object,
-                                          node=obj.name, shape=me.name)
-        else:
-            snap = build_snapshot(me, node=obj.name, shape=me.name)
+        snap = self._parent.core_snapshot()
 
         finding = _sck_core.topology.check_starlike(snap)
         if finding is None:

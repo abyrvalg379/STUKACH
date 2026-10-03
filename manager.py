@@ -136,6 +136,8 @@ class MeshCheckObject:
         self._sym_kd_co           = None   # numpy (n_verts, 3) float32, rebuilt per topology  # mat_name → set of (tile_u, tile_v)
         self._zf_kd_key: tuple = ()  # (mesh_key, transform_key) - inter z-fighting KD cache stamp
         self._zf_kd_cache = None   # (kd, centroids, aabb_min, aabb_max)
+        self._core_snap = None        # vendored-core MeshSnapshot, shared per update cycle
+        self._core_snap_key: tuple = ()
         self._init_object()
 
     @staticmethod
@@ -201,6 +203,8 @@ class MeshCheckObject:
                 pass
         self._bm_object = None
         self._bm_owned = False
+        self._core_snap = None
+        self._core_snap_key = ()
 
     def set_bm_object(self):
         me = self._object.data
@@ -217,9 +221,31 @@ class MeshCheckObject:
         self._bm_owned = True
         return bm
 
+    def core_snapshot(self):
+        """Vendored-core MeshSnapshot for THIS update cycle, shared by every
+        core-delegating check (non_manifold / lamina / starlike …) — one
+        adapter build instead of one per check.  Keyed by the mesh/uv dirty
+        stamps + edit-mode state (uv included: the snapshot carries UV data,
+        so a future UV-bearing consumer never reads a stale one).  The
+        snapshot holds copied arrays, never the bmesh itself."""
+        me = self._object.data
+        key = (self._mesh_key, self._uv_key, me.is_editmode)
+        if self._core_snap is not None and key == self._core_snap_key:
+            return self._core_snap
+        from .core_adapter import build_snapshot, build_snapshot_from_bm
+        if me.is_editmode:
+            snap = build_snapshot_from_bm(self.bm_object,
+                                          node=self._object.name, shape=me.name)
+        else:
+            snap = build_snapshot(me, node=self._object.name, shape=me.name)
+        self._core_snap = snap
+        self._core_snap_key = key
+        return snap
+
     def update_datas(self, bm, *, uv_changed: bool = True, topo_changed: bool = True,
                      transform_changed: bool = True):
         mc = bpy.context.window_manager.mesh_check_props
+        self._core_snap = None   # new update cycle — rebuild lazily on first core check
 
         if topo_changed:
             for d in self.MESH_DATAS:
@@ -1133,6 +1159,7 @@ class MeshCheck:
                         mc_obj._mesh_key = new_key
                         bm = mc_obj.set_bm_object()
                         mc_obj._uv_key = MeshCheckObject._sample_uv_key(bm)
+                    mc_obj._core_snap = None   # per-check fix path: rebuild, never reuse
                     checker.set_datas()
                     _apply_obj_ignore(checker, mc_obj._object, name)
                     checker._gpu_dirty = True
