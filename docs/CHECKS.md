@@ -3,7 +3,7 @@
 Generated from the code registries — do not edit by hand.
 Regenerate: run the smoke test, then `python tests/gen_checkers_doc.py`.
 
-## Core rules (stukach_core) — 28
+## Core rules (stukach_core) — 31
 
 DCC-free rules shared by every STUKACH build. Severity is decided by
 the registry; each DCC layer maps the verdicts onto its own UI.
@@ -29,6 +29,9 @@ the registry; each DCC layer maps the verdicts onto its own UI.
 | `uv_stretch` | WARNING | threshold=0.5 | Faces whose UV corner angles deviate from the 3-D corner angles by more than *threshold* radians — any stretched corner flags the face. |
 | `uv_texel_density` | INFO | tex_size=2048, target_td=0.0, tolerance=0.2, unit_scale=1.0 | Texel density px/cm: TD = tex_size x sqrt(uv_area) / (sqrt(world_area) x 100 x unit_scale). |
 | `uv_material_udim` | BLOCKER | — | One UDIM tile must not contain UV shells from different material groups. |
+| `origin_at_zero` | INFO | threshold=0.001 | Object origin (pivot point) is not at world zero — world-space translation, so parented objects are judged by their real position. |
+| `scale` | BLOCKER | tol=0.001 | Object scale deviates from 1.0 by more than *tol* on any axis. |
+| `non_applied_transform` | BLOCKER | tol=0.001 | Object carries a rotation that should be applied to the mesh — the rotation block of the local matrix differs from identity. |
 | `face_aspect_ratio` | INFO | threshold=6.0 | Quad faces whose aspect ratio exceeds *threshold* (tris/ngons skip). |
 | `symmetry_x` | INFO | axis=0, threshold=0.001 | A vertex is asymmetric when its mirror key is absent. |
 | `symmetry_y` | INFO | axis=1, threshold=0.001 | A vertex is asymmetric when its mirror key is absent. |
@@ -62,13 +65,13 @@ via the parity gate in the smoke test).
 | `missing_uvs` | WARNING | UV |  | Faces without usable UV mapping (Maya unmapped-face analog). |
 | `modifier_stack` | WARNING | TRANSFORMS |  | Unapplied modifiers on the object. |
 | `ngons` | BLOCKER | TOPOLOGY |  | Faces with more than four vertices (n-gons). |
-| `non_applied_transform` | BLOCKER | TRANSFORMS |  | Object carries rotation/scale that should be applied to the mesh. |
+| `non_applied_transform` | BLOCKER | TRANSFORMS | core | Object carries rotation/scale that should be applied to the mesh. |
 | `non_manifold` | BLOCKER | TOPOLOGY | core | Non-manifold edge detector. |
 | `obj_naming` | WARNING | NAMING |  | Object names: hygiene rules + the naming contract (stukach_core.naming). |
-| `origin_at_zero` | INFO | TRANSFORMS |  | Object origin (pivot point) is not at world zero (0, 0, 0). |
+| `origin_at_zero` | INFO | TRANSFORMS | core | Object origin (pivot point) is not at world zero (0, 0, 0). |
 | `parent_geometry` | WARNING | TRANSFORMS | core | Object parented under another MESH object — breaks export hierarchies. |
 | `poles` | INFO | TOPOLOGY |  | Pole vertices (3 or 5+ connected edges) on interior geometry. |
-| `scale` | BLOCKER | TRANSFORMS |  | Scale != 1.0 по любой оси — bbox-маркер, толстая линия. |
+| `scale` | BLOCKER | TRANSFORMS | core | Scale != 1.0 по любой оси — bbox-маркер, толстая линия. |
 | `sharp_edges_not_hard` | WARNING | TOPOLOGY |  | Sharp edges (dihedral angle >= 30°) that are NOT marked sharp. |
 | `starlike` | WARNING | TOPOLOGY | core | Non-starlike faces — polygon outline self-intersects. |
 | `symmetry_x` | INFO | SYMMETRY | core | Asymmetric vertices on the X axis — mirror position missing. |

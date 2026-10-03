@@ -47,6 +47,7 @@ FILES = [
     "_core/checks/symmetry.py",
     "_core/checks/scene.py",
     "_core/checks/uv.py",
+    "_core/checks/transform.py",
 ]
 
 

@@ -536,7 +536,7 @@ def st_core_parity():
                "duplicated_names", "trailing_numbers", "parent_geometry",
                "uv_single_set", "uv_udim_bounds", "uv_micro_shell",
                "uv_overlap", "uv_stretch", "uv_texel_density",
-               "uv_material_udim"}
+               "uv_material_udim", "scale", "non_applied_transform"}
     compared = 0
     objects = 0
     mismatches = []
@@ -557,7 +557,13 @@ def st_core_parity():
         p_types = ["mesh"] if (par is not None and par.type == "MESH") else []
         snap = adapter.build_snapshot(me, node=name,
                                       parent_types=p_types,
-                                      scene={"short_names": scene_names})
+                                      scene={"short_names": scene_names},
+                                      world_matrix=tuple(
+                                          c for row in obj.matrix_world
+                                          for c in row),
+                                      local_matrix=tuple(
+                                          c for row in obj.matrix_basis
+                                          for c in row))
         findings = {f.rule: f.count for f in sck.run_checks(snap, enabled=enabled)}
         for rule in sorted(enabled):
             chk = mc_obj._checks.get(rule)

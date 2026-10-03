@@ -1184,20 +1184,25 @@ class NonAppliedTransform(BaseCheck):
         self._bbox: Tuple = ()
 
     def set_datas(self):
-        obj = self._parent._object
+        finding = _sck_core.transform.check_non_applied_transform(
+            self._parent.core_snapshot())
         self._issues.clear()
         self._bbox = ()
+        if finding is None:
+            self._count = 0
+            return
+        self._count = 1
+        # rendering: the human-readable per-component strings stay DCC-side
+        obj = self._parent._object
         for i, r in enumerate(obj.rotation_euler):
             if abs(r) > 0.001:
                 self._issues.append(f"R[{i}]={math.degrees(r):.1f}°")
-        self._count = 1 if self._issues else 0
-        if self._issues:
-            mw = obj.matrix_world
-            corners = [mw @ mathutils.Vector(c) for c in obj.bound_box]
-            edge_idx = [0,1,1,2,2,3,3,0, 4,5,5,6,6,7,7,4, 0,4,1,5,2,6,3,7]
-            self._bbox = tuple((corners[i].x, corners[i].y, corners[i].z) for i in edge_idx)
-
-    @property
+        if not self._issues:
+            self._issues.append("rotation is not identity")
+        mw = obj.matrix_world
+        corners = [mw @ mathutils.Vector(c) for c in obj.bound_box]
+        edge_idx = [0, 1, 1, 2, 2, 3, 3, 0, 4, 5, 5, 6, 6, 7, 7, 4, 0, 4, 1, 5, 2, 6, 3, 7]
+        self._bbox = tuple((corners[i].x, corners[i].y, corners[i].z) for i in edge_idx)
     def description(self):
         return "; ".join(self._issues) if self._issues else "OK"
 
@@ -1216,16 +1221,16 @@ class Scale(BaseCheck):
         self._bbox: Tuple = ()
 
     def set_datas(self):
-        obj = self._parent._object
-        has_issue = any(abs(s - 1.0) > 0.001 for s in obj.scale)
-        self._count = 1 if has_issue else 0
+        finding = _sck_core.transform.check_scale(self._parent.core_snapshot())
+        self._count = 1 if finding is not None else 0
         self._bbox = ()
-        if has_issue:
-            mw = obj.matrix_world
-            corners = [mw @ mathutils.Vector(c) for c in obj.bound_box]
-            edge_idx = [0,1,1,2,2,3,3,0, 4,5,5,6,6,7,7,4, 0,4,1,5,2,6,3,7]
-            self._bbox = tuple((corners[i].x, corners[i].y, corners[i].z) for i in edge_idx)
-
+        if finding is None:
+            return
+        obj = self._parent._object
+        mw = obj.matrix_world
+        corners = [mw @ mathutils.Vector(c) for c in obj.bound_box]
+        edge_idx = [0, 1, 1, 2, 2, 3, 3, 0, 4, 5, 5, 6, 6, 7, 7, 4, 0, 4, 1, 5, 2, 6, 3, 7]
+        self._bbox = tuple((corners[i].x, corners[i].y, corners[i].z) for i in edge_idx)
     def get_edges(self, offset: float):
         return self._bbox
 
@@ -2919,25 +2924,19 @@ class OriginAtZero(BaseCheck):
         self._bbox: Tuple = ()
 
     def set_datas(self):
-        obj = self._parent._object
-        # Use world-space translation so parented objects are checked correctly.
-        # obj.location is the LOCAL offset relative to the parent and can be
-        # (0, 0, 0) even when the world position is far from the origin.
-        mw  = obj.matrix_world
-        loc = mw.translation          # mathutils.Vector — world position of the origin
-        has_issue = (abs(loc.x) > self._THRESHOLD or
-                     abs(loc.y) > self._THRESHOLD or
-                     abs(loc.z) > self._THRESHOLD)
-        self._count = 1 if has_issue else 0
         self._bbox = ()
-        if has_issue:
-            corners = [mw @ mathutils.Vector(c) for c in obj.bound_box]
-            edge_idx = [0,1,1,2,2,3,3,0, 4,5,5,6,6,7,7,4, 0,4,1,5,2,6,3,7]
-            self._bbox = tuple((corners[i].x, corners[i].y, corners[i].z) for i in edge_idx)
-            self.metric_text = f"Origin: ({loc.x:.3f}, {loc.y:.3f}, {loc.z:.3f})"
-        else:
+        finding = _sck_core.transform.check_origin_at_zero(
+            self._parent.core_snapshot())
+        self._count = 1 if finding is not None else 0
+        if finding is None:
             self.metric_text = ""
-
+            return
+        self.metric_text = finding.metric or ""
+        obj = self._parent._object
+        mw = obj.matrix_world
+        corners = [mw @ mathutils.Vector(c) for c in obj.bound_box]
+        edge_idx = [0, 1, 1, 2, 2, 3, 3, 0, 4, 5, 5, 6, 6, 7, 7, 4, 0, 4, 1, 5, 2, 6, 3, 7]
+        self._bbox = tuple((corners[i].x, corners[i].y, corners[i].z) for i in edge_idx)
     def get_edges(self, offset: float):
         return self._bbox
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Callable, Dict, Optional
 
 from .model import MeshSnapshot, Finding
-from .checks import topology, surface, symmetry, scene, uv
+from .checks import topology, surface, symmetry, scene, uv, transform
 
 # rule id → (severity, evaluator callable, param name → default)
 RULES: Dict[str, tuple] = {
@@ -37,6 +37,11 @@ RULES: Dict[str, tuple] = {
                           {"tex_size": 2048, "target_td": 0.0, "tolerance": 0.20,
                            "unit_scale": 1.0}),
     "uv_material_udim":   ("BLOCKER", uv.check_uv_material_udim, {}),
+    # transforms
+    "origin_at_zero":      ("INFO",    transform.check_origin_at_zero, {"threshold": 0.001}),
+    "scale":               ("BLOCKER", transform.check_scale, {"tol": 0.001}),
+    "non_applied_transform": ("BLOCKER", transform.check_non_applied_transform,
+                            {"tol": 0.001}),
     # surface
     "face_aspect_ratio":  ("INFO",    surface.check_face_aspect_ratio, {"threshold": 6.0}),
     # symmetry

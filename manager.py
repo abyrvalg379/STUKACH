@@ -138,6 +138,7 @@ class MeshCheckObject:
         self._zf_kd_cache = None   # (kd, centroids, aabb_min, aabb_max)
         self._core_snap = None        # vendored-core MeshSnapshot, shared per update cycle
         self._core_snap_key: tuple = ()
+        self._core_snap_tkey: tuple = ()   # transform stamp the snapshot matrices carry
         self._init_object()
 
     @staticmethod
@@ -231,6 +232,14 @@ class MeshCheckObject:
         me = self._object.data
         key = (self._mesh_key, self._uv_key, me.is_editmode)
         if self._core_snap is not None and key == self._core_snap_key:
+            # transform-only updates don't rebuild the snapshot — patch its
+            # matrices in place (geometry unchanged)
+            if self._core_snap_tkey != self._transform_key:
+                self._core_snap.world_matrix = tuple(
+                    c for row in self._object.matrix_world for c in row)
+                self._core_snap.local_matrix = tuple(
+                    c for row in self._object.matrix_basis for c in row)
+                self._core_snap_tkey = self._transform_key
             return self._core_snap
         from .core_adapter import build_snapshot, build_snapshot_from_bm
         # scene-level context the core scene rules read: parent type + the
@@ -247,19 +256,23 @@ class MeshCheckObject:
         except Exception:
             scene_ctx = {}
         world = tuple(c for row in self._object.matrix_world for c in row)
+        local = tuple(c for row in self._object.matrix_basis for c in row)
         if me.is_editmode:
             snap = build_snapshot_from_bm(self.bm_object,
                                           node=self._object.name, shape=me.name,
                                           parent_types=parent_types,
                                           scene=scene_ctx,
-                                          world_matrix=world)
+                                          world_matrix=world,
+                                          local_matrix=local)
         else:
             snap = build_snapshot(me, node=self._object.name, shape=me.name,
                                   parent_types=parent_types,
                                   scene=scene_ctx,
-                                  world_matrix=world)
+                                  world_matrix=world,
+                                  local_matrix=local)
         self._core_snap = snap
         self._core_snap_key = key
+        self._core_snap_tkey = self._transform_key
         return snap
 
     def update_datas(self, bm, *, uv_changed: bool = True, topo_changed: bool = True,
