@@ -78,3 +78,37 @@ def run_checks(snap: MeshSnapshot, enabled=None, params: Optional[dict] = None) 
     findings.sort(key=lambda f: ({"BLOCKER": 0, "WARNING": 1, "INFO": 2}[f.severity],
                                  -f.count))
     return findings
+
+
+# ── scene scope: cross-object rules over a batch of snapshots ────────────────
+# rule id → (severity, evaluator(snaps, **params) → list[Finding], defaults).
+# Findings carry owner = the key the snapshot was passed under; elements
+# index that owner's snapshot.
+
+SCENE_RULES: Dict[str, tuple] = {
+    "uv_padding": ("INFO", uv.check_uv_padding_batch,
+                   {"tex_size": 4096, "shell_px": 16, "tile_px": 8,
+                    "max_polys": 50_000, "max_uv_verts": 200_000}),
+}
+
+
+def run_scene_checks(snaps: Dict[str, MeshSnapshot], enabled=None,
+                     params: Optional[dict] = None) -> list:
+    """Run enabled scene-scope rules over a batch of snapshots.
+
+    *snaps* — {owner: MeshSnapshot}.  Same severity/params conventions as
+    run_checks; zero-count findings are filtered."""
+    params = params or {}
+    findings = []
+    for rule_id, (severity, evaluator, defaults) in SCENE_RULES.items():
+        if enabled is not None and rule_id not in enabled:
+            continue
+        merged = dict(defaults)
+        merged.update(params.get(rule_id, {}))
+        for finding in evaluator(snaps, **merged):
+            if finding.count > 0:
+                finding.severity = severity
+                findings.append(finding)
+    findings.sort(key=lambda f: ({"BLOCKER": 0, "WARNING": 1, "INFO": 2}[f.severity],
+                                 -f.count, f.owner))
+    return findings

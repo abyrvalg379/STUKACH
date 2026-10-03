@@ -536,3 +536,235 @@ def check_uv_material_udim(snap: MeshSnapshot) -> Optional[Finding]:
               % (len(bad_tiles), "s" if len(bad_tiles) > 1 else "", names))
     return Finding("uv_material_udim", "BLOCKER", len(bad_tiles), elements,
                    metric=metric)
+
+
+# ── UV padding (scene scope) ─────────────────────────────────────────────────
+# Port of the addon's two-phase cross-object check (strangler 5a): islands of
+# ALL snapshots are grouped by dominant UDIM tile, then a spatial-hash
+# shell-to-shell pass plus an analytic tile-border pass run per tile.
+# A Finding is produced for EVERY participating snapshot, including clean
+# ones (count=0 carries the measured min border in metric) — run_scene_checks
+# filters zero counts; direct callers read the OK metrics.
+
+_PAD_TEX_SIZES = {0: 512, 1: 1024, 2: 2048, 3: 4096}
+
+
+def _island_uv_points(snap: MeshSnapshot, max_polys: int, max_uv_verts: int):
+    """Islands of one snapshot as (points, tile) lists, or a skip verdict.
+
+    points — every finite UV corner of the island (corners repeat, matching
+    the addon's phase-1 collection); tile — dominant tile by corner vote.
+    Returns ("too_many_polys", None) over the poly guard, (None, None) when
+    the snapshot has no usable UVs or exceeds max_uv_verts."""
+    from math import floor, isfinite
+    p2i = uv_islands(snap)
+    if p2i is None or not snap.face_verts:
+        return None, None
+    if len(snap.face_verts) > max_polys:
+        return "too_many_polys", None
+    n_islands = max(p2i) + 1
+    island_uvs = [[] for _ in range(n_islands)]
+    island_votes = [dict() for _ in range(n_islands)]
+    total = 0
+    for fi, uvs in enumerate(snap.face_uvs):
+        isl = p2i[fi]
+        if isl < 0 or uvs is None:
+            continue
+        for i in range(0, len(uvs), 2):
+            u, v = uvs[i], uvs[i + 1]
+            if not (isfinite(u) and isfinite(v)):
+                continue
+            island_uvs[isl].append((u, v))
+            total += 1
+            tile = (int(floor(u)), int(floor(v)))
+            votes = island_votes[isl]
+            votes[tile] = votes.get(tile, 0) + 1
+    if total == 0 or total > max_uv_verts:
+        return None, None
+    island_tile = [max(v, key=v.get) if v else (0, 0) for v in island_votes]
+    pts = [p for p in island_uvs if p]
+    tiles = [t for p, t in zip(island_uvs, island_tile) if p]
+    return pts, tiles
+
+
+def check_uv_padding_scene(snaps, tex_size: int = 4096, shell_px: int = 16,
+                           tile_px: int = 8, max_polys: int = 50_000,
+                           max_uv_verts: int = 200_000):
+    """Cross-object UV padding over a batch of snapshots (scene scope).
+
+    Returns (findings, tile_stats):
+      findings — {owner: Finding} for every participating snapshot; clean
+        snapshots carry count=0 with the measured min border in metric.
+      tile_stats — {tile: {n_islands, n_objects, min_border_px,
+        min_shell_px, bad_shell, bad_tile}} for panel rendering.
+    Snapshots without usable UVs (or over the guards) simply don't
+    participate."""
+    import math
+    findings = {}
+    participants = {}   # owner → (island_points, island_tiles)
+    for owner, snap in snaps.items():
+        pts, tiles = _island_uv_points(snap, max_polys, max_uv_verts)
+        if pts == "too_many_polys":
+            findings[owner] = Finding(
+                "uv_padding", "INFO", 0, owner=owner,
+                metric="UV Padding: mesh too complex (>%dk polys)"
+                       % (max_polys // 1000))
+            continue
+        if pts is None:
+            continue
+        participants[owner] = (pts, tiles)
+    if not participants:
+        return findings, {}
+
+    shell_thr = shell_px / tex_size
+    tile_thr = tile_px / tex_size
+    inv = 1.0 / max(shell_thr, 1e-9)
+    fl = math.floor
+
+    # Step 1: group (owner, local island idx) by UDIM tile
+    tile_islands = {}
+    for owner, (pts, tiles) in participants.items():
+        for i, tile in enumerate(tiles):
+            tile_islands.setdefault(tile, []).append((owner, i))
+
+    bad_shell_map = {owner: set() for owner in participants}
+    bad_tile_map = {owner: set() for owner in participants}
+    owner_min_border = {owner: float("inf") for owner in participants}
+    tile_min_border = {}
+    tile_min_shell = {}
+    _SHELL_MIN_VERTS_GUARD = 20_000
+
+    for tile, refs in tile_islands.items():
+        tu, tv = tile
+
+        # spatial hash over all island corners on this tile
+        grid_v = {}
+        for owner, idx in refs:
+            for u, v in participants[owner][0][idx]:
+                key = (int(fl(u * inv)), int(fl(v * inv)))
+                grid_v.setdefault(key, []).append((owner, idx, u, v))
+
+        has_multi = len(refs) > 1 or (
+            len(refs) == 1 and len(participants[refs[0][0]][0]) > 1)
+
+        # shell-to-shell: grid broad-phase + exact distance, min tracking
+        shell_thr_sq = shell_thr * shell_thr
+        total_v = sum(len(participants[owner][0][idx]) for owner, idx in refs)
+        compute_min = has_multi and total_v <= _SHELL_MIN_VERTS_GUARD
+        min_d2 = float("inf")
+
+        if has_multi:
+            for owner_a, idx_a in refs:
+                already_viol = idx_a in bad_shell_map[owner_a]
+                if already_viol and not compute_min:
+                    continue
+                for ua, va in participants[owner_a][0][idx_a]:
+                    gx, gy = int(fl(ua * inv)), int(fl(va * inv))
+                    found_viol = False
+                    for dx in (-1, 0, 1):
+                        for dy in (-1, 0, 1):
+                            cell = grid_v.get((gx + dx, gy + dy))
+                            if not cell:
+                                continue
+                            for owner_b, idx_b, ub, vb in cell:
+                                if owner_a == owner_b and idx_a == idx_b:
+                                    continue   # same island
+                                d2 = (ua - ub) ** 2 + (va - vb) ** 2
+                                if compute_min and d2 < min_d2:
+                                    min_d2 = d2
+                                if not already_viol and d2 < shell_thr_sq:
+                                    bad_shell_map[owner_a].add(idx_a)
+                                    bad_shell_map[owner_b].add(idx_b)
+                                    already_viol = True
+                                    if not compute_min:
+                                        found_viol = True
+                                        break
+                            if found_viol:
+                                break
+                        if found_viol:
+                            break
+                    if found_viol:
+                        break
+
+        tile_min_shell_px = (math.sqrt(min_d2) * tex_size
+                             if compute_min and min_d2 < float("inf")
+                             else None)
+
+        # tile-border + min-distance tracking (no early break — min wanted)
+        min_bd_uv = 1.0
+        for owner, idx in refs:
+            violated = idx in bad_tile_map[owner]
+            for u, v in participants[owner][0][idx]:
+                uf, vf = u - tu, v - tv
+                du = uf if uf < 0.5 else 1.0 - uf
+                dv = vf if vf < 0.5 else 1.0 - vf
+                d = du if du < dv else dv
+                if d < min_bd_uv:
+                    min_bd_uv = d
+                d_px = d * tex_size
+                if d_px < owner_min_border[owner]:
+                    owner_min_border[owner] = d_px
+                if not violated and (du < tile_thr or dv < tile_thr):
+                    bad_tile_map[owner].add(idx)
+                    violated = True
+
+        tile_min_border[tile] = min_bd_uv * tex_size
+        tile_min_shell[tile] = tile_min_shell_px
+
+    # findings per owner (elements = faces of bad islands, addon-style metric)
+    for owner, (pts, tiles) in participants.items():
+        bad = bad_shell_map[owner] | bad_tile_map[owner]
+        snap = snaps[owner]
+        mb = owner_min_border[owner]
+        if bad:
+            bad_faces = []
+            p2i = uv_islands(snap)
+            for fi, isl in enumerate(p2i):
+                if isl in bad:
+                    bad_faces.append(("face", fi))
+            parts = []
+            if bad_shell_map[owner]:
+                parts.append("%d island%s close to shell (<%dpx)"
+                             % (len(bad_shell_map[owner]),
+                                "s" if len(bad_shell_map[owner]) != 1 else "",
+                                shell_px))
+            if bad_tile_map[owner]:
+                parts.append("%d island%s close to border (<%dpx)"
+                             % (len(bad_tile_map[owner]),
+                                "s" if len(bad_tile_map[owner]) != 1 else "",
+                                tile_px))
+            metric = ("UV Padding: %d island%s — %s"
+                      % (len(bad), "s" if len(bad) != 1 else "", ", ".join(parts)))
+            findings[owner] = Finding("uv_padding", "INFO", len(bad), bad_faces,
+                                      metric=metric, owner=owner)
+        else:
+            metric = ("UV Padding: OK — border min %.2fpx" % mb
+                      if mb < float("inf") else "UV Padding: OK")
+            findings[owner] = Finding("uv_padding", "INFO", 0, metric=metric,
+                                      owner=owner)
+
+    # per-tile statistics (panel rendering, same shape as the addon's)
+    tile_stats = {}
+    for tile, refs in tile_islands.items():
+        tile_stats[tile] = {
+            "n_islands": len(refs),
+            "n_objects": len({owner for owner, _ in refs}),
+            "min_border_px": tile_min_border.get(tile, 0.0),
+            "min_shell_px": tile_min_shell.get(tile),
+            "bad_shell": sum(1 for owner, idx in refs
+                             if idx in bad_shell_map.get(owner, ())),
+            "bad_tile": sum(1 for owner, idx in refs
+                            if idx in bad_tile_map.get(owner, ())),
+        }
+    return findings, tile_stats
+
+
+def check_uv_padding_batch(snaps, tex_size: int = 4096, shell_px: int = 16,
+                           tile_px: int = 8, max_polys: int = 50_000,
+                           max_uv_verts: int = 200_000):
+    """UV islands closer than shell_px to another island, or tile_px to a
+    UDIM tile border (scene scope: one evaluation over a snapshot batch,
+    findings carry owner)."""
+    findings, _ = check_uv_padding_scene(snaps, tex_size, shell_px, tile_px,
+                                         max_polys, max_uv_verts)
+    return [f for f in findings.values() if f.count > 0]

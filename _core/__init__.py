@@ -7,14 +7,16 @@ element indices into native component strings.
 
 Public API:
     MeshSnapshot, Finding, run_checks, RULES,
+    run_scene_checks, SCENE_RULES (cross-object batch rules),
     naming (contract + hygiene validators), verdict/merge
 """
 from .model import MeshSnapshot, Finding, edge_length
 from .checks import topology, surface, symmetry, scene, uv, transform
-from .registry import RULES, run_checks
+from .registry import RULES, SCENE_RULES, run_checks, run_scene_checks
 from . import naming
 from .verdict import verdict, merge
 
 __all__ = ["MeshSnapshot", "Finding", "edge_length",
-           "RULES", "run_checks", "naming", "verdict", "merge"]
-__version__ = "0.8.0"
+           "RULES", "run_checks", "SCENE_RULES", "run_scene_checks",
+           "naming", "verdict", "merge"]
+__version__ = "0.9.0"

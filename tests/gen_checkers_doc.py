@@ -7,8 +7,8 @@ Sources (no Blender required):
     <temp>/stukach_registry_dump.json — 42 checks with severity, category
     and the first docstring line;
   * the vendored stukach_core rule registry (_core/registry.py, RULES) —
-    21 DCC-free rules with severity, default params and evaluator
-    docstrings.  Needs numpy importable by the host python.
+    DCC-free rules (RULES + SCENE_RULES) with severity, default params
+    and evaluator docstrings.  Needs numpy importable by the host python.
 
 The generated file is committed.  CI regenerates it after the smoke run and
 fails on drift, so the reference can never go stale:
@@ -55,9 +55,11 @@ def load_dump() -> dict:
 
 
 def load_core_rules() -> dict:
+    """RULES + SCENE_RULES (scene-scope batch rules like uv_padding)."""
     sys.path.insert(0, str(REPO))
     try:
-        return importlib.import_module("_core").RULES
+        core = importlib.import_module("_core")
+        return {**core.RULES, **getattr(core, "SCENE_RULES", {})}
     finally:
         sys.path.pop(0)
 

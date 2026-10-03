@@ -18,12 +18,17 @@ INFO = "INFO"
 
 @dataclass
 class Finding:
-    """One rule result for one object.  None-returns from evaluators mean clean."""
+    """One rule result for one object.  None-returns from evaluators mean clean.
+
+    owner is set by scene-scope rules (run_scene_checks): the key of the
+    snapshot mapping the finding belongs to; object-scope rules leave it
+    empty — the finding belongs to the snapshot it was evaluated on."""
     rule: str
     severity: str
     count: int
     elements: List[Tuple[str, int]] = field(default_factory=list)
     metric: str = ""          # short human hint, optional
+    owner: str = ""
 
 
 @dataclass

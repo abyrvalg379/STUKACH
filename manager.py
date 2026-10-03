@@ -295,10 +295,9 @@ class MeshCheckObject:
                 self._tris = 0
             del _np, _me, _n_polys
 
-        from .core import (_uv_island_cache, _uv_membership_cache,
+        from .core import (_uv_island_cache,
                            _edit_uv_cache, build_material_udim_map)
         _uv_island_cache.clear()
-        _uv_membership_cache.clear()
         _edit_uv_cache.clear()
 
         # Always rebuild material→UDIM map so the UV panel stays in sync
@@ -814,13 +813,10 @@ class MeshCheck:
         cls._next_issue_ptr = 0
         MeshCheckGPU._batch_cache.clear()
         UVCheckGPU._batch_cache.clear()
-        from .core import (_uv_island_cache, _uv_membership_cache,
-                           _edit_uv_cache,
-                           _uv_padding_registry, _uv_padding_tile_stats)
+        from .core import (_uv_island_cache, _edit_uv_cache,
+                           _uv_padding_tile_stats)
         _uv_island_cache.clear()
-        _uv_membership_cache.clear()
         _edit_uv_cache.clear()
-        _uv_padding_registry.clear()
         _uv_padding_tile_stats.clear()
 
     @classmethod
@@ -1147,18 +1143,20 @@ class MeshCheck:
 
     @classmethod
     def _run_global_uv_padding(cls) -> None:
-        """Cross-object UV padding check — Phase 2.
+        """Cross-object UV padding — scene-scope rule of the vendored core.
 
-        Called after all per-object uv_padding set_datas() calls complete.
-        Reads prefs, then delegates to core.run_global_uv_padding().
-        """
+        Called after all per-object set_datas() calls complete.  Builds the
+        batch of core snapshots for every tracked object with the check
+        enabled, runs _core.uv.check_uv_padding_scene (owner = object name)
+        and writes the findings back to the per-object checkers; the tile
+        statistics go to the module dict the UV panel reads."""
         try:
             mc = bpy.context.window_manager.mesh_check_props
         except Exception:
             return
         if not getattr(mc, 'uv_padding', False):
             return
-        from .core import run_global_uv_padding, UVPaddingCheck
+        from .core import _uv_padding_tile_stats, UVPaddingCheck
         addon_name = __name__.rsplit(".", 1)[0]
         try:
             prefs    = bpy.context.preferences.addons[addon_name].preferences
@@ -1168,7 +1166,36 @@ class MeshCheck:
             tile_px  = prefs.uv_padding_tile_px
         except Exception:
             tex_size, shell_px, tile_px = 4096, 16, 8
-        run_global_uv_padding(tex_size=tex_size, shell_px=shell_px, tile_px=tile_px)
+        targets = []
+        for obj, mc_obj in cls.objects.items():
+            chk = mc_obj._checks.get('uv_padding')
+            if chk is None:
+                continue
+            try:
+                _ = obj.name   # ReferenceError if the object was deleted
+            except ReferenceError:
+                continue
+            targets.append((obj, mc_obj, chk))
+        if not targets:
+            return
+        from ._core import uv as _sck_uv
+        snaps = {}
+        try:
+            for obj, mc_obj, _chk in targets:
+                snaps[obj.name] = mc_obj.core_snapshot()
+        except Exception as e:
+            alog(f"[AssetChecker] UV padding snapshot error: {e}")
+            return
+        try:
+            findings, tile_stats = _sck_uv.check_uv_padding_scene(
+                snaps, tex_size=tex_size, shell_px=shell_px, tile_px=tile_px)
+        except Exception as e:
+            alog(f"[AssetChecker] Global UV padding error: {e}")
+            return
+        for obj, _mc_obj, chk in targets:
+            chk.write_core_results(findings.get(obj.name), snaps.get(obj.name))
+        _uv_padding_tile_stats.clear()
+        _uv_padding_tile_stats.update(tile_stats)
 
     @classmethod
     def update_mc_object_datas(cls, name):

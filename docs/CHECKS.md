@@ -3,7 +3,7 @@
 Generated from the code registries — do not edit by hand.
 Regenerate: run the smoke test, then `python tests/gen_checkers_doc.py`.
 
-## Core rules (stukach_core) — 31
+## Core rules (stukach_core) — 32
 
 DCC-free rules shared by every STUKACH build. Severity is decided by
 the registry; each DCC layer maps the verdicts onto its own UI.
@@ -41,6 +41,7 @@ the registry; each DCC layer maps the verdicts onto its own UI.
 | `trailing_numbers` | WARNING | — | Name ends with digits (pCube1-style leftovers). |
 | `uncentered_pivots` | INFO | threshold=0.05 | Rotate pivot far from the bbox center (fraction of bbox diagonal). |
 | `parent_geometry` | WARNING | — | Mesh parented under another mesh — breaks export hierarchies. |
+| `uv_padding` | INFO | tex_size=4096, shell_px=16, tile_px=8, max_polys=50000, max_uv_verts=200000 | UV islands closer than shell_px to another island, or tile_px to a UDIM tile border (scene scope: one evaluation over a snapshot batch, findings carry owner). |
 
 ## Addon checks (Blender) — 42
 
@@ -84,7 +85,7 @@ via the parity gate in the smoke test).
 | `uv_material_udim` | BLOCKER | UV | core | One UDIM tile must not contain UV shells from different material groups. |
 | `uv_micro_shell` | WARNING | UV | core | Detects UV islands whose total UV area is below a minimum threshold. |
 | `uv_overlap` | BLOCKER | UV | core | UV-overlap: island filter + 2D grid broad-phase + exact triangle-triangle test. |
-| `uv_padding` | INFO | UV |  | UV island padding — cross-object, per-UDIM-tile. |
+| `uv_padding` | INFO | UV | core | UV island padding — cross-object, per-UDIM-tile. |
 | `uv_single_set` | WARNING | UV | core | Ровно один UV-сет — не больше и не меньше. |
 | `uv_stretch` | WARNING | UV | core | UV stretch: detects faces where UV angles deviate significantly from 3D mesh angles. |
 | `uv_texel_density` | INFO | UV | core | Texel density in px/cm using a configurable reference texture size. |

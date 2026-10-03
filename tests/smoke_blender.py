@@ -540,6 +540,11 @@ def st_core_parity():
     compared = 0
     objects = 0
     mismatches = []
+    # scene-scope uv_padding: the batch of the same snapshots must agree with
+    # the addon's cross-object pass that ran inside validate_scene (defaults
+    # 4096/16/8 — the same numbers _run_global_uv_padding reads from prefs)
+    pad_snaps = {}
+    pad_addon = {}
     # the same scene context the real update cycle feeds the adapter with
     scene_names = {}
     for o in bpy.context.scene.objects:
@@ -564,6 +569,10 @@ def st_core_parity():
                                       local_matrix=tuple(
                                           c for row in obj.matrix_basis
                                           for c in row))
+        pad_snaps[name] = snap
+        pad_chk = mc_obj._checks.get("uv_padding")
+        if pad_chk is not None:
+            pad_addon[name] = pad_chk.count
         findings = {f.rule: f.count for f in sck.run_checks(snap, enabled=enabled)}
         for rule in sorted(enabled):
             chk = mc_obj._checks.get(rule)
@@ -572,6 +581,13 @@ def st_core_parity():
             compared += 1
             if addon_count != core_count:
                 mismatches.append(f"{name}.{rule}: addon {addon_count} vs core {core_count}")
+    pad_findings = {f.owner: f.count
+                    for f in sck.run_scene_checks(pad_snaps, enabled={"uv_padding"})}
+    for name, addon_count in pad_addon.items():
+        compared += 1
+        if addon_count != pad_findings.get(name, 0):
+            mismatches.append(f"{name}.uv_padding: addon {addon_count} "
+                              f"vs core {pad_findings.get(name, 0)}")
     expect(objects >= 10, f"core parity saw only {objects} tracked objects")
     expect(not mismatches,
            "core parity mismatches:\n    " + "\n    ".join(mismatches[:10]))

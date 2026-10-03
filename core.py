@@ -19,7 +19,6 @@ _UV_OVERLAP_MAX_TRIS        = 80_000  # BVH guard — skip on very dense meshes
 _UV_ISLAND_MAX_POLYS        = 15_000  # shared-cache island detection guard
 _UV_MICRO_SHELL_MAX_POLYS   = 100_000 # micro-shell island detection guard (higher limit)
 _UV_STRETCH_MAX_POLYS       = 300_000 # UV stretch guard — numpy-vectorized, handles large meshes
-_UV_PADDING_MAX_POLYS       = 50_000  # padding-only guard — higher limit, no shared cache
 _UV_STRETCH_DEFAULT_THRESHOLD = 0.5  # radians ≈ 28°
 
 # Module-level island cache: keyed by (me.as_pointer(), n_loops).
@@ -27,20 +26,8 @@ _UV_STRETCH_DEFAULT_THRESHOLD = 0.5  # radians ≈ 28°
 # UVPaddingCheck and UVUDIMBounds share one computation per update.
 _uv_island_cache: dict = {}
 
-# Module-level cache for _uv_island_membership results.
-# Multiple checks (UVOverlapCheck, UVMicroShellCheck, UVPaddingCheck) may call
-# _uv_island_membership for the same mesh in a single update cycle. Caching
-# avoids O(n_loops) Union-Find work 3× per update.
-# Key: (me.as_pointer(), n_loops, uv_layer_name). Cleared in update_datas().
-_uv_membership_cache: dict = {}
-
-# Global registry for cross-object UV padding computation.
-# Key: me.as_pointer()  →  dict with island UV data for this mesh.
-# Populated by UVPaddingCheck.set_datas(); consumed by run_global_uv_padding().
-# Cleared in MeshCheck.reset_mesh_check() and at scene validation start.
-_uv_padding_registry: dict = {}
-
-# Per-UDIM-tile statistics produced by run_global_uv_padding().
+# Per-UDIM-tile statistics produced by the core's cross-object uv_padding
+# rule (scene scope), written by MeshCheck._run_global_uv_padding().
 # Key: (tu, tv) tuple  →  {n_islands, n_objects, min_border_px, bad_shell, bad_tile}
 # Read by ASSET_CHECKER_PT_UV_Panel to show the UDIM Padding Map block.
 _uv_padding_tile_stats: dict = {}
@@ -557,122 +544,6 @@ def _get_uv_np(me, bm=None):
         return None
     return snap['uv']
 
-
-def _uv_island_membership(me, max_polys: int, bm=None):
-    """Union-Find UV island detection — me.* foreach_get for bulk data reads.
-
-    Returns (poly_to_island: list[int], flat_uvs: list[float],
-             poly_start: list[int], poly_total: list[int])
-    or None when the poly limit is exceeded.
-
-    Isolated from _uv_island_cache so that UVPaddingCheck can use a higher
-    poly limit without polluting the shared cache used by UVUDIMBounds.
-    OBJECT mode reads use me.* foreach_get (C-level bulk copy) for a 10–20×
-    speedup; EDIT mode reads come from the canonical _edit_uv_data snapshot.
-    """
-    if bm is None:
-        return None
-
-    # ── EDIT mode: everything from the canonical BMesh snapshot ──────────────
-    # me.* is stale in EDIT and me loop indices don't match BMesh order —
-    # mixing them produced wrong islands after any topology edit.
-    if me.is_editmode:
-        snap = _edit_uv_data(bm)
-        if snap is None:
-            return None
-        n_polys = snap['n_faces']
-        if n_polys > max_polys:
-            return None
-        n_loops = snap['n_loops']
-        if n_loops == 0:
-            return None
-        cache_key = (me.as_pointer(), 'EDIT', n_polys, n_loops,
-                     me.uv_layers.active.name if me.uv_layers.active else '')
-        cached = _uv_membership_cache.get(cache_key)
-        if cached is not None:
-            return cached
-        flat_uvs  = snap['uv'].ravel().tolist()
-        lv        = snap['loop_vert'].tolist()
-        poly_start = snap['face_start'].tolist()
-        poly_total = snap['face_len'].tolist()
-    else:
-        n_polys = len(me.polygons)
-        if n_polys > max_polys:
-            return None
-        if not me.uv_layers.active:
-            return None
-        n_loops   = len(me.loops)
-        uv_data   = me.uv_layers.active.data
-
-        # ── Per-update cache (cleared in update_datas()) ─────────────────────
-        # Multiple UV checks (overlap, micro_shell, padding) call this function
-        # for the same mesh in one update cycle. Cache the result to avoid
-        # O(n_loops) Union-Find work being repeated 3× per update.
-        cache_key = (me.as_pointer(), n_loops, me.uv_layers.active.name)
-        cached = _uv_membership_cache.get(cache_key)
-        if cached is not None:
-            return cached
-
-        # OBJECT mode: fast C-level bulk read.
-        flat_uvs = [0.0] * (n_loops * 2)
-        uv_data.foreach_get("uv", flat_uvs)
-
-        lv = [0] * n_loops
-        me.loops.foreach_get("vertex_index", lv)
-
-        poly_start = [0] * n_polys
-        me.polygons.foreach_get("loop_start", poly_start)
-
-        poly_total = [0] * n_polys
-        me.polygons.foreach_get("loop_total", poly_total)
-
-    lu = tuple(
-        (round(flat_uvs[i * 2], 6), round(flat_uvs[i * 2 + 1], 6))
-        for i in range(n_loops)
-    )
-
-    parent = list(range(n_polys))
-
-    def find(x):
-        while parent[x] != x:
-            parent[x] = parent[parent[x]]
-            x = parent[x]
-        return x
-
-    edge_map: dict = defaultdict(list)
-    for pi in range(n_polys):
-        ls, lt = poly_start[pi], poly_total[pi]
-        for i in range(lt):
-            li0 = ls + i
-            li1 = ls + (i + 1) % lt
-            v0, v1 = lv[li0], lv[li1]
-            u0, u1 = lu[li0], lu[li1]
-            if v0 < v1:
-                edge_map[(v0, v1)].append((pi, u0, u1))
-            else:
-                edge_map[(v1, v0)].append((pi, u1, u0))
-
-    for entries in edge_map.values():
-        for i in range(len(entries)):
-            for j in range(i + 1, len(entries)):
-                pa, ua0, ua1 = entries[i]
-                pb, ub0, ub1 = entries[j]
-                if ua0 == ub0 and ua1 == ub1:
-                    ra, rb = find(pa), find(pb)
-                    if ra != rb:
-                        parent[ra] = rb
-
-    root_to_idx: dict = {}
-    poly_to_island = [0] * n_polys
-    for pi in range(n_polys):
-        r = find(pi)
-        if r not in root_to_idx:
-            root_to_idx[r] = len(root_to_idx)
-        poly_to_island[pi] = root_to_idx[r]
-
-    result = (poly_to_island, flat_uvs, poly_start, poly_total)
-    _uv_membership_cache[cache_key] = result
-    return result
 
 
 class BaseCheck(ABC):
@@ -1680,7 +1551,7 @@ class UVMicroShellCheck(BaseCheck):
     islands contain many thin triangles.
 
     Algorithm:
-      1. Build island membership via _uv_island_membership.
+      1. Build UV islands.
       2. Sum UV-triangle areas per island.
       3. Flag islands with total area < _MICRO_SHELL_ISLAND_AREA.
       Fallback (mesh > _UV_MICRO_SHELL_MAX_POLYS): per-triangle check with the
@@ -1930,187 +1801,56 @@ class UVStretch(BaseCheck):
 class UVPaddingCheck(BaseCheck):
     """UV island padding — cross-object, per-UDIM-tile.
 
-    Architecture (two-phase):
-      Phase 1 — set_datas():
-        Each object collects its island UV data and stores it in the module-level
-        _uv_padding_registry keyed by me.as_pointer().  No check is performed yet.
-
-      Phase 2 — run_global_uv_padding() (called from manager.py):
-        Groups ALL registered islands by dominant UDIM tile, then runs a
-        spatial-hash shell-to-shell check across islands from ALL objects on that
-        tile, plus analytic tile-border check.  Results are written back to the
-        individual checker instances.
-
-    This correctly detects padding violations between islands that belong to
-    different mesh objects but share the same UDIM texture tile.
+    Strangler 5a: detection lives in the vendored core as a scene-scope
+    rule (stukach_core.uv.check_uv_padding_scene — islands of ALL tracked
+    snapshots grouped by dominant UDIM tile, spatial-hash shell-to-shell
+    pass + analytic tile-border pass).  MeshCheck._run_global_uv_padding()
+    runs the batch after all per-object set_datas() calls and writes the
+    finding back here via write_core_results(); set_datas only resets.
 
     count       = number of this object's islands that violate padding
     metric_text = human-readable summary with pixel counts
     """
 
-    _UV_PADDING_MAX_VERTS: int = 200_000
     _PAD_TEX_SIZES = {'0': 512, '1': 1024, '2': 2048, '3': 4096}
 
     def __init__(self, parent):
         super().__init__(parent)
         self.metric_text: str = ""
-        self._bad_shell_count: int = 0
-        self._bad_tile_count:  int = 0
         # UV-editor overlay: fan-triangulated UV coords of bad-island polygons
         self._bad_uv_tris:     list = []
         # Edit-mode selection: face indices of bad-island polygons
         self._bad_face_indices: list = []
 
-    # ── Phase 1: collect per-object island data ───────────────────────────────
-
     def set_datas(self):
-        """Phase 1: collect island UV data into the global padding registry.
-
-        The actual check (cross-object spatial hash) is deferred to
-        run_global_uv_padding(), which is called by manager.py after all
-        per-object set_datas() calls complete.
-        """
-        global _uv_padding_registry
-
-        me  = self._parent._object.data
-        ptr = me.as_pointer()
-
-        # Reset results — will be populated by run_global_uv_padding()
+        """Reset only — the cross-object result is written per cycle by
+        MeshCheck._run_global_uv_padding() after every set_datas() ran."""
         self._count            = 0
         self.metric_text       = ""
-        self._bad_shell_count  = 0
-        self._bad_tile_count   = 0
         self._bad_uv_tris      = []
         self._bad_face_indices = []
-        _uv_padding_registry.pop(ptr, None)   # remove stale entry
 
-        if not me.uv_layers.active or not me.polygons:
-            return
-
-        membership = _uv_island_membership(me, _UV_PADDING_MAX_POLYS,
-                                           bm=self._parent.bm_object)
-        if membership is None:
-            # Mesh is too dense for island detection — mark as skipped
-            self.metric_text = f"UV Padding: mesh too complex (>{_UV_PADDING_MAX_POLYS//1000}k polys)"
-            return
-
-        poly_to_island, flat_uvs, poly_start, poly_total = membership
-        n_polys   = len(me.polygons)
-        n_islands = (max(poly_to_island) + 1) if poly_to_island else 0
-        if n_islands == 0:
-            return
-
-        # Build per-island UV vertex lists + dominant UDIM tile vote
-        island_uvs:   list = [[] for _ in range(n_islands)]
-        island_votes: list = [{}  for _ in range(n_islands)]  # tile → count
-        total_verts   = 0
-
-        for pi in range(n_polys):
-            isl = poly_to_island[pi]
-            ls  = poly_start[pi]
-            lt  = poly_total[pi]
-            for li in range(ls, ls + lt):
-                u = float(flat_uvs[li * 2])
-                v = float(flat_uvs[li * 2 + 1])
-                # NaN/inf UVs poison padding math and crash int(floor()) — skip
-                if not (math.isfinite(u) and math.isfinite(v)):
+    def write_core_results(self, finding, snap) -> None:
+        """Render a core uv_padding Finding (elements = bad-island faces)."""
+        self._count            = finding.count if finding is not None else 0
+        self.metric_text       = (finding.metric or "") if finding is not None else ""
+        self._bad_face_indices = [i for (t, i) in (finding.elements
+                                                   if finding is not None else [])
+                                  if t == "face"]
+        self._bad_uv_tris      = []
+        if self._bad_face_indices and snap is not None:
+            for fi in self._bad_face_indices:
+                uvs = snap.face_uvs[fi] if fi < len(snap.face_uvs) else None
+                if uvs is None:
                     continue
-                island_uvs[isl].append((u, v))
-                total_verts += 1
-                tile = (int(math.floor(u)), int(math.floor(v)))
-                votes = island_votes[isl]
-                votes[tile] = votes.get(tile, 0) + 1
-
-        if total_verts == 0 or total_verts > self._UV_PADDING_MAX_VERTS:
-            return
-
-        # Resolve dominant tile per island (island may span tiles, take majority)
-        island_tile: list = [
-            max(votes, key=votes.__getitem__) if votes else (0, 0)
-            for votes in island_votes
-        ]
-
-        _uv_padding_registry[ptr] = {
-            'checker':        self,
-            'island_uvs':     island_uvs,
-            'island_tile':    island_tile,
-            'n_islands':      n_islands,
-            'n_polys':        n_polys,
-            'poly_to_island': poly_to_island,
-            'flat_uvs':       flat_uvs,
-            'poly_start':     poly_start,
-            'poly_total':     poly_total,
-        }
-
-    # ── Phase 2: cross-object global check (called from manager.py) ───────────
-
-    @staticmethod
-    def _write_results(reg: dict, bad_shell: set, bad_tile: set,
-                       shell_px: int, tile_px: int,
-                       min_border_px: float = -1.0) -> None:
-        """Write Phase-2 results back to the checker stored in *reg*.
-
-        min_border_px — measured minimum distance (px) of any island UV vertex
-        to the nearest tile border across all tiles this object appears on.
-        -1.0 means not measured (fallback).
-        """
-        checker   = reg['checker']
-        all_bad   = bad_shell | bad_tile
-        n_polys   = reg['n_polys']
-        poly_ti   = reg['poly_to_island']
-        poly_st   = reg['poly_start']
-        poly_to   = reg['poly_total']
-        flat_uvs  = reg['flat_uvs']
-
-        checker._count            = len(all_bad)
-        checker._bad_shell_count  = len(bad_shell)
-        checker._bad_tile_count   = len(bad_tile)
-        checker._bad_uv_tris      = []
-        checker._bad_face_indices = []
-
-        if all_bad:
-            for pi in range(n_polys):
-                if poly_ti[pi] not in all_bad:
-                    continue
-                checker._bad_face_indices.append(pi)
-                ls  = int(poly_st[pi])
-                lt  = int(poly_to[pi])
-                uv0 = (float(flat_uvs[ls * 2]), float(flat_uvs[ls * 2 + 1]))
-                for k in range(1, lt - 1):
-                    uv1 = (float(flat_uvs[(ls + k) * 2]),
-                            float(flat_uvs[(ls + k) * 2 + 1]))
-                    uv2 = (float(flat_uvs[(ls + k + 1) * 2]),
-                            float(flat_uvs[(ls + k + 1) * 2 + 1]))
-                    checker._bad_uv_tris.append((uv0, uv1, uv2))
-
-            parts = []
-            if checker._bad_shell_count:
-                parts.append(
-                    f"{checker._bad_shell_count} "
-                    f"island{'s' if checker._bad_shell_count != 1 else ''} "
-                    f"close to shell (<{shell_px}px)"
-                )
-            if checker._bad_tile_count:
-                parts.append(
-                    f"{checker._bad_tile_count} "
-                    f"island{'s' if checker._bad_tile_count != 1 else ''} "
-                    f"close to border (<{tile_px}px)"
-                )
-            checker.metric_text = (
-                f"UV Padding: {checker._count} "
-                f"island{'s' if checker._count != 1 else ''} — "
-                + ", ".join(parts)
-            )
-        else:
-            # Show measured min even when no violations
-            if min_border_px >= 0.0:
-                checker.metric_text = f"UV Padding: OK — border min {min_border_px:.2f}px"
-            else:
-                checker.metric_text = "UV Padding: OK"
-
-        checker._uv_gpu_dirty = True
-
-    # ─────────────────────────────────────────────────────────────────────────
+                nv = len(uvs) // 2
+                uv0 = (uvs[0], uvs[1])
+                for k in range(1, nv - 1):
+                    self._bad_uv_tris.append(
+                        (uv0, (uvs[k * 2], uvs[k * 2 + 1]),
+                         (uvs[(k + 1) * 2], uvs[(k + 1) * 2 + 1])))
+        self._uv_gpu_dirty = True
+        self._gpu_dirty = True
 
     def get_edges(self, offset: float) -> Tuple:
         return ()
@@ -2148,187 +1888,6 @@ class UVPaddingCheck(BaseCheck):
         return ('FACE', self._bad_face_indices)
 
 
-# ── Module-level cross-object UV padding check ────────────────────────────────
-
-def run_global_uv_padding(tex_size: int = 4096,
-                          shell_px: int = 16,
-                          tile_px:  int = 8) -> None:
-    """Cross-object UV padding check — Phase 2.
-
-    Groups all registered islands by dominant UDIM tile, then runs a
-    spatial-hash shell-to-shell check across islands from ALL objects on that
-    tile.  Writes per-island violation flags and per-UDIM statistics back to
-    individual checkers and _uv_padding_tile_stats.
-
-    Called from manager.py after all per-object set_datas() calls complete.
-    """
-    global _uv_padding_registry, _uv_padding_tile_stats
-
-    _uv_padding_tile_stats.clear()
-
-    if not _uv_padding_registry:
-        return
-
-    shell_thr = shell_px / tex_size
-    tile_thr  = tile_px  / tex_size
-    inv = 1.0 / max(shell_thr, 1e-9)
-    fl  = math.floor
-
-    # ── Step 1: group (ptr, local_island_idx) by UDIM tile ───────────────────
-    tile_islands: dict = {}   # (tu, tv) → list of (ptr, local_idx)
-    for ptr, reg in _uv_padding_registry.items():
-        for i, tile in enumerate(reg['island_tile']):
-            if not reg['island_uvs'][i]:
-                continue
-            tile_islands.setdefault(tile, []).append((ptr, i))
-
-    # ── Step 2: per-tile spatial-hash check ──────────────────────────────────
-    # bad_shell / bad_tile: ptr → set of local island indices
-    bad_shell_map: dict = {ptr: set() for ptr in _uv_padding_registry}
-    bad_tile_map:  dict = {ptr: set() for ptr in _uv_padding_registry}
-
-    # Per-object minimum border distance (pixels) across all tiles.
-    # Infinity = not yet measured.
-    obj_min_border: dict = {ptr: float('inf') for ptr in _uv_padding_registry}
-
-    # Per-tile minimum border distance and shell distance (pixels)
-    tile_min_border: dict = {}
-    tile_min_shell:  dict = {}   # tile → float px or None (too dense / single island)
-
-    # Max UV vertices per tile for exact shell min distance computation.
-    # Above this limit only violation detection runs (no exact min).
-    _SHELL_MIN_VERTS_GUARD = 20_000
-
-    for tile, refs in tile_islands.items():
-        tu, tv = tile
-
-        # Build spatial hash over all islands on this tile.
-        # Stores vertex coordinates so we can compute exact distances later.
-        # cell → list of (ptr, local_idx, u, v)
-        grid_v: dict = {}
-        for (ptr, local_idx) in refs:
-            for u, v in _uv_padding_registry[ptr]['island_uvs'][local_idx]:
-                key = (int(fl(u * inv)), int(fl(v * inv)))
-                cv  = grid_v.get(key)
-                if cv is None:
-                    grid_v[key] = [(ptr, local_idx, u, v)]
-                else:
-                    cv.append((ptr, local_idx, u, v))
-
-        has_multi = (len(refs) > 1 or
-                     (len(refs) == 1 and
-                      _uv_padding_registry[refs[0][0]]['n_islands'] > 1))
-
-        # ── Shell-to-shell: exact distance check + min tracking ───────────────
-        # Uses the spatial hash as a broad-phase (candidate filter), then
-        # computes exact Euclidean distance.  This eliminates false positives
-        # from the grid (adjacent-cell pairs can be up to shell_thr*√2 apart).
-        #
-        # Violation  = distance < shell_thr  (exact)
-        # Min-shell  = global minimum over all cross-island candidate pairs
-        #              (guarded: only computed when total UV verts ≤ guard limit)
-        shell_thr_sq = shell_thr * shell_thr
-        total_v = sum(
-            len(_uv_padding_registry[ptr]['island_uvs'][idx])
-            for ptr, idx in refs
-        )
-        compute_min = has_multi and total_v <= _SHELL_MIN_VERTS_GUARD
-
-        min_d2 = float('inf')   # tracks min across all candidate pairs
-
-        if has_multi:
-            for (ptr_a, idx_a) in refs:
-                already_viol = idx_a in bad_shell_map[ptr_a]
-                # Skip this island's vertices only when violation is known AND
-                # we don't need min distance (dense tile).
-                if already_viol and not compute_min:
-                    continue
-                for ua, va in _uv_padding_registry[ptr_a]['island_uvs'][idx_a]:
-                    gx = int(fl(ua * inv))
-                    gy = int(fl(va * inv))
-                    found_viol = False
-                    for dx in (-1, 0, 1):
-                        for dy in (-1, 0, 1):
-                            cell = grid_v.get((gx + dx, gy + dy))
-                            if not cell:
-                                continue
-                            for (ptr_b, idx_b, ub, vb) in cell:
-                                if ptr_a == ptr_b and idx_a == idx_b:
-                                    continue   # same island
-                                d2 = (ua - ub) ** 2 + (va - vb) ** 2
-                                # Track global minimum (only when compute_min)
-                                if compute_min and d2 < min_d2:
-                                    min_d2 = d2
-                                # Exact violation: d < shell_thr
-                                if not already_viol and d2 < shell_thr_sq:
-                                    bad_shell_map[ptr_a].add(idx_a)
-                                    bad_shell_map[ptr_b].add(idx_b)
-                                    already_viol = True
-                                    if not compute_min:
-                                        found_viol = True
-                                        break
-                            if found_viol:
-                                break
-                        if found_viol:
-                            break
-                    if found_viol:
-                        break   # violation found, no min needed → skip remaining vertices
-
-        tile_min_shell_px = (math.sqrt(min_d2) * tex_size
-                             if compute_min and min_d2 < float('inf')
-                             else None)
-
-        # ── Tile-border + min-distance tracking ──────────────────────────────
-        # Iterate ALL vertices (no early break) to measure actual minimum.
-        min_bd_uv = 1.0
-        for (ptr, local_idx) in refs:
-            violated = local_idx in bad_tile_map[ptr]
-            for u, v in _uv_padding_registry[ptr]['island_uvs'][local_idx]:
-                uf = u - tu
-                vf = v - tv
-                du = uf if uf < 0.5 else 1.0 - uf
-                dv = vf if vf < 0.5 else 1.0 - vf
-                d  = du if du < dv else dv
-
-                if d < min_bd_uv:
-                    min_bd_uv = d
-                d_px = d * tex_size
-                if d_px < obj_min_border[ptr]:
-                    obj_min_border[ptr] = d_px
-
-                if not violated and (du < tile_thr or dv < tile_thr):
-                    bad_tile_map[ptr].add(local_idx)
-                    violated = True
-
-        tile_min_border[tile] = min_bd_uv * tex_size
-        tile_min_shell[tile]  = tile_min_shell_px
-
-    # ── Step 3: write results back to checkers ────────────────────────────────
-    for ptr, reg in _uv_padding_registry.items():
-        mb = obj_min_border.get(ptr, -1.0)
-        UVPaddingCheck._write_results(
-            reg,
-            bad_shell_map.get(ptr, set()),
-            bad_tile_map.get(ptr,  set()),
-            shell_px,
-            tile_px,
-            min_border_px=mb if mb < float('inf') else -1.0,
-        )
-
-    # ── Step 4: populate per-UDIM-tile statistics ─────────────────────────────
-    for tile, refs in tile_islands.items():
-        bs = bad_shell_map
-        bt = bad_tile_map
-        _uv_padding_tile_stats[tile] = {
-            'n_islands':     len(refs),
-            'n_objects':     len({ptr for ptr, _ in refs}),
-            'min_border_px': tile_min_border.get(tile, 0.0),
-            'min_shell_px':  tile_min_shell.get(tile),   # None = too dense or N/A
-            'bad_shell':     sum(1 for (ptr, idx) in refs if idx in bs.get(ptr, ())),
-            'bad_tile':      sum(1 for (ptr, idx) in refs if idx in bt.get(ptr, ())),
-        }
-
-
 class UVUDIMBounds(BaseCheck):
     """UV islands crossing UDIM tile boundaries.
 
@@ -2340,9 +1899,8 @@ class UVUDIMBounds(BaseCheck):
         super().__init__(parent)
         self._bad_tri_uvs: List = []
 
-    # Separate limit so large meshes are not silently skipped.
-    # _uv_island_membership has no shared cache, so this limit can be higher
-    # than _UV_ISLAND_MAX_POLYS without polluting the shared cache.
+    # Separate limit so large meshes are not silently skipped
+    # (no shared island cache with the other UV checks).
     _UDIM_BOUNDS_MAX_POLYS: int = 500_000
 
     def set_datas(self):
