@@ -2409,134 +2409,35 @@ class UVMaterialUDIM(BaseCheck):
 
     def set_datas(self):
         obj = self._parent._object
-        me  = obj.data
         self._count = 0
         self.metric_text = ""
         self._bad_face_indices = []
         self._minority_uv_tris = []
 
-        if not me.uv_layers.active or not me.polygons:
+        finding = _sck_core.uv.check_uv_material_udim(
+            self._parent.core_snapshot())
+        if finding is None:
             return
-
-        membership = _uv_island_membership(me, self._MAX_POLYS, bm=self._parent.bm_object)
-        if membership is None:
-            self.metric_text = "Mat/UDIM: mesh too dense"
+        self._count = finding.count
+        self.metric_text = finding.metric or ""
+        bad = {i for (t, i) in finding.elements if t == "face"}
+        minority = {i for (t, i) in finding.elements if t == "minority"}
+        self._bad_face_indices = sorted(bad)
+        # UV-editor overlay: fan-triangulate the minority faces' contours
+        # (detection lives in the core)
+        bm = self._parent.bm_object
+        uv_layer = bm.loops.layers.uv.active
+        if not uv_layer:
             return
-
-        poly_to_island, flat_uvs, poly_start, poly_total = membership
-        # Membership poly count is authoritative (me.polygons is stale in EDIT)
-        n_polys   = len(poly_to_island)
-        n_islands = (max(poly_to_island) + 1) if poly_to_island else 0
-        if n_islands == 0:
-            return
-
-        # Get material indices per polygon (snapshot in EDIT mode — me stale)
-        if me.is_editmode:
-            snap = _edit_uv_data(self._parent.bm_object)
-            if snap is None:
-                return
-            mat_indices = snap['face_mat'].tolist()
-        else:
-            mat_indices = [0] * n_polys
-            me.polygons.foreach_get("material_index", mat_indices)
-
-        # Per island: dominant UDIM tile vote + material set
-        island_votes: list = [dict() for _ in range(n_islands)]
-        island_mats:  list = [set()  for _ in range(n_islands)]
-
-        for pi in range(n_polys):
-            isl = poly_to_island[pi]
-            island_mats[isl].add(mat_indices[pi])
-            # UV centroid of this polygon
-            ls = poly_start[pi]
-            lt = poly_total[pi]
-            if lt == 0:
+        bm.faces.ensure_lookup_table()
+        for fi in sorted(minority):
+            if fi >= len(bm.faces):
                 continue
-            u_sum = v_sum = 0.0
-            for li in range(ls, ls + lt):
-                u_sum += flat_uvs[li * 2]
-                v_sum += flat_uvs[li * 2 + 1]
-            cu, cv = u_sum / lt, v_sum / lt
-            # NaN/inf UVs crash int(floor()) — face votes no tile
-            if not (math.isfinite(cu) and math.isfinite(cv)):
-                continue
-            tile = (int(math.floor(cu)), int(math.floor(cv)))
-            d = island_votes[isl]
-            d[tile] = d.get(tile, 0) + 1
-
-        # Dominant tile per island
-        island_tile: list = [
-            max(d, key=d.get) if d else None
-            for d in island_votes
-        ]
-
-        # Group by UDIM tile
-        tile_mats:    dict = {}
-        tile_islands: dict = {}
-        for isl in range(n_islands):
-            tile = island_tile[isl]
-            if tile is None:
-                continue
-            if tile not in tile_mats:
-                tile_mats[tile]    = set()
-                tile_islands[tile] = []
-            tile_mats[tile].update(island_mats[isl])
-            tile_islands[tile].append(isl)
-
-        bad_tiles = {t for t, mats in tile_mats.items() if len(mats) > 1}
-        if not bad_tiles:
-            return
-
-        # Build island → polygon list
-        island_polys: dict = defaultdict(list)
-        for pi in range(n_polys):
-            island_polys[poly_to_island[pi]].append(pi)
-
-        # For each bad tile: find dominant material (most faces) → minority = rest
-        minority_face_set: set = set()
-        bad_face_set:      set = set()
-        uv_tris = []
-
-        for tile in bad_tiles:
-            # Count faces per material on this tile
-            mat_counts: dict = {}
-            for isl in tile_islands[tile]:
-                for pi in island_polys[isl]:
-                    mi = mat_indices[pi]
-                    mat_counts[mi] = mat_counts.get(mi, 0) + 1
-            dominant_mat = max(mat_counts, key=mat_counts.get)
-
-            for isl in tile_islands[tile]:
-                for pi in island_polys[isl]:
-                    bad_face_set.add(pi)
-                    if mat_indices[pi] != dominant_mat:
-                        minority_face_set.add(pi)
-                        # Fan-triangulate UV loops for UV editor overlay
-                        ls = poly_start[pi]
-                        lt = poly_total[pi]
-                        if lt < 3:
-                            continue
-                        u0 = flat_uvs[ls * 2];       v0 = flat_uvs[ls * 2 + 1]
-                        for k in range(1, lt - 1):
-                            li1 = ls + k;            li2 = ls + k + 1
-                            u1 = flat_uvs[li1 * 2];  v1 = flat_uvs[li1 * 2 + 1]
-                            u2 = flat_uvs[li2 * 2];  v2 = flat_uvs[li2 * 2 + 1]
-                            uv_tris.append(((u0, v0), (u1, v1), (u2, v2)))
-
-        self._count = len(bad_tiles)
-        # 3D overlay: all faces on bad tiles; Select: minority faces only
-        self._bad_face_indices = list(bad_face_set)
-        self._minority_uv_tris = uv_tris
-
-        udim_names = ", ".join(
-            f"UDIM {1001 + t[0] + t[1] * 10}"
-            for t in sorted(bad_tiles)[:3]
-        )
-        self.metric_text = (
-            f"Mat/UDIM: {self._count} tile{'s' if self._count > 1 else ''}"
-            f" ({udim_names})"
-        )
-
+            uvs = [(l[uv_layer].uv.x, l[uv_layer].uv.y)
+                   for l in bm.faces[fi].loops]
+            for k in range(1, len(uvs) - 1):
+                self._minority_uv_tris.append(
+                    (uvs[0], uvs[k], uvs[k + 1]))
     def get_faces(self, offset: float):
         if not self._bad_face_indices:
             return (), []

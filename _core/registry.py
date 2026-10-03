@@ -36,6 +36,7 @@ RULES: Dict[str, tuple] = {
     "uv_texel_density":   ("INFO",    uv.check_uv_texel_density,
                           {"tex_size": 2048, "target_td": 0.0, "tolerance": 0.20,
                            "unit_scale": 1.0}),
+    "uv_material_udim":   ("BLOCKER", uv.check_uv_material_udim, {}),
     # surface
     "face_aspect_ratio":  ("INFO",    surface.check_face_aspect_ratio, {"threshold": 6.0}),
     # symmetry

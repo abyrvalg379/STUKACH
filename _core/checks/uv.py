@@ -463,3 +463,76 @@ def check_uv_texel_density(snap: MeshSnapshot, tex_size: int = 2048,
     else:
         metric = "TD: %.2f px/cm" % density
     return Finding("uv_texel_density", "WARNING", count, [], metric=metric)
+
+
+def check_uv_material_udim(snap: MeshSnapshot) -> Optional[Finding]:
+    """One UDIM tile must not contain UV shells from different material groups.
+
+    Each island votes for its dominant tile by UV centroid; tiles holding
+    islands of more than one material are flagged.  count = bad tiles.
+    Elements: ("face", fi) for every face on a bad tile, plus
+    ("minority", fi) for the faces of non-dominant materials on those tiles
+    (the natural selection/fix target).  Requires the adapter to report
+    face_mat; without it the rule is not applicable."""
+    from math import floor, isfinite
+    if not snap.face_mat or len(snap.face_mat) != len(snap.face_verts):
+        return None
+    p2i = uv_islands(snap)
+    if p2i is None:
+        return None
+    n_islands = max(p2i) + 1
+    island_votes = [dict() for _ in range(n_islands)]
+    island_mats = [set() for _ in range(n_islands)]
+    for fi, uvs in enumerate(snap.face_uvs):
+        isl = p2i[fi]
+        if isl < 0 or uvs is None or not uvs:
+            continue
+        island_mats[isl].add(snap.face_mat[fi])
+        lt = len(uvs) // 2
+        u_sum = sum(uvs[0::2])
+        v_sum = sum(uvs[1::2])
+        cu, cv = u_sum / lt, v_sum / lt
+        if not (isfinite(cu) and isfinite(cv)):
+            continue
+        tile = (int(floor(cu)), int(floor(cv)))
+        island_votes[isl][tile] = island_votes[isl].get(tile, 0) + 1
+
+    island_tile = [max(d, key=d.get) if d else None for d in island_votes]
+    tile_mats = {}
+    tile_islands = {}
+    for isl in range(n_islands):
+        tile = island_tile[isl]
+        if tile is None:
+            continue
+        tile_mats.setdefault(tile, set()).update(island_mats[isl])
+        tile_islands.setdefault(tile, []).append(isl)
+
+    bad_tiles = {t for t, mats in tile_mats.items() if len(mats) > 1}
+    if not bad_tiles:
+        return None
+
+    island_polys = {}
+    for fi, isl in enumerate(p2i):
+        if isl >= 0:
+            island_polys.setdefault(isl, []).append(fi)
+
+    elements: List[tuple] = []
+    for tile in bad_tiles:
+        mat_counts = {}
+        for isl in tile_islands[tile]:
+            for fi in island_polys.get(isl, ()):
+                mi = snap.face_mat[fi]
+                mat_counts[mi] = mat_counts.get(mi, 0) + 1
+        dominant = max(mat_counts, key=mat_counts.get)
+        for isl in tile_islands[tile]:
+            for fi in island_polys.get(isl, ()):
+                elements.append(("face", fi))
+                if snap.face_mat[fi] != dominant:
+                    elements.append(("minority", fi))
+
+    names = ", ".join("UDIM %d" % (1001 + t[0] + t[1] * 10)
+                      for t in sorted(bad_tiles)[:3])
+    metric = ("Mat/UDIM: %d tile%s (%s)"
+              % (len(bad_tiles), "s" if len(bad_tiles) > 1 else "", names))
+    return Finding("uv_material_udim", "BLOCKER", len(bad_tiles), elements,
+                   metric=metric)

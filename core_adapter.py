@@ -23,7 +23,7 @@ CORE_DELEGATED = frozenset({
     "symmetry_x", "symmetry_y", "symmetry_z",
     "duplicated_names", "trailing_numbers", "parent_geometry",
     "uv_single_set", "uv_udim_bounds", "uv_micro_shell", "uv_overlap",
-    "uv_stretch", "uv_texel_density",
+    "uv_stretch", "uv_texel_density", "uv_material_udim",
 })
 
 
@@ -60,6 +60,8 @@ def build_snapshot(me, node: str = "", shape: str = "",
             if eid is not None:
                 edge_conn[eid] += 1
 
+    face_mat = [p.material_index for p in me.polygons]
+
     # first UV layer, flat per-face tuples; None when the mesh has no UV layer
     if me.uv_layers.active:
         uvs = numpy.empty(len(me.loops) * 2, dtype=numpy.float64)
@@ -91,6 +93,7 @@ def build_snapshot(me, node: str = "", shape: str = "",
         scene=dict(scene or {}),
         uv_set_count=uv_set_count,
         world_matrix=tuple(world_matrix or ()),
+        face_mat=face_mat,
     )
 
 
@@ -138,4 +141,5 @@ def build_snapshot_from_bm(bm, node: str = "", shape: str = "",
         scene=dict(scene or {}),
         uv_set_count=len(bm.loops.layers.uv),
         world_matrix=tuple(world_matrix or ()),
+        face_mat=[f.material_index for f in bm.faces],
     )
