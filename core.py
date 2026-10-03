@@ -1314,13 +1314,10 @@ class MaterialCheck(BaseCheck):
     """Material names must end with the configured suffix (default '_mat')."""
 
     def set_datas(self):
-        self._count = sum(
-            1 for slot in self._parent._object.material_slots
-            if slot.material and (
-                not slot.material.name.lower().endswith("_mat")
-                or not slot.material.name.isascii()   # pipeline names are a-z, 0-9, _
-            )
-        )
+        # Strangler 5b: detection in the vendored core (slot names arrive via
+        # the snapshot's material_names); suffix convention = registry default
+        finding = _sck_core.scene.check_mat_suffix(self._parent.core_snapshot())
+        self._count = finding.count if finding is not None else 0
 
     def get_edges(self, offset: float):
         return ()
@@ -1350,29 +1347,19 @@ class MatNaming(BaseCheck):
     pipeline mistake that breaks shader assignment automation downstream.
     """
 
-    _RE_NUMBERING = re.compile(r'\.\d{3,}$')
-
     def __init__(self, parent):
         super().__init__(parent)
-        self._issues: List[str] = []
+        self._metric = ""
 
     def set_datas(self):
-        self._issues = []
-        for slot in self._parent._object.material_slots:
-            mat = slot.material
-            if mat is None:
-                continue
-            if self._RE_NUMBERING.search(mat.name):
-                self._issues.append(mat.name)
-        self._count = len(self._issues)
+        # Strangler 5b: detection in the vendored core
+        finding = _sck_core.scene.check_mat_numbering(self._parent.core_snapshot())
+        self._count = finding.count if finding is not None else 0
+        self._metric = (finding.metric or "") if finding is not None else ""
 
     @property
     def metric_text(self) -> str:
-        if not self._issues:
-            return ""
-        n = len(self._issues)
-        first = self._issues[0]
-        return f"Mat numbering: {first}" + (f" +{n - 1}" if n > 1 else "")
+        return self._metric
 
     def get_edges(self, offset: float):
         return ()
@@ -2756,39 +2743,33 @@ class MeshDataNaming(BaseCheck):
 
     @classmethod
     def _target_name(cls, obj) -> str:
-        """<object name minus object suffix> + first mesh suffix."""
-        from .naming import NAMING_RULES
-        name = obj.name
-        low = name.lower()
+        """<object name minus object suffix> + first mesh suffix (core fn)."""
+        from ._core import naming as _sck_naming
         obj_suffixes = [s.lower() for s in
-                        NAMING_RULES.get("object", {}).get("allowed_suffixes", [])]
+                        _sck_naming.NAMING_RULES.get("object", {}).get("allowed_suffixes", [])]
         prefs = cls._prefs()
         if prefs and getattr(prefs, "naming_suffixes", None):
             obj_suffixes = [e.value.strip().lower()
                             for e in prefs.naming_suffixes] + obj_suffixes
-        for s in obj_suffixes:
-            if s and low.endswith(s) and len(name) > len(s):
-                return name[:-len(s)] + cls._mesh_suffixes()[0]
-        return name + cls._mesh_suffixes()[0]
+        return _sck_naming.mesh_data_target(
+            obj.name, cls._mesh_suffixes(), obj_suffixes)
 
     # ── check ──────────────────────────────────────────────────────────────
     def set_datas(self) -> None:
+        # Strangler 5b: detection in the vendored core (node/shape carry the
+        # object/datablock names); the fix target stays a rendering detail
         obj = self._parent._object
+        self._mesh_name = obj.data.name
+        self._target = ""
         if obj.type != "MESH":
             self._count = 0
             return
-        self._mesh_name = obj.data.name
-        name_l = self._mesh_name.lower()
-        if name_l == obj.name.lower():
-            self._count = 0
-            self._target = ""
-            return
-        if any(name_l.endswith(s.lower()) for s in self._mesh_suffixes()):
-            self._count = 0
-            self._target = ""
-            return
-        self._count = 1
-        self._target = self._target_name(obj)
+        finding = _sck_core.scene.check_mesh_data_naming(
+            self._parent.core_snapshot(),
+            mesh_suffixes=self._mesh_suffixes())
+        self._count = finding.count if finding is not None else 0
+        if self._count:
+            self._target = self._target_name(obj)
 
     @property
     def metric_text(self) -> str:

@@ -257,19 +257,28 @@ class MeshCheckObject:
             scene_ctx = {}
         world = tuple(c for row in self._object.matrix_world for c in row)
         local = tuple(c for row in self._object.matrix_basis for c in row)
+        # material slot names (object slots — the same source the mat checks
+        # read); empty list keeps the core name rules N/A
+        try:
+            mat_names = [s.material.name for s in self._object.material_slots
+                         if s.material]
+        except ReferenceError:
+            mat_names = []
         if me.is_editmode:
             snap = build_snapshot_from_bm(self.bm_object,
                                           node=self._object.name, shape=me.name,
                                           parent_types=parent_types,
                                           scene=scene_ctx,
                                           world_matrix=world,
-                                          local_matrix=local)
+                                          local_matrix=local,
+                                          material_names=mat_names)
         else:
             snap = build_snapshot(me, node=self._object.name, shape=me.name,
                                   parent_types=parent_types,
                                   scene=scene_ctx,
                                   world_matrix=world,
-                                  local_matrix=local)
+                                  local_matrix=local,
+                                  material_names=mat_names)
         self._core_snap = snap
         self._core_snap_key = key
         self._core_snap_tkey = self._transform_key

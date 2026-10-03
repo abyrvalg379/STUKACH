@@ -54,6 +54,11 @@ RULES: Dict[str, tuple] = {
     "trailing_numbers":   ("WARNING", scene.check_trailing_numbers, {}),
     "uncentered_pivots":  ("INFO",    scene.check_uncentered_pivots, {"threshold": 0.05}),
     "parent_geometry":    ("WARNING", scene.check_parent_geometry, {}),
+    # name conventions (strangler 5b): names come from node/shape/material_names
+    "mesh_data_naming":   ("WARNING", scene.check_mesh_data_naming,
+                           {"mesh_suffixes": ["_mesh", "_geo", "_grp"]}),
+    "mat_suffix":         ("WARNING", scene.check_mat_suffix, {"required_suffix": "_mat"}),
+    "mat_numbering":      ("WARNING", scene.check_mat_numbering, {}),
 }
 
 

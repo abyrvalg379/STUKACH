@@ -63,6 +63,7 @@ DEFAULT_POSITIONS: tuple = (
 DEFAULT_PREFIXES: tuple = ("hero_", "mid_", "bg_")
 
 _pat_blender_num = re.compile(r"\.\d+$")
+_pat_mat_numbering = re.compile(r"\.\d{3,}$")
 _pat_trailing_digits = re.compile(r"\d+$")
 _pat_forbidden_chars = re.compile(r'[\s/\\:*?"<>|]')
 
@@ -225,13 +226,57 @@ def validate_collection_name(name: str, policy: dict,
     return None
 
 
-def validate_material_name(name: str) -> Optional[dict]:
-    """Material names: ASCII (the _mat suffix check stays DCC-side for
-    slot-level reporting)."""
+def validate_material_name(name: str, required_suffix: str = "_mat",
+                           check_numbering: bool = True) -> List[dict]:
+    """Material name hygiene + suffix convention (strangler 5b: the suffix
+    and numbering checks moved here from the DCC layers).  Returns finding
+    dicts, ERROR first; empty list = clean."""
+    results: List[dict] = []
     if not name.isascii():
-        return _find(name, "mat_naming", "non_ascii", "ERROR",
-                     f"Non-ASCII characters in '{name}' (a-z, 0-9, _ only)")
-    return None
+        results.append(_find(name, "mat_naming", "non_ascii", "ERROR",
+                             f"Non-ASCII characters in '{name}' (a-z, 0-9, _ only)"))
+    if check_numbering and _pat_mat_numbering.search(name):
+        results.append(_find(name, "mat_naming", "mat_numbering", "WARNING",
+                             f"Blender auto-numbering: '{name}'"))
+    if required_suffix and not name.lower().endswith(required_suffix.lower()):
+        results.append(_find(name, "mat_naming", "mat_suffix", "WARNING",
+                             f"Material name must end with '{required_suffix}': '{name}'"))
+    results.sort(key=lambda r: 0 if r["severity"] == "ERROR" else 1)
+    return results
+
+
+def mesh_data_target(obj_name: str, mesh_suffixes: List[str],
+                     obj_suffixes: Optional[List[str]] = None) -> str:
+    """<object name minus its suffix> + first mesh suffix ('body_geo' →
+    'body_mesh').  obj_suffixes default to the object allowed_suffixes."""
+    if obj_suffixes is None:
+        obj_suffixes = NAMING_RULES.get("object", {}).get("allowed_suffixes", [])
+    name = obj_name
+    low = name.lower()
+    first = mesh_suffixes[0] if mesh_suffixes else "_mesh"
+    for s in obj_suffixes:
+        s = s.lower()
+        if s and low.endswith(s) and len(name) > len(s):
+            return name[:-len(s)] + first
+    return name + first
+
+
+def validate_mesh_data_name(obj_name: str, datablock_name: str,
+                            mesh_suffixes: List[str]) -> Optional[dict]:
+    """Mesh datablock must carry the object's name or a pipeline mesh suffix.
+
+    Clean when the datablock is named like its object (case-insensitive) or
+    ends with one of *mesh_suffixes*.  None = clean."""
+    if not datablock_name:
+        return None
+    low = datablock_name.lower()
+    if low == obj_name.lower():
+        return None
+    if any(low.endswith(s.lower()) for s in mesh_suffixes if s):
+        return None
+    return _find(datablock_name, "mesh_data_naming", "mesh_data_name", "WARNING",
+                 f"Mesh datablock '{datablock_name}' is not named like its "
+                 f"object and has no mesh suffix")
 
 
 def validate_name(name: str, kind: str, obj_type: str = "MESH",
@@ -247,6 +292,5 @@ def validate_name(name: str, kind: str, obj_type: str = "MESH",
         f = validate_collection_name(name, policy, skip_names)
         return [f] if f else []
     if kind == "material":
-        f = validate_material_name(name)
-        return [f] if f else []
+        return validate_material_name(name)
     return []

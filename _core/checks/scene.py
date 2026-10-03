@@ -65,3 +65,57 @@ def check_parent_geometry(snap: MeshSnapshot) -> Optional[Finding]:
         return None
     return Finding("parent_geometry", "WARNING", 1, [],
                    metric="parented under a mesh")
+
+
+# ── name-convention rules (strangler 5b) ─────────────────────────────────────
+# These read names, not geometry: node/shape carry the object/datablock names,
+# material_names the material slots (empty = adapter didn't report → N/A,
+# the Maya build keeps its own checks until its adapter reports slots).
+
+
+def check_mesh_data_naming(snap: MeshSnapshot,
+                           mesh_suffixes: Optional[List[str]] = None) -> Optional[Finding]:
+    """Mesh datablock must be named like its object or carry a mesh suffix
+    ('body_geo' object → 'body_mesh' datablock).  N/A without both names."""
+    from ..naming import mesh_data_target, validate_mesh_data_name
+    suffixes = list(mesh_suffixes) if mesh_suffixes else ["_mesh", "_geo", "_grp"]
+    node, datablock = snap.node, snap.shape
+    if not node or not datablock:
+        return None
+    f = validate_mesh_data_name(node, datablock, suffixes)
+    if f is None:
+        return None
+    target = mesh_data_target(node, suffixes)
+    return Finding("mesh_data_naming", "WARNING", 1, [],
+                   metric="%s  →  %s" % (datablock, target))
+
+
+def check_mat_suffix(snap: MeshSnapshot,
+                     required_suffix: str = "_mat") -> Optional[Finding]:
+    """Every material name must carry the pipeline suffix (default '_mat')
+    and stay ASCII.  N/A when the adapter reports no material slots."""
+    from ..naming import validate_material_name
+    if not snap.material_names:
+        return None
+    bad = [m for m in snap.material_names
+           if validate_material_name(m, required_suffix, check_numbering=False)]
+    if not bad:
+        return None
+    extra = " +%d" % (len(bad) - 1) if len(bad) > 1 else ""
+    return Finding("mat_suffix", "WARNING", len(bad), [],
+                   metric="Mat suffix: '%s'%s" % (bad[0], extra))
+
+
+def check_mat_numbering(snap: MeshSnapshot) -> Optional[Finding]:
+    """Material names must not keep Blender auto-numbering (.001) — stale
+    default copies break shader assignment downstream.  N/A without slots."""
+    from ..naming import validate_material_name
+    if not snap.material_names:
+        return None
+    bad = [m for m in snap.material_names
+           if validate_material_name(m, required_suffix="", check_numbering=True)]
+    if not bad:
+        return None
+    extra = " +%d" % (len(bad) - 1) if len(bad) > 1 else ""
+    return Finding("mat_numbering", "WARNING", len(bad), [],
+                   metric="Mat numbering: '%s'%s" % (bad[0], extra))

@@ -3,7 +3,7 @@
 Generated from the code registries — do not edit by hand.
 Regenerate: run the smoke test, then `python tests/gen_checkers_doc.py`.
 
-## Core rules (stukach_core) — 32
+## Core rules (stukach_core) — 35
 
 DCC-free rules shared by every STUKACH build. Severity is decided by
 the registry; each DCC layer maps the verdicts onto its own UI.
@@ -41,6 +41,9 @@ the registry; each DCC layer maps the verdicts onto its own UI.
 | `trailing_numbers` | WARNING | — | Name ends with digits (pCube1-style leftovers). |
 | `uncentered_pivots` | INFO | threshold=0.05 | Rotate pivot far from the bbox center (fraction of bbox diagonal). |
 | `parent_geometry` | WARNING | — | Mesh parented under another mesh — breaks export hierarchies. |
+| `mesh_data_naming` | WARNING | mesh_suffixes=['_mesh', '_geo', '_grp'] | Mesh datablock must be named like its object or carry a mesh suffix ('body_geo' object → 'body_mesh' datablock). |
+| `mat_suffix` | WARNING | required_suffix=_mat | Every material name must carry the pipeline suffix (default '_mat') and stay ASCII. |
+| `mat_numbering` | WARNING | — | Material names must not keep Blender auto-numbering (.001) — stale default copies break shader assignment downstream. |
 | `uv_padding` | INFO | tex_size=4096, shell_px=16, tile_px=8, max_polys=50000, max_uv_verts=200000 | UV islands closer than shell_px to another island, or tile_px to a UDIM tile border (scene scope: one evaluation over a snapshot batch, findings carry owner). |
 
 ## Addon checks (Blender) — 42
@@ -59,9 +62,9 @@ via the parity gate in the smoke test).
 | `isolated_verts` | WARNING | TOPOLOGY |  | Vertices not connected to any edge — cleanup issue. |
 | `lamina` | BLOCKER | TOPOLOGY | core | Lamina faces — zero-thickness geometry folded onto itself. |
 | `mat_assignment` | BLOCKER | MATERIALS |  | Каждый слот должен иметь материал; объект не должен быть без слотов. |
-| `mat_numbering` | WARNING | NAMING |  | Material names must not contain Blender auto-numbering (.001, .002 ...). |
-| `mat_suffix` | WARNING | MATERIALS |  | Material names must end with the configured suffix (default '_mat'). |
-| `mesh_data_naming` | WARNING | NAMING |  | Mesh datablock must not keep Blender auto-names ('Mesh.101'). |
+| `mat_numbering` | WARNING | NAMING | core | Material names must not contain Blender auto-numbering (.001, .002 ...). |
+| `mat_suffix` | WARNING | MATERIALS | core | Material names must end with the configured suffix (default '_mat'). |
+| `mesh_data_naming` | WARNING | NAMING | core | Mesh datablock must not keep Blender auto-names ('Mesh.101'). |
 | `missing_textures` | BLOCKER | MATERIALS |  | Обнаруживает материалы объекта с отсутствующими текстурными файлами. |
 | `missing_uvs` | WARNING | UV |  | Faces without usable UV mapping (Maya unmapped-face analog). |
 | `modifier_stack` | WARNING | TRANSFORMS |  | Unapplied modifiers on the object. |

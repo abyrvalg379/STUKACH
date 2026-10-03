@@ -62,6 +62,7 @@ class MeshSnapshot:
     uv_set_count: Optional[int] = None                                # None = adapter didn't report
     local_matrix: Tuple[float, ...] = ()                              # object's own (basis) transform, flat 4x4
     face_mat: List[int] = field(default_factory=list)                 # face → material index (empty = not reported)
+    material_names: List[str] = field(default_factory=list)           # material slot names (empty = not reported)
 
     scene: Dict = field(default_factory=dict)   # e.g. {"short_names": {name: count}}
 

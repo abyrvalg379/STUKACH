@@ -25,12 +25,13 @@ CORE_DELEGATED = frozenset({
     "uv_single_set", "uv_udim_bounds", "uv_micro_shell", "uv_overlap",
     "uv_stretch", "uv_texel_density", "uv_material_udim", "uv_padding",
     "origin_at_zero", "scale", "non_applied_transform",
+    "mesh_data_naming", "mat_suffix", "mat_numbering",
 })
 
 
 def build_snapshot(me, node: str = "", shape: str = "",
                    parent_types=None, scene=None, world_matrix=None,
-                   local_matrix=None):
+                   local_matrix=None, material_names=None):
     """Build a stukach_core MeshSnapshot from a bpy Mesh (OBJECT mode data)."""
     from . import _core
 
@@ -97,12 +98,13 @@ def build_snapshot(me, node: str = "", shape: str = "",
         world_matrix=tuple(world_matrix or ()),
         local_matrix=tuple(local_matrix or ()),
         face_mat=face_mat,
+        material_names=list(material_names or []),
     )
 
 
 def build_snapshot_from_bm(bm, node: str = "", shape: str = "",
                            parent_types=None, scene=None, world_matrix=None,
-                   local_matrix=None):
+                   local_matrix=None, material_names=None):
     """BMesh variant for EDIT mode (me.* is stale there).  Reads the same
     data the OBJECT-mode adapter does, straight off the live BMesh."""
     from . import _core
@@ -147,4 +149,5 @@ def build_snapshot_from_bm(bm, node: str = "", shape: str = "",
         world_matrix=tuple(world_matrix or ()),
         local_matrix=tuple(local_matrix or ()),
         face_mat=[f.material_index for f in bm.faces],
+        material_names=list(material_names or []),
     )
