@@ -69,6 +69,33 @@ class ASSET_CHECKER_OT_naming_remove_suffix(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class ASSET_CHECKER_OT_contract_position_add(bpy.types.Operator):
+    """Add a position token to the naming contract"""
+    bl_idname = "asset_checker.contract_position_add"
+    bl_label = "Add Position"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        prefs = context.preferences.addons[__name__.rsplit(".", 1)[0]].preferences
+        prefs.contract_positions.add()
+        return {'FINISHED'}
+
+
+class ASSET_CHECKER_OT_contract_position_remove(bpy.types.Operator):
+    """Remove the selected position token"""
+    bl_idname = "asset_checker.contract_position_remove"
+    bl_label = "Remove Position"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    index: IntProperty()
+
+    def execute(self, context):
+        prefs = context.preferences.addons[__name__.rsplit(".", 1)[0]].preferences
+        if 0 <= self.index < len(prefs.contract_positions):
+            prefs.contract_positions.remove(self.index)
+        return {'FINISHED'}
+
+
 class ASSET_CHECKER_OT_col_naming_add_prefix(bpy.types.Operator):
     """Add a required collection name prefix"""
     bl_idname = "asset_checker.col_naming_add_prefix"
@@ -361,6 +388,8 @@ class MeshCheckPreferences(AddonPreferences):
     # NAMING POLICY — object prefixes / suffixes
     naming_prefixes: CollectionProperty(type=NamingEntry, name="Object Required Prefixes")
     naming_suffixes: CollectionProperty(type=NamingEntry, name="Object Required Suffixes")
+    # NAMING CONTRACT — extra position tokens (extends the 8 built-ins)
+    contract_positions: CollectionProperty(type=NamingEntry, name="Position Tokens")
     # NAMING POLICY — collection prefixes / suffixes
     col_naming_prefixes: CollectionProperty(type=NamingEntry, name="Collection Required Prefixes")
     col_naming_suffixes: CollectionProperty(type=NamingEntry, name="Collection Required Suffixes")
@@ -685,6 +714,17 @@ class MeshCheckPreferences(AddonPreferences):
             "asset_checker.naming_add_prefix",     "asset_checker.naming_remove_prefix",
             "asset_checker.naming_add_suffix",     "asset_checker.naming_remove_suffix",
         )
+
+        # Naming Contract — extra position tokens (extends the 8 built-ins)
+        box_c = box.box()
+        box_c.label(text="Contract Positions (extends _l/_r/_front…)")
+        for i, entry in enumerate(self.contract_positions):
+            r = box_c.row(align=True)
+            r.prop(entry, "value", text="")
+            op = r.operator("asset_checker.contract_position_remove",
+                            text="", icon="X", emboss=False)
+            op.index = i
+        box_c.operator("asset_checker.contract_position_add", text="Add", icon="ADD")
         _draw_policy_domain(
             box, "Collections",
             self.col_naming_prefixes, self.col_naming_suffixes,

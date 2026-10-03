@@ -118,6 +118,61 @@ NAMING_POLICY: dict = {
 }
 
 
+# Optional name slots with built-in vocabularies — the Naming Contract
+DEFAULT_POSITIONS: tuple = (
+    "_l", "_r", "_left", "_right", "_front", "_back", "_top", "_bottom",
+)
+DEFAULT_PREFIXES: tuple = ("hero_", "mid_", "bg_")
+
+
+class NamingContract:
+    """One name shape for every object:  [prefix] core [position] [_a] [_01] suffix
+
+    Slots come from the naming policy; the variant (a single a-z letter) and
+    the two-digit number are conventions, not configuration.  The contract is
+    matched case-insensitively — letter case is the hygiene rules' job.
+    """
+
+    @staticmethod
+    def _alt(tokens) -> str:
+        esc = sorted((re.escape(t) for t in tokens), key=len, reverse=True)
+        return "(?:" + "|".join(esc) + ")?" if esc else ""
+
+    @staticmethod
+    def _template(prefixes, positions, suffixes) -> str:
+        parts = []
+        if prefixes:
+            parts.append("[" + "|".join(prefixes) + "]")
+        parts.append("name")
+        if positions:
+            parts.append("[" + "|".join(positions) + "]")
+        parts += ["[_a]", "[_01]"]
+        parts.append("|".join(suffixes))
+        return " ".join(parts)
+
+    @classmethod
+    def build(cls, policy: dict, role: str):
+        """(compiled_regex, template) for *role* — or None when the policy
+        defines no suffixes for it (nothing to enforce)."""
+        domain = policy.get(role, {})
+        suffixes = [s for s in domain.get("required_suffixes", []) if s]
+        if not suffixes:
+            return None
+        prefixes = domain.get("required_prefixes", [])
+        if role == "object":
+            positions = set(DEFAULT_POSITIONS)
+            positions.update(domain.get("positions", []))
+            positions = sorted(positions)
+        else:
+            positions = []
+        pre = cls._alt(prefixes)
+        pos = cls._alt(positions)
+        suf = "(?:" + "|".join(re.escape(s) for s in suffixes) + ")"
+        pattern = re.compile(
+            f"^{pre}[a-z0-9_]+?{pos}(?:_[a-z])?(?:_\\d{{2}})?{suf}$")
+        return pattern, cls._template(prefixes, positions, suffixes)
+
+
 def get_active_policy(prefs=None) -> dict:
     """Return the active naming policy merged from code defaults and preferences.
 
@@ -137,7 +192,8 @@ def get_active_policy(prefs=None) -> dict:
 
     if prefs is None:
         return {
-            "object":     {"required_prefixes": [], "required_suffixes": []},
+            "object":     {"required_prefixes": [], "required_suffixes": [],
+                           "positions": []},
             "collection": {"required_prefixes": [], "required_suffixes": []},
         }
 
@@ -145,6 +201,7 @@ def get_active_policy(prefs=None) -> dict:
         "object": {
             "required_prefixes": _read("naming_prefixes"),
             "required_suffixes": _read("naming_suffixes"),
+            "positions": _read("contract_positions"),
         },
         "collection": {
             "required_prefixes": _read("col_naming_prefixes"),
@@ -269,48 +326,21 @@ class NamingValidator:
                 rule="lowercase",
             ))
 
-        # ── Policy-driven prefix / suffix checks ─────────────────────────────
-        obj_policy = (policy or {}).get("object", {})
-        req_prefixes: list = obj_policy.get("required_prefixes", [])
-        req_suffixes: list = obj_policy.get("required_suffixes", [])
-
-        # WARNING: configured prefixes present but name matches none
-        if req_prefixes:
-            if not any(name_lower.startswith(p) for p in req_prefixes):
-                short = ", ".join(req_prefixes[:3])
-                ellipsis = "…" if len(req_prefixes) > 3 else ""
+        # ── Naming Contract: one verdict for the whole name shape ────────────
+        # [prefix] core [position] [_a] [_01] suffix — matched on the
+        # lowercased name (letter case is the hygiene rules' job above).
+        # EMPTY objects are exempt: their _grp suffix is the hierarchy
+        # validator's job (one problem, one verdict).
+        contract = NamingContract.build(policy or {}, "object")
+        if contract is not None and obj.type != 'EMPTY':
+            regex, template = contract
+            if not regex.match(name_lower):
                 results.append(ValidationResult(
                     object_name=name, check="obj_naming",
                     severity=WARNING,
-                    message=f"Missing required prefix ({short}{ellipsis})",
-                    rule="missing_prefix",
+                    message=f"Does not match the contract: {template}",
+                    rule="contract_mismatch",
                 ))
-
-        # WARNING: configured suffixes present but name matches none.
-        # INFO fallback: no policy → use NAMING_RULES allowed_suffixes.
-        # EMPTY objects are exempt: their suffix (_grp) is the hierarchy
-        # validator's job — one problem, one verdict, no double flagging.
-        if obj.type != 'EMPTY':
-            if req_suffixes:
-                if not any(name_lower.endswith(s) for s in req_suffixes):
-                    short = ", ".join(req_suffixes[:3])
-                    ellipsis = "…" if len(req_suffixes) > 3 else ""
-                    results.append(ValidationResult(
-                        object_name=name, check="obj_naming",
-                        severity=WARNING,
-                        message=f"Missing required suffix ({short}{ellipsis})",
-                        rule="missing_suffix",
-                    ))
-            else:
-                allowed = rules.get("allowed_suffixes", [])
-                if allowed and not any(name_lower.endswith(s) for s in allowed):
-                    short = ", ".join(allowed[:3])
-                    results.append(ValidationResult(
-                        object_name=name, check="obj_naming",
-                        severity=INFO,
-                        message=f"No recommended suffix ({short}…)",
-                        rule="no_suffix",
-                    ))
 
         return results
 
@@ -371,31 +401,17 @@ class NamingValidator:
                 rule="lowercase",
             ))
 
-        # Policy-driven prefix / suffix (configurable, no hardcoded _grp)
-        col_policy = (policy or {}).get("collection", {})
-        req_prefixes: list = col_policy.get("required_prefixes", [])
-        req_suffixes: list = col_policy.get("required_suffixes", [])
-
-        if req_prefixes:
-            if not any(name_lower.startswith(p) for p in req_prefixes):
-                short = ", ".join(req_prefixes[:3])
-                ellipsis = "…" if len(req_prefixes) > 3 else ""
+        # Naming Contract (collection shape: [prefix] core [position] [_a]
+        # [_01] suffix) — same one-verdict model as objects.
+        contract = NamingContract.build(policy or {}, "collection")
+        if contract is not None:
+            regex, template = contract
+            if not regex.match(name_lower):
                 results.append(ValidationResult(
                     object_name=name, check="col_naming",
                     severity=WARNING,
-                    message=f"Missing required prefix ({short}{ellipsis})",
-                    rule="missing_prefix",
-                ))
-
-        if req_suffixes:
-            if not any(name_lower.endswith(s) for s in req_suffixes):
-                short = ", ".join(req_suffixes[:3])
-                ellipsis = "…" if len(req_suffixes) > 3 else ""
-                results.append(ValidationResult(
-                    object_name=name, check="col_naming",
-                    severity=WARNING,
-                    message=f"Missing required suffix ({short}{ellipsis})",
-                    rule="missing_suffix",
+                    message=f"Does not match the contract: {template}",
+                    rule="contract_mismatch",
                 ))
 
         return results
@@ -1133,6 +1149,18 @@ HIER_RULE_LABELS: dict = {
 
 
 
+# Human-readable rule names for the Naming block (audit aggregation)
+NAMING_RULE_LABELS: dict = {
+    "contract_mismatch":   "Not matching the contract",
+    "empty_name":          "Empty name",
+    "forbidden_chars":     "Forbidden characters",
+    "non_ascii":           "Non-ASCII characters",
+    "blender_numbering":   "Blender numbering (.001)",
+    "forbidden_base_name": "Default DCC name",
+    "lowercase":           "Uppercase in name",
+}
+
+
 # ── Operators ──────────────────────────────────────────────────────────────────
 
 class ASSET_CHECKER_OT_scan_hierarchy(bpy.types.Operator):
@@ -1163,6 +1191,24 @@ class ASSET_CHECKER_OT_scan_hierarchy(bpy.types.Operator):
                 f"Hierarchy: {result.blocking_count} issue(s)  "
                 f"({result.objects_scanned} objects scanned)",
             )
+        return {'FINISHED'}
+
+
+class ASSET_CHECKER_OT_toggle_naming_rule(bpy.types.Operator):
+    """Show / hide the objects behind this Naming block rule row"""
+    bl_idname  = "asset_checker.toggle_naming_rule"
+    bl_label   = "Toggle Naming Rule Row"
+    bl_options = {'REGISTER'}
+
+    rule: bpy.props.StringProperty()
+
+    def execute(self, context):
+        from .manager import MeshCheck
+        expanded = MeshCheck._naming_expanded_rules
+        if self.rule in expanded:
+            expanded.discard(self.rule)
+        else:
+            expanded.add(self.rule)
         return {'FINISHED'}
 
 

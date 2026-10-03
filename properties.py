@@ -31,6 +31,14 @@ CHECK_CATEGORIES = {
 
 _CATEGORY_OF = {check: cat for cat, checks in CHECK_CATEGORIES.items() for check in checks}
 
+# Naming Contract — the six naming checks collapse into three group toggles
+_NAMING_GROUPS = (
+    ("Object Naming", "objects",
+     ("obj_naming", "col_naming", "duplicated_names", "trailing_numbers")),
+    ("Mesh Data", "meshdata", ("mesh_data_naming",)),
+    ("Materials", "materials", ("mat_numbering",)),
+)
+
 
 def category_enabled(check):
     """False when the check's category is switched off in Preferences —
@@ -601,6 +609,28 @@ class MESH_CHECK_OT_toggle_category(bpy.types.Operator):
         for c in checks:
             if hasattr(mc, c):
                 setattr(mc, c, not any_on)
+        return {'FINISHED'}
+
+
+class ASSET_CHECKER_OT_toggle_naming_group(bpy.types.Operator):
+    """Toggle a group of naming checks (Naming Contract)"""
+    bl_idname = "asset_checker.toggle_naming_group"
+    bl_label  = "Toggle Naming Group"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    group: StringProperty()
+
+    _GROUPS = {g[1]: g[2] for g in _NAMING_GROUPS}
+
+    def execute(self, context):
+        mc = context.window_manager.mesh_check_props
+        props = self._GROUPS.get(self.group)
+        if not props:
+            return {'CANCELLED'}
+        all_on = all(getattr(mc, c, False) for c in props if hasattr(mc, c))
+        for c in props:
+            if hasattr(mc, c):
+                setattr(mc, c, not all_on)
         return {'FINISHED'}
 
 
@@ -3308,23 +3338,40 @@ class MeshCheckProperties(PropertyGroup):
                 continue
 
             # ── Check grid ─────────────────────────────────────────────────
-            row = box.row(align=True)
-            col_1 = row.column()
-            col_2 = row.column()
+            if cat_name == "NAMING":
+                # Naming Contract: three group toggles instead of six checks
+                for glabel, gkey, gprops in _NAMING_GROUPS:
+                    gr = box.row(align=True)
+                    all_on = all(getattr(self, c, False) for c in gprops)
+                    gop = gr.operator("asset_checker.toggle_naming_group",
+                                      text=glabel,
+                                      icon="CHECKBOX_HLT" if all_on else "CHECKBOX_DEHLT",
+                                      emboss=False)
+                    gop.group = gkey
+                    if addon_prefs and hasattr(addon_prefs, f"{gprops[0]}_color"):
+                        csw = gr.row()
+                        csw.scale_x = 0.15
+                        csw.scale_y = 0.8
+                        csw.alignment = "RIGHT"
+                        csw.prop(addon_prefs, f"{gprops[0]}_color", text="")
+            else:
+                row = box.row(align=True)
+                col_1 = row.column()
+                col_2 = row.column()
 
-            for i, check in enumerate(visible_checks):
-                col = col_1 if i % 2 == 0 else col_2
-                r = col.row(align=True)
-                icon = "CHECKBOX_HLT" if getattr(self, check, False) else "CHECKBOX_DEHLT"
-                label = _CHECK_LABELS.get(check, pretty_name(check))
-                r.prop(self, check, icon=icon, emboss=False, text=label)
+                for i, check in enumerate(visible_checks):
+                    col = col_1 if i % 2 == 0 else col_2
+                    r = col.row(align=True)
+                    icon = "CHECKBOX_HLT" if getattr(self, check, False) else "CHECKBOX_DEHLT"
+                    label = _CHECK_LABELS.get(check, pretty_name(check))
+                    r.prop(self, check, icon=icon, emboss=False, text=label)
 
-                if addon_prefs and hasattr(addon_prefs, f"{check}_color"):
-                    c = r.row()
-                    c.scale_x = 0.15
-                    c.scale_y = 0.8
-                    c.alignment = "RIGHT"
-                    c.prop(addon_prefs, f"{check}_color", text="")
+                    if addon_prefs and hasattr(addon_prefs, f"{check}_color"):
+                        c = r.row()
+                        c.scale_x = 0.15
+                        c.scale_y = 0.8
+                        c.alignment = "RIGHT"
+                        c.prop(addon_prefs, f"{check}_color", text="")
 
             # ── Inline UV actions: map names + rename (PROKLADKA conventions) ─
             if cat_name == "UV" and MeshCheck.objects:

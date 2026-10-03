@@ -476,6 +476,21 @@ def st_hierarchy():
                f"illegal name '{bad}' accepted by parent pattern")
     expect(naming.HierarchyValidator.mesh_core("window_a_01_geo") == "window_a_01",
            "mesh_core did not strip the _geo suffix")
+    # naming contract: the core of the name is free, the shape is
+    # prefix + suffix; no policy suffixes = contract off
+    cpol = {"object": {"required_prefixes": [], "required_suffixes": ["_geo"],
+                       "positions": []}}
+    creg, ctpl = naming.NamingContract.build(cpol, "object")
+    for legal in ("wall_geo", "window_a_01_geo", "wing_front_l_geo",
+                  "hero_tower_geo"):
+        expect(creg.match(legal) is not None,
+               f"contract rejected legal name '{legal}'")
+    for junk in ("wall", "wall_mesh"):
+        expect(creg.match(junk) is None,
+               f"contract accepted junk name '{junk}'")
+    expect(naming.NamingContract.build(
+        {"object": {"required_suffixes": []}}, "object") is None,
+        "contract must be off when the policy has no suffixes")
     expect(result.objects_scanned >= 10,
            f"hierarchy scanned only {result.objects_scanned} objects")
     eff = naming.hierarchy_effective_issues(result)

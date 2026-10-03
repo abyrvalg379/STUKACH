@@ -825,7 +825,13 @@ def draw_naming_audit_block(layout, mc) -> None:
       • (collapsed) one-line status badge
       • (expanded) error/warning list with click-to-select
     """
-    from .naming import NamingAudit, INFO, WARNING, ERROR, SEVERITY_ICON
+    from .naming import (
+        NamingAudit,
+        NamingContract,
+        get_active_policy,
+        NAMING_RULE_LABELS,
+        WARNING, ERROR, SEVERITY_ICON,
+    )
 
     if mc is None:
         try:
@@ -837,7 +843,7 @@ def draw_naming_audit_block(layout, mc) -> None:
     hdr = layout.row(align=True)
     tria = "TRIA_DOWN" if mc.naming_audit_open else "TRIA_RIGHT"
     hdr.prop(mc, "naming_audit_open", text="", icon=tria, emboss=False)
-    hdr.label(text="Naming Audit", icon="VIEWZOOM")
+    hdr.label(text="Naming", icon="FILE_TEXT")
 
     right = hdr.row(align=True)
     right.alignment = "RIGHT"
@@ -861,7 +867,7 @@ def draw_naming_audit_block(layout, mc) -> None:
 
     # ── Expanded content ──────────────────────────────────────────────────────
     if not NamingAudit._ran:
-        layout.label(text="Press Run to scan scene naming", icon="INFO")
+        layout.label(text="Validate (or Run) scans scene naming", icon="INFO")
         return
 
     if NamingAudit.is_clean():
@@ -875,23 +881,51 @@ def draw_naming_audit_block(layout, mc) -> None:
     if w:
         summary.label(text=f"{w} warning(s)", icon=SEVERITY_ICON[WARNING])
 
-    for sev in (ERROR, WARNING, INFO):
-        group = [r for r in NamingAudit._results if r.severity == sev]
-        if not group:
+    # the contract line — the whole expected name shape, from the policy
+    try:
+        contract = NamingContract.build(get_active_policy(_get_prefs()), "object")
+    except Exception:
+        contract = None
+    if contract is not None:
+        crow = layout.row()
+        crow.enabled = False
+        crow.label(text=f"Contract:  {contract[1]}", icon="SYNTAX_OFF")
+
+    # aggregate by rule — one row per rule, expandable to objects
+    agg: dict = {}
+    for r in NamingAudit._results:
+        if r.severity not in (WARNING, ERROR):
             continue
-        sev_col = layout.column(align=True)
-        sev_col.alert = (sev == ERROR)
-        sev_col.label(text=sev, icon=SEVERITY_ICON[sev])
-        for result in group:
-            row = sev_col.row(align=True)
-            # Full name and reason — no hard truncation
-            row.label(text=f"{result.object_name}  —  {result.message}")
-            if result.check == "obj_naming":
-                op = row.operator(
-                    "asset_checker.select_object",
-                    text="", icon="RESTRICT_SELECT_OFF", emboss=False,
-                )
-                op.object_name = result.object_name
+        agg.setdefault(r.rule, {"sev": r.severity, "items": []})["items"].append(r)
+    expanded_rules = _manager_mod.MeshCheck._naming_expanded_rules
+    for rule, entry in sorted(agg.items(),
+                              key=lambda kv: (0 if kv[1]["sev"] == ERROR else 1,
+                                              -len(kv[1]["items"]))):
+        is_open = rule in expanded_rules
+        grp = layout.row(align=True)
+        grp.operator("asset_checker.toggle_naming_rule",
+                     text="", icon="TRIA_DOWN" if is_open else "TRIA_RIGHT",
+                     emboss=False).rule = rule
+        grp.label(text=NAMING_RULE_LABELS.get(rule, rule),
+                  icon=SEVERITY_ICON[ERROR if entry["sev"] == ERROR else WARNING])
+        cnt = grp.row()
+        cnt.alignment = "RIGHT"
+        cnt.label(text=f"× {len(entry['items'])}")
+        if not is_open:
+            samples = [it.object_name for it in entry["items"][:2]]
+            if samples:
+                grp.label(text="·  " + ", ".join(samples))
+            continue
+        detail = layout.column(align=True)
+        for n, item in enumerate(entry["items"]):
+            if n >= 10:
+                detail.label(text=f"  …and {len(entry['items']) - n} more")
+                break
+            row = detail.row(align=True)
+            row.label(text=f"  {item.object_name}  —  {item.message}")
+            op = row.operator("asset_checker.select_object", text="",
+                              icon="RESTRICT_SELECT_OFF", emboss=False)
+            op.object_name = item.object_name
 
 
 def _draw_scene_units_row(layout, mc) -> None:
@@ -1022,11 +1056,15 @@ class ASSET_CHECKER_PT_Panel(bpy.types.Panel):
 
         ignored_checks = get_obj_ignore_list(obj)
 
+        # Naming Contract: object/collection name findings live in the Naming
+        # block (the scene audit covers every object) — the card would only
+        # double-count them
         active_checks = [
             (check, mc_obj._checks.get(check))
             for checks in CHECK_CATEGORIES.values()
             for check in checks
-            if getattr(mc, check, False) and category_enabled(check)
+            if check not in ("obj_naming", "col_naming")
+            and getattr(mc, check, False) and category_enabled(check)
             and mc_obj._checks.get(check) is not None
         ]
 
