@@ -45,7 +45,7 @@ def _save(doc, out):
 
 
 doc = ds.new_doc('STUKACH', 'User Guide',
-                 'BLENDER 5.2  -  V1.8.2  ·  MAYA 2025 - V1.3.0')
+                 'BLENDER 5.2  -  V1.8.4  ·  MAYA 2025 - V1.3.0')
 
 p(doc, 'STUKACH checks a scene for typical pipeline errors: topology, transforms, UVs, '
        'naming, materials and hierarchy structure. The artist sees the defects right in the '
@@ -70,7 +70,7 @@ p(doc, 'STUKACH is an asset quality checker embedded in a DCC panel. It replaces
 p(doc, 'Key features:', bullet=False)
 for b in [
     '42 checks in 7 categories + scene units check (Blender); 43 checks + two scene checks (Maya);',
-    'asset hierarchy validator - 13 structure rules (roots, layers, groups, branch naming);',
+    'asset hierarchy validator - 10 structure rules (roots, layers, groups, branch naming);',
     'GPU overlays: defects are painted in color right on the geometry - faces, edges, vertices;',
     'Live mode: validation recalculates itself on edits, no re-RUN needed;',
     'one-button fixes: transforms, hierarchy, mesh data naming, garbage cleanup;',
@@ -107,11 +107,11 @@ p(doc, 'The panel works in one of two modes. Artist Mode is the artist working m
 h2(doc, '1.4 Two versions')
 add_table(doc, [
     ['', 'Blender version', 'Maya version'],
-    ['Version', 'v1.8.2', 'v1.3.0'],
+    ['Version', 'v1.8.4', 'v1.3.0'],
     ['Package', 'Blender 4.2+ extension (zip)', 'Maya 2025 Win x64 (python + C++ overlay plugin)'],
     ['Panel', 'View3D N-panel - STUKACH tab', 'Docked panel to the left of the Attribute Editor'],
     ['Checks', '42 + Scene Units', '43 + Scene Units + Empty Groups'],
-    ['Hierarchy', '13-rule validator + fixes', 'Built with locators; validated in Blender'],
+    ['Hierarchy', '10-rule validator + fixes', 'Built with locators; validated in Blender'],
     ['Repository', 'github.com/abyrvalg379/STUKACH', 'github.com/abyrvalg379/STUKACH_Maya'],
 ], [3.2, 7.9, 7.9])
 kv_note(doc, 'The Blender and Maya version numbers are independent. The Maya version covers '
@@ -232,12 +232,15 @@ add_table(doc, [
 ], [5.2, 13.8])
 
 h2(doc, '4.5 The hierarchy block')
-p(doc, 'Sits right after the NAMING category. The Scan button runs the scene structure check '
+p(doc, 'Sits right after the NAMING category. Scan runs the scene structure check '
        'against pipeline conventions (see section 6): asset roots, functional layers, '
-       'partitions, group suffixes. Findings are aggregated per rule - one row per rule with '
-       'example objects, expanded by click. Issues only mode hides clean branches. In Live '
-       'mode the scan reruns itself whenever the scene structure changes (the main scenario - '
-       'accepting an asset after an FBX import).')
+       'partitions, group suffixes. One display mode - problems only, grouped by asset root: '
+       'a section per root, rule rows inside ("Missing group suffix ×5") with name samples, '
+       'expanding to objects; the Fix button sits on the rule row. A clean root is a single '
+       'line with a checkmark. Skeleton - the asset skeleton generator, a button in the block '
+       'header. A collapsed block shows its status in the header row (Clean / 3E · 2W / Stale). '
+       'In Live mode the scan reruns itself whenever the scene structure changes (the main '
+       'scenario - accepting an asset after an FBX import).')
 
 h2(doc, '4.6 The Objects list')
 add_table(doc, [
@@ -282,7 +285,7 @@ p(doc, 'With Coordinator Mode on, the panel shows the verdict plate (ASSET STATU
        'the Artist Mode button in the toolbar.')
 
 h1(doc, '5. Checkers (Blender)')
-p(doc, '42 checks in 7 categories + Scene Units. The set and severity match the v1.8.2 code; '
+p(doc, '42 checks in 7 categories + Scene Units. The set and severity match the v1.8.4 code; '
        'thresholds of some checks are configurable in Preferences (the UV tab, the Checks tab - '
        'the Hard Edges chamfer width). Update checking is described in section 9.1.')
 
@@ -386,16 +389,19 @@ add_table(doc, [
 
 h2(doc, '5.6 NAMING (6)')
 p(doc, 'Naming rules are configured in Preferences - Naming (object/group prefixes and '
-       'suffixes, mesh data; see section 9). The checks compare names against this policy.')
+       'suffixes, mesh data; see section 9); the panel has no configuration fields. The checks '
+       'compare names against this policy; the scene-wide naming audit runs together with '
+       'Validate (the Naming Audit row shows the status).')
 add_table(doc, [
     ['Check', 'Severity', 'What it looks for', 'Why it matters'],
     ['Object Name', 'WARNING', 'Default names (Cube, pCube1), .001 numbering, special '
-     'characters, capital letters, prefix/suffix mismatches', 'Broken names break asset '
-     'manager scripts and exact name matching'],
+     'characters, capital letters, Cyrillic and any non-ASCII characters, prefix/suffix '
+     'mismatches', 'Broken names break asset manager scripts and exact name matching'],
     ['Group Name', 'WARNING', 'The same rules for collections + the group prefix/suffix',
      'Broken naming breaks the hierarchy, LOD systems and shot assembly'],
-    ['Mesh Data Name', 'WARNING', 'A mesh datablock name (Mesh.101) not matching the object '
-     'name', 'Polluted datablocks surface in scripts and on linking'],
+    ['Mesh Data Name', 'WARNING', 'A mesh datablock name (Mesh.101) matching neither the '
+     'object name nor one of the suffixes (_mesh / _geo / _grp)',
+     'Polluted datablocks surface in scripts and on linking'],
     ['Mat Numbering', 'WARNING', 'Material names with numbering (.001, .002)', 'A numbered '
      'material is a copy instead of the original; it breaks the material library'],
     ['Duplicated Names', 'BLOCKER', 'Matching object names in the scene', 'Name collisions '
@@ -433,34 +439,33 @@ p(doc, 'The asset hierarchy is assembled from group empties (Maya uses locators 
        'The validator checks the structure against the conventions:')
 for b in [
     'the asset root - a group empty with the _grp suffix (truck_a_grp, for example);',
+    'the root group name equals the asset name (taken from the .blend filename);',
     'inside - functional layers (geo, proxy, rig, wip etc.): the set is free, with a built-in '
     'whitelist of 24 common names, extendable in Preferences;',
     'partitions of repeated elements - strictly two-digit numbering after an underscore: '
     'bolt_01, bolt_02 (bolt_1 and bolt_002 are violations);',
     'every group with a group role carries the _grp suffix;',
-    'names are lowercase, no .001, no forbidden characters, no default DCC names;',
-    'lights and cameras are not part of the asset structure and are not validated; a static '
-    'asset may be grouped right at the root.',
+    'object naming (case, characters, .001, default DCC names) is the NAMING category\'s job '
+    '(§5.6) - the hierarchy does not duplicate it; lights and cameras are not part of the asset '
+    'structure and are not validated; a static asset may be grouped right at the root.',
 ]:
     p(doc, b, bullet=True)
 
-h2(doc, '6.2 Rules (13)')
+h2(doc, '6.2 Rules (10)')
 add_table(doc, [
     ['Rule', 'Severity', 'What it catches'],
-    ['Blender numbering (.001)', 'ERROR', 'Copies with .001 auto-numbering - a sign of '
-     'duplication instead of renaming'],
     ['Missing group suffix', 'ERROR', 'A group with a group role missing the _grp suffix'],
-    ['Forbidden characters', 'ERROR', 'Forbidden characters in node names'],
-    ['Default DCC name', 'ERROR', 'Default package names (Cube, Empty, pCube1...)'],
     ['Empty group', 'ERROR', 'An empty with a group role and no children - an unfilled '
      'locator after import'],
-    ['Uppercase in name', 'WARNING', 'Capital letters in the name'],
+    ['Root name ≠ asset name', 'WARNING', 'The scene has a single root, but its name does '
+     'not equal the asset name (from the .blend filename) - one of them was renamed'],
     ['Unknown functional layer', 'WARNING', 'A layer outside the whitelist (extended in '
      'Preferences)'],
     ['Orphan empty', 'WARNING', 'An empty unreachable from any asset root'],
     ['Orphan mesh', 'WARNING', 'A mesh unreachable from any asset root'],
-    ['Name mismatch in group', 'WARNING', 'A node name not matching the <base> / <base>_NN '
-     'pattern of its group'],
+    ['Name mismatch in group', 'WARNING', 'A mesh name (without the _geo suffix) matching '
+     'none of the legal forms of its group: <base>, <base>_NN (two digits), <base>_a (a '
+     'single letter), <base>_a_NN, the _l / _r symmetry'],
     ['Mesh under mesh', 'WARNING', 'A mesh parented to a mesh (a duplicate of the Parent '
      'Geometry check)'],
     ['No asset root', 'WARNING', 'No asset root in the scene'],
@@ -469,32 +474,40 @@ add_table(doc, [
 
 h2(doc, '6.3 Scanning')
 for b in [
-    'Scan - a manual scan start; the result is collapsible sections per asset root with '
-    'their own ERROR/WARNING counters, plus "Not connected to any root" and scene-level '
-    'finding sections.',
-    'Issues only - show problem branches only.',
+    'Scan (in the block header; an icon-only re-scan once a result exists). The result is '
+    'sections per asset root with their own E/W counters; a clean root is a single line with '
+    'a checkmark. Inside a root the findings collapse into rule rows (×N + name samples) that '
+    'expand to objects (up to 10 rows). Orphans get their own "Not connected to any root" '
+    'section; scene-level findings (no/multiple roots) sit on top of the list.',
     'Live auto-scan: with Live enabled the scan reruns itself after structure changes (an '
-    'FBX import, reparenting, renames). A "Stale" badge means the result is outdated - run '
-    'Scan.',
-    'An X on a finding - ignore the rule on that node; the "N ignored - clear" counter '
-    'resets the ignores.',
+    'FBX import, reparenting, renames). "Stale - re-scan" in the header means the result is '
+    'outdated.',
+    'An X on a finding - ignore the rule on that node; "N ignored - clear" in the status '
+    'resets the ignores. Ignores are respected by the panel, the asset status, the reports '
+    'and Next Issue.',
 ]:
     p(doc, b, bullet=True)
 
 h2(doc, '6.4 Fixes')
+p(doc, 'The Fix button sits on the rule row - visible only where there is something to fix:')
 add_table(doc, [
-    ['Fix', 'What it does'],
-    ['Add _grp', 'Adds the _grp suffix to a group; name collisions are skipped with a report'],
-    ['Renumber', 'Brings partition numbering to the two-digit base_01 grid (legal names are '
-     'untouched; the rename is two-pass through temporary names - collision-free)'],
-    ['Adopt Orphans', 'Connects orphaned nodes to a root: one root - automatically, several - '
-     'with a dialog'],
-    ['Create Root', 'Creates an asset root; an option to adopt the orphans right away'],
-    ['Create Asset Skeleton', 'A static asset skeleton generator: the name comes from the '
-     '.blend file, layers are picked from the whitelist with checkboxes. The asset is born '
-     'legal, the validator accepts it'],
-], [4.5, 14])
-kv_note(doc, 'Every hierarchy fix rescans the structure right after applying.')
+    ['Fix', 'Where', 'What it does'],
+    ['Add _grp', 'Missing group suffix row', 'Adds the _grp suffix to a group; name '
+     'collisions are skipped with a report'],
+    ['Fix (Renumber)', 'Name mismatch in group row', 'Brings partition numbering to the '
+     'two-digit base_01 grid, keeping the mesh suffix (_geo). Legal names (window_a_01, '
+     'wing_front_l) are untouched; the rename is two-pass - collision-free'],
+    ['Create root', 'No asset root row', 'Creates an asset root; an option to adopt the '
+     'orphans right away'],
+    ['Connect', 'the orphans section', 'Connects orphaned nodes to a root: one root - '
+     'automatically, several - with a dialog'],
+    ['Skeleton', 'the block header', 'A static asset skeleton generator: the name comes from '
+     'the .blend file, layers are picked from the whitelist with checkboxes. The asset is '
+     'born legal, the validator accepts it'],
+], [3.6, 5.4, 9.5])
+kv_note(doc, 'Every hierarchy fix rescans the structure right after applying. In Coordinator '
+       'Mode with Coordinator Lock the fixes and Skeleton are hidden - the coordinator only '
+       'validates.')
 
 h2(doc, '6.5 The coordinator gate')
 p(doc, 'In Artist Mode hierarchy findings do not affect the Asset Status - a WIP asset has '
@@ -596,8 +609,10 @@ add_table(doc, [
      'value only); UV Padding: shell and tile-border thresholds; stretch and aspect ratio '
      'thresholds.'],
     ['Naming', 'Objects and Groups: prefix/suffix lists (+/-); Mesh Data: the datablock '
-     'suffix (_mesh by default); Hierarchy: the group suffix (_grp) and the functional '
-     'whitelist (extends the 24 built-in layers).'],
+     'suffix list (_mesh, _geo, _grp by default; the first entry is the Fix button\'s '
+     'target); Hierarchy: the group suffix (_grp) and the functional whitelist (extends the '
+     '24 built-in layers). The panel itself has no naming fields anymore - configuration '
+     'lives here and in presets only.'],
     ['Checks', 'Hard Edges: the chamfer width threshold. An edge hugging a strip thinner than '
      'this percentage of the object size is a chamfer and is not flagged.'],
     ['Colors', 'The overlay color of every check, a two-column grid; applied to the viewport '
