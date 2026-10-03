@@ -14,6 +14,7 @@ from ..model import MeshSnapshot, Finding, edge_length
 
 
 def check_triangles(snap: MeshSnapshot) -> Optional[Finding]:
+    """Triangular faces where the pipeline expects quads."""
     bad = [("face", fi) for fi, verts in enumerate(snap.face_verts) if len(verts) == 3]
     if not bad:
         return None
@@ -21,6 +22,7 @@ def check_triangles(snap: MeshSnapshot) -> Optional[Finding]:
 
 
 def check_ngons(snap: MeshSnapshot) -> Optional[Finding]:
+    """Faces with more than four vertices (n-gons)."""
     bad = [("face", fi) for fi, verts in enumerate(snap.face_verts) if len(verts) > 4]
     if not bad:
         return None
@@ -46,6 +48,7 @@ def check_non_manifold(snap: MeshSnapshot) -> Optional[Finding]:
     return Finding("non_manifold", "BLOCKER", len(tj), tj, metric=metric)
 
 def check_zero_area(snap: MeshSnapshot, threshold: float = 1e-10) -> Optional[Finding]:
+    """Degenerate faces below the area *threshold* — collapsed geometry."""
     bad = [("face", fi) for fi, area in enumerate(snap.face_area) if area < threshold]
     if not bad:
         return None
@@ -89,6 +92,7 @@ def check_poles(snap: MeshSnapshot) -> Optional[Finding]:
 
 
 def check_isolated_verts(snap: MeshSnapshot) -> Optional[Finding]:
+    """Vertices connected to neither an edge nor a face — cleanup leftovers."""
     referenced = set(snap.vert_edges().keys()) | set(snap.vert_faces().keys())
     bad = [("vert", v) for v in range(len(snap.points)) if v not in referenced]
     if not bad:
@@ -97,6 +101,7 @@ def check_isolated_verts(snap: MeshSnapshot) -> Optional[Finding]:
 
 
 def check_boundary_edges(snap: MeshSnapshot) -> Optional[Finding]:
+    """Edges with exactly one adjacent face — open borders of the shell."""
     bad = [("edge", eid) for eid, conn in enumerate(snap.edge_conn) if conn == 1]
     if not bad:
         return None
@@ -201,6 +206,7 @@ def check_lamina(snap: MeshSnapshot) -> Optional[Finding]:
 
 
 def check_zero_length_edges(snap: MeshSnapshot, tol: float = 1e-8) -> Optional[Finding]:
+    """Edges at or below the length *tol* — degenerate geometry from merges/booleans."""
     bad = []
     pts = snap.points
     for i, (v0, v1) in enumerate(snap.edges):

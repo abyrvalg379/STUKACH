@@ -757,6 +757,8 @@ class MainGeo(BaseCheck):
 
 
 class Triangles(MainGeo):
+    """Triangulated faces — the pipeline expects quads."""
+
     def __init__(self, parent):
         super().__init__(parent)
         self._faces_idx: List[int] = []
@@ -783,6 +785,8 @@ class Triangles(MainGeo):
 
 
 class Ngons(MainGeo):
+    """Faces with more than four vertices (n-gons)."""
+
     # Fan-triangulating thousands of ngons in EDIT mode is pointless — cap it.
     _EDIT_GPU_MAX_FACES: int = 20_000
 
@@ -958,6 +962,8 @@ class NonManifold(BaseCheck):
 
 
 class Poles(BaseCheck):
+    """Pole vertices (3 or 5+ connected edges) on interior geometry."""
+
     def __init__(self, parent):
         super().__init__(parent)
         self._e_poles_idx: Set[int] = set()
@@ -1078,6 +1084,8 @@ class Poles(BaseCheck):
 
 
 class ZeroAreaFaces(BaseCheck):
+    """Degenerate faces with (near-)zero area — collapsed geometry."""
+
     def __init__(self, parent):
         super().__init__(parent)
         self._faces_idx: List[int] = []
@@ -1168,6 +1176,8 @@ class ZeroAreaFaces(BaseCheck):
 
 
 class NonAppliedTransform(BaseCheck):
+    """Object carries rotation/scale that should be applied to the mesh."""
+
     def __init__(self, parent):
         super().__init__(parent)
         self._issues: List[str] = []
@@ -1378,6 +1388,8 @@ class ZFighting(BaseCheck):
 
 
 class NamingCheck(BaseCheck):
+    """Object names: hygiene rules + the naming contract (stukach_core.naming)."""
+
     def __init__(self, parent):
         super().__init__(parent)
         self._results: List = []   # List[ValidationResult]
@@ -1423,6 +1435,8 @@ class NamingCheck(BaseCheck):
 
 
 class MaterialCheck(BaseCheck):
+    """Material names must end with the configured suffix (default '_mat')."""
+
     def set_datas(self):
         self._count = sum(
             1 for slot in self._parent._object.material_slots
@@ -3193,14 +3207,20 @@ class SymmetryCheck(BaseCheck):
 
 
 class SymmetryX(SymmetryCheck):
+    """Asymmetric vertices on the X axis — mirror position missing."""
+
     _AXIS = 0
 
 
 class SymmetryY(SymmetryCheck):
+    """Asymmetric vertices on the Y axis — mirror position missing."""
+
     _AXIS = 1
 
 
 class SymmetryZ(SymmetryCheck):
+    """Asymmetric vertices on the Z axis — mirror position missing."""
+
     _AXIS = 2
 
 
