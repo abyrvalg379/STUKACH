@@ -498,6 +498,44 @@ def st_hierarchy():
     return f"{len(result.issues)} issues, rules {sorted(wanted)}"
 
 
+def st_core_parity():
+    """Stage-2 tranche 1: the vendored stukach_core, fed by the Mesh adapter,
+    must agree with the addon's own checks on every garden object.
+
+    Parity set deliberately excludes lamina/starlike (adapter placeholders),
+    missing_uvs (richer addon semantics) and duplicate_verts (core degrades
+    without scipy, which stock Blender does not ship)."""
+    adapter = importlib.import_module(MOD + ".core_adapter")
+    sck = importlib.import_module(MOD + "._core")
+    enabled = {"triangles", "ngons", "zero_area", "poles", "boundary_edges",
+               "isolated_verts", "zero_length_edges", "face_aspect_ratio"}
+    compared = 0
+    objects = 0
+    mismatches = []
+    for obj, mc_obj in list(MeshCheck.objects.items()):
+        try:
+            me = obj.data
+            name = obj.name
+        except ReferenceError:
+            continue
+        if me is None or getattr(me, "is_editmode", False):
+            continue
+        objects += 1
+        snap = adapter.build_snapshot(me, node=name)
+        findings = {f.rule: f.count for f in sck.run_checks(snap, enabled=enabled)}
+        for rule in sorted(enabled):
+            chk = mc_obj._checks.get(rule)
+            addon_count = chk.count if chk is not None else 0
+            core_count = findings.get(rule, 0)
+            compared += 1
+            if addon_count != core_count:
+                mismatches.append(f"{name}.{rule}: addon {addon_count} vs core {core_count}")
+    expect(objects >= 10, f"core parity saw only {objects} tracked objects")
+    expect(not mismatches,
+           "core parity mismatches:\n    " + "\n    ".join(mismatches[:10]))
+    return f"{objects} objects, {compared} rule comparisons"
+
+
 def st_next_issue_edit_mode():
     ob = bpy.data.objects["ngon_cube_geo"]
     bpy.context.view_layer.objects.active = ob
@@ -612,6 +650,7 @@ def main():
     step("nan_uv_udim_map", st_nan_uv)
     step("z_fighting_inter", st_zfighting_inter)
     step("hierarchy_scan", st_hierarchy)
+    step("core_parity", st_core_parity)
     step("next_issue_edit_mode", st_next_issue_edit_mode)
     step("fix_wave", st_fix_wave)
     step("defects_fixed", st_defects_fixed)

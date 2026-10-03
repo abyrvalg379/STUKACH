@@ -25,6 +25,7 @@ FILES = [
     "__init__.py",
     "blender_manifest.toml",
     "core.py",
+    "core_adapter.py",
     "LICENSE",
     "manager.py",
     "naming.py",
@@ -34,6 +35,15 @@ FILES = [
     "README.ru.md",
     "ui.py",
     "update_checker.py",
+    # vendored DCC-free validation core (source: STUKACH_CORE project)
+    "_core/__init__.py",
+    "_core/model.py",
+    "_core/registry.py",
+    "_core/checks/__init__.py",
+    "_core/checks/topology.py",
+    "_core/checks/surface.py",
+    "_core/checks/symmetry.py",
+    "_core/checks/scene.py",
 ]
 
 
