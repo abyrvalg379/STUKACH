@@ -132,13 +132,19 @@ def register():
         name="Toggle Visibility",
         default=False)
 
-    # Seed the mesh-data suffix list with the pipeline default on first run
+    # Seed the mesh-data suffix list with the pipeline defaults; also
+    # upgrades installs that already carry the old single '_mesh' default.
+    # Order matters: '_mesh' stays FIRST — the Fix button targets it.
     try:
         prefs = bpy.context.preferences.addons.get(__name__)
         if prefs is None:
             prefs = bpy.context.preferences.addons.get(__name__.rsplit(".", 1)[0])
-        if prefs is not None and not len(prefs.preferences.mesh_naming_suffixes):
-            prefs.preferences.mesh_naming_suffixes.add().value = "_mesh"
+        if prefs is not None:
+            existing = {e.value.strip().lower()
+                        for e in prefs.preferences.mesh_naming_suffixes}
+            for sfx in ("_mesh", "_geo", "_grp"):
+                if sfx not in existing:
+                    prefs.preferences.mesh_naming_suffixes.add().value = sfx
     except Exception as e:
         print(f"[AssetChecker] mesh suffix seed: {e}")
 

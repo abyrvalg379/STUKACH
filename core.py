@@ -3820,7 +3820,7 @@ class MeshDataNaming(BaseCheck):
     <object root> + first mesh suffix, stripping the object suffix
     (e.g. object 'body_geo' → mesh 'body_mesh')."""
 
-    _DEFAULT_SUFFIXES = ("_mesh",)
+    _DEFAULT_SUFFIXES = ("_mesh", "_geo", "_grp")   # '_mesh' first = Fix target
 
     def __init__(self, parent):
         super().__init__(parent)
