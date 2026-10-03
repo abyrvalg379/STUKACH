@@ -3019,7 +3019,7 @@ class MeshCheckProperties(PropertyGroup):
     uv_udim_bounds:   BoolProperty(name="UDIM Bounds",          default=False, update=mc_object_datas_updater("uv_udim_bounds"),
                                    description="UV islands crossing UDIM tile boundaries — cannot assign a correct UDIM texture")
     uv_material_udim: BoolProperty(name="Uv Material Udim",         default=False, update=mc_object_datas_updater("uv_material_udim"),
-                                   description="Each UDIM tile must contain shells from one material only (регламент: 1 UDIM = 1 material group)")
+                                   description="Each UDIM tile must contain shells from one material only — one UDIM, one material group")
     missing_uvs:      BoolProperty(name="Missing UVs",          default=False, update=mc_object_datas_updater("missing_uvs"),
                                    description="Faces without UV mapping (no UV layer, or all loops at 0,0) — unpacked geometry, broken texel lookups in bake")
 
