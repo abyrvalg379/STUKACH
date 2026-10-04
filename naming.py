@@ -275,13 +275,16 @@ class NamingValidator:
         """Return naming issues for a Blender collection.  May be empty (= clean).
 
         The math lives in the vendored core; this wrapper maps the findings."""
-        core_findings = _core_naming.validate_collection_name(
+        core_finding = _core_naming.validate_collection_name(
             col.name, policy or {})
+        # the core returns a single Optional[dict] here (NOT a list like
+        # validate_object_name) — iterating a dict walks its string keys
+        findings = [core_finding] if core_finding else []
         return [
             ValidationResult(
                 object_name=col.name, check=f["check"],
                 severity=f["severity"], message=f["message"], rule=f["rule"])
-            for f in core_findings
+            for f in findings
         ]
 
 
