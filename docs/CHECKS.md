@@ -3,7 +3,7 @@
 Generated from the code registries — do not edit by hand.
 Regenerate: run the smoke test, then `python tests/gen_checkers_doc.py`.
 
-## Core rules (stukach_core) — 35
+## Core rules (stukach_core) — 37
 
 DCC-free rules shared by every STUKACH build. Severity is decided by
 the registry; each DCC layer maps the verdicts onto its own UI.
@@ -33,18 +33,20 @@ the registry; each DCC layer maps the verdicts onto its own UI.
 | `scale` | BLOCKER | tol=0.001 | Object scale deviates from 1.0 by more than *tol* on any axis. |
 | `non_applied_transform` | BLOCKER | tol=0.001 | Object carries a rotation that should be applied to the mesh — the rotation block of the local matrix differs from identity. |
 | `face_aspect_ratio` | INFO | threshold=6.0 | Quad faces whose aspect ratio exceeds *threshold* (tris/ngons skip). |
+| `sharp_edges` | WARNING | threshold_deg=60.0, bevel_ratio=0.005, skip_custom_normals=True | Sharp corners (dihedral >= *threshold_deg*) whose edge is still marked smooth — smooth shading across a sharp corner shades wrong. |
 | `symmetry_x` | INFO | axis=0, threshold=0.001 | A vertex is asymmetric when its mirror key is absent. |
 | `symmetry_y` | INFO | axis=1, threshold=0.001 | A vertex is asymmetric when its mirror key is absent. |
 | `symmetry_z` | INFO | axis=2, threshold=0.001 | A vertex is asymmetric when its mirror key is absent. |
 | `duplicated_names` | BLOCKER | — | Short name used by more than one node in the scene (FBX/AYON killers). |
 | `shape_names` | WARNING | — | Shape node must be named '<transform>Shape' (Maya convention). |
 | `trailing_numbers` | WARNING | — | Name ends with digits (pCube1-style leftovers). |
-| `uncentered_pivots` | INFO | threshold=0.05 | Rotate pivot far from the bbox center (fraction of bbox diagonal). |
+| `uncentered_pivots` | INFO | threshold=0.05 | Rotate pivot far from the WORLD bbox center (fraction of the bbox diagonal). |
 | `parent_geometry` | WARNING | — | Mesh parented under another mesh — breaks export hierarchies. |
 | `mesh_data_naming` | WARNING | mesh_suffixes=['_mesh', '_geo', '_grp'] | Mesh datablock must be named like its object or carry a mesh suffix ('body_geo' object → 'body_mesh' datablock). |
 | `mat_suffix` | WARNING | required_suffix=_mat | Every material name must carry the pipeline suffix (default '_mat') and stay ASCII. |
 | `mat_numbering` | WARNING | — | Material names must not keep Blender auto-numbering (.001) — stale default copies break shader assignment downstream. |
 | `uv_padding` | INFO | tex_size=4096, shell_px=16, tile_px=8, max_polys=50000, max_uv_verts=200000 | UV islands closer than shell_px to another island, or tile_px to a UDIM tile border (scene scope: one evaluation over a snapshot batch, findings carry owner). |
+| `z_fighting_inter` | BLOCKER | threshold=0.0001, normal_dot=0.99, max_total_faces=500000 | Registry wrapper: findings only (run_scene_checks path). |
 
 ## Addon checks (Blender) — 42
 
@@ -83,7 +85,7 @@ via the parity gate in the smoke test).
 | `symmetry_z` | INFO | SYMMETRY | core | Asymmetric vertices on the Z axis — mirror position missing. |
 | `trailing_numbers` | WARNING | NAMING | core | Object name ends with digits (Cube.001-style leftovers). |
 | `triangles` | INFO | TOPOLOGY |  | Triangulated faces — the pipeline expects quads. |
-| `uncentered_pivots` | INFO | TRANSFORMS |  | Pivot further than 5% of the bbox diagonal from the bbox center. |
+| `uncentered_pivots` | INFO | TRANSFORMS | core | Pivot further than 5% of the bbox diagonal from the bbox center. |
 | `unused_data` | WARNING | CLEANUP |  | Detects unused/stale mesh data that is safe to remove. |
 | `uv_material_udim` | BLOCKER | UV | core | One UDIM tile must not contain UV shells from different material groups. |
 | `uv_micro_shell` | WARNING | UV | core | Detects UV islands whose total UV area is below a minimum threshold. |
