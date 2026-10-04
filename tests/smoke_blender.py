@@ -537,7 +537,8 @@ def st_core_parity():
                "uv_single_set", "uv_udim_bounds", "uv_micro_shell",
                "uv_overlap", "uv_stretch", "uv_texel_density",
                "uv_material_udim", "scale", "non_applied_transform",
-               "mesh_data_naming", "mat_suffix", "mat_numbering"}
+               "mesh_data_naming", "mat_suffix", "mat_numbering",
+               "uncentered_pivots"}
     compared = 0
     objects = 0
     mismatches = []
@@ -573,7 +574,9 @@ def st_core_parity():
                                       material_names=[
                                           s.material.name
                                           for s in obj.material_slots
-                                          if s.material])
+                                          if s.material],
+                                      rotate_pivot=tuple(
+                                          obj.matrix_world.translation))
         pad_snaps[name] = snap
         pad_chk = mc_obj._checks.get("uv_padding")
         if pad_chk is not None:

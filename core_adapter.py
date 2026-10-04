@@ -31,7 +31,8 @@ CORE_DELEGATED = frozenset({
 
 def build_snapshot(me, node: str = "", shape: str = "",
                    parent_types=None, scene=None, world_matrix=None,
-                   local_matrix=None, material_names=None):
+                   local_matrix=None, material_names=None,
+                   rotate_pivot=None):
     """Build a stukach_core MeshSnapshot from a bpy Mesh (OBJECT mode data)."""
     from . import _core
 
@@ -96,6 +97,7 @@ def build_snapshot(me, node: str = "", shape: str = "",
         scene=dict(scene or {}),
         uv_set_count=uv_set_count,
         world_matrix=tuple(world_matrix or ()),
+        rotate_pivot=tuple(rotate_pivot or ()),
         local_matrix=tuple(local_matrix or ()),
         face_mat=face_mat,
         material_names=list(material_names or []),
@@ -104,7 +106,8 @@ def build_snapshot(me, node: str = "", shape: str = "",
 
 def build_snapshot_from_bm(bm, node: str = "", shape: str = "",
                            parent_types=None, scene=None, world_matrix=None,
-                   local_matrix=None, material_names=None):
+                   local_matrix=None, material_names=None,
+                   rotate_pivot=None):
     """BMesh variant for EDIT mode (me.* is stale there).  Reads the same
     data the OBJECT-mode adapter does, straight off the live BMesh."""
     from . import _core
@@ -147,6 +150,7 @@ def build_snapshot_from_bm(bm, node: str = "", shape: str = "",
         scene=dict(scene or {}),
         uv_set_count=len(bm.loops.layers.uv),
         world_matrix=tuple(world_matrix or ()),
+        rotate_pivot=tuple(rotate_pivot or ()),
         local_matrix=tuple(local_matrix or ()),
         face_mat=[f.material_index for f in bm.faces],
         material_names=list(material_names or []),

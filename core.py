@@ -3113,42 +3113,31 @@ class UncenteredPivots(BaseCheck):
     Compared against the bbox CENTER — comparing against the world origin
     was the Maya-version bug that flagged every placed object."""
 
-    _THRESHOLD = 0.05   # fraction of the bbox diagonal
-
     def __init__(self, parent):
         super().__init__(parent)
+        self.metric_text = ""
         self._bbox: Tuple = ()
-        self._pct = 0.0
 
     def set_datas(self):
+        # Strangler 6a: detection in the vendored core (world semantics —
+        # the adapter reports the object's world translation as the pivot);
+        # the world bbox overlay stays a rendering detail here
         obj = self._parent._object
         self._count = 0
-        self._pct = 0.0
+        self.metric_text = ""
         self._bbox = ()
+        finding = _sck_core.scene.check_uncentered_pivots(
+            self._parent.core_snapshot())
+        if finding is None:
+            return
+        self._count = finding.count
+        self.metric_text = finding.metric or ""
         mw = obj.matrix_world
         corners = [mw @ mathutils.Vector(c) for c in obj.bound_box]
-        xs = [c.x for c in corners]
-        ys = [c.y for c in corners]
-        zs = [c.z for c in corners]
-        diag = math.sqrt((max(xs) - min(xs)) ** 2 + (max(ys) - min(ys)) ** 2 +
-                         (max(zs) - min(zs)) ** 2)
-        if diag < 1e-9:
-            return
-        pivot = mw.translation
-        dist = math.sqrt((pivot.x - (min(xs) + max(xs)) / 2) ** 2 +
-                         (pivot.y - (min(ys) + max(ys)) / 2) ** 2 +
-                         (pivot.z - (min(zs) + max(zs)) / 2) ** 2)
-        if dist > diag * self._THRESHOLD:
-            self._count = 1
-            self._pct = dist / diag * 100.0
-            edge_idx = [0, 1, 1, 2, 2, 3, 3, 0, 4, 5, 5, 6, 6, 7, 7, 4,
-                        0, 4, 1, 5, 2, 6, 3, 7]
-            self._bbox = tuple((corners[i].x, corners[i].y, corners[i].z)
-                               for i in edge_idx)
-
-    @property
-    def metric_text(self) -> str:
-        return f"pivot off-center by {self._pct:.1f}% of bbox" if self._count else ""
+        edge_idx = [0, 1, 1, 2, 2, 3, 3, 0, 4, 5, 5, 6, 6, 7, 7, 4,
+                    0, 4, 1, 5, 2, 6, 3, 7]
+        self._bbox = tuple((corners[i].x, corners[i].y, corners[i].z)
+                           for i in edge_idx)
 
     def get_edges(self, offset: float):
         return self._bbox

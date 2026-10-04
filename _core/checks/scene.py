@@ -36,15 +36,37 @@ def check_trailing_numbers(snap: MeshSnapshot) -> Optional[Finding]:
 
 
 def check_uncentered_pivots(snap: MeshSnapshot, threshold: float = 0.05) -> Optional[Finding]:
-    """Rotate pivot far from the bbox center (fraction of bbox diagonal).
+    """Rotate pivot far from the WORLD bbox center (fraction of the bbox
+    diagonal).
 
-    Convention check, INFO: buildings often keep every pivot at world origin."""
+    World semantics (strangler 6a, user-approved): the pivot is compared
+    against the bbox of the WORLD-space points — consistent for placed,
+    rotated and parented objects.  Requires the adapter to report
+    world_matrix; rotate_pivot must be the pivot in world space (Maya
+    reports xform rotatePivot ws=True, Blender its matrix translation).
+    Without a world matrix the snapshot's own space is used as-is.
+    Convention check, INFO: buildings often keep every pivot at world
+    origin."""
     rp = snap.rotate_pivot
     if not snap.points:
         return None
-    xs = [pt[0] for pt in snap.points]
-    ys = [pt[1] for pt in snap.points]
-    zs = [pt[2] for pt in snap.points]
+    wm = snap.world_matrix
+    if len(wm) >= 12:
+        def world(p):
+            x, y, z = p
+            return (wm[0] * x + wm[1] * y + wm[2] * z + wm[3],
+                    wm[4] * x + wm[5] * y + wm[6] * z + wm[7],
+                    wm[8] * x + wm[9] * y + wm[10] * z + wm[11])
+    else:
+        # no world matrix reported — the snapshot's own space is used as-is
+        def world(p):
+            return p
+    xs, ys, zs = [], [], []
+    for pt in snap.points:
+        wx, wy, wz = world(pt)
+        xs.append(wx)
+        ys.append(wy)
+        zs.append(wz)
     cx = (min(xs) + max(xs)) / 2.0
     cy = (min(ys) + max(ys)) / 2.0
     cz = (min(zs) + max(zs)) / 2.0

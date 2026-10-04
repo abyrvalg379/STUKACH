@@ -264,6 +264,8 @@ class MeshCheckObject:
                          if s.material]
         except ReferenceError:
             mat_names = []
+        # the object's pivot in world space = world translation for Blender
+        pivot = tuple(self._object.matrix_world.translation)
         if me.is_editmode:
             snap = build_snapshot_from_bm(self.bm_object,
                                           node=self._object.name, shape=me.name,
@@ -271,14 +273,16 @@ class MeshCheckObject:
                                           scene=scene_ctx,
                                           world_matrix=world,
                                           local_matrix=local,
-                                          material_names=mat_names)
+                                          material_names=mat_names,
+                                          rotate_pivot=pivot)
         else:
             snap = build_snapshot(me, node=self._object.name, shape=me.name,
                                   parent_types=parent_types,
                                   scene=scene_ctx,
                                   world_matrix=world,
                                   local_matrix=local,
-                                  material_names=mat_names)
+                                  material_names=mat_names,
+                                  rotate_pivot=pivot)
         self._core_snap = snap
         self._core_snap_key = key
         self._core_snap_tkey = self._transform_key
