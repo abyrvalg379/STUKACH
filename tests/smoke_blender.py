@@ -587,8 +587,11 @@ def st_core_parity():
         if pad_chk is not None:
             pad_addon[name] = pad_chk.count
         findings = {f.rule: f.count for f in sck.run_checks(snap, enabled=enabled)}
+        # rule id -> addon checker key when they differ (the sharp_edges core
+        # rule is detected by the sharp_edges_not_hard checker)
+        CHECKER_KEY = {"sharp_edges": "sharp_edges_not_hard"}
         for rule in sorted(enabled):
-            chk = mc_obj._checks.get(rule)
+            chk = mc_obj._checks.get(CHECKER_KEY.get(rule, rule))
             addon_count = chk.count if chk is not None else 0
             core_count = findings.get(rule, 0)
             compared += 1
