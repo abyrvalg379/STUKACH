@@ -1408,6 +1408,14 @@ class MeshCheck:
                 cls._scene_stale = False
                 if mc is not None:
                     mc.validation_progress = 1.0
+                # inter-object z-fighting runs on the completed cycle — the
+                # progressive path never reached it (only Add Scene / Live
+                # did), so a plain RUN showed no inter findings (found live
+                # 2026-10-04: seat vs seat.001 invisible after RUN)
+                try:
+                    cls._run_inter_object_z_fighting()
+                except Exception as e:
+                    alog(f"[AssetChecker] post-validation inter z-fighting: {e}")
                 # Completion report in the status bar, auto-clears after ~4s
                 try:
                     from .properties import category_enabled
