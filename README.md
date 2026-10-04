@@ -6,8 +6,6 @@
 
 Pipeline asset validation addon for Blender.
 
-💬 Feedback & discussions → [Discussions tab](https://github.com/abyrvalg379/STUKACH/discussions)
-
 *Документация на русском: [README.ru.md](README.ru.md)*
 
 **Blender 4.2+ (tested on 5.2) · v1.8.5 · Author: Maksim Kovalev**
