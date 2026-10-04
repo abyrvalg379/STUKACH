@@ -601,6 +601,56 @@ def st_core_parity():
         if addon_count != pad_findings.get(name, 0):
             mismatches.append(f"{name}.uv_padding: addon {addon_count} "
                               f"vs core {pad_findings.get(name, 0)}")
+
+    # scene-scope z_fighting_inter: the legacy BVHTree pass ran inside the
+    # update cycle — compare its per-object face sets and partner names
+    # against the core (same threshold math: 0.0001 / scale_length)
+    sl = bpy.context.scene.unit_settings.scale_length or 1.0
+    zf_th = 0.0001 / sl
+    zf_snaps = {}
+    zf_legacy = {}
+    for obj, mc_obj in MeshCheck.objects.items():
+        try:
+            name = obj.name
+            chk = mc_obj._checks.get("z_fighting")
+        except ReferenceError:
+            continue
+        if chk is None:
+            continue
+        snap = pad_snaps.get(name)
+        if snap is None:
+            snap = adapter.build_snapshot(
+                obj.data, node=name,
+                parent_types=(["mesh"] if (obj.parent is not None
+                                           and obj.parent.type == "MESH") else []),
+                scene={"short_names": scene_names},
+                world_matrix=tuple(c for row in obj.matrix_world for c in row),
+                local_matrix=tuple(c for row in obj.matrix_basis for c in row),
+                material_names=[sl_.material.name for sl_ in obj.material_slots
+                                if sl_.material],
+                rotate_pivot=tuple(obj.matrix_world.translation),
+                custom_normal_driven=bool(
+                    getattr(obj.data, "has_custom_normals", False)
+                    or any(m.show_viewport and "smooth by angle" in m.name.lower()
+                           for m in obj.modifiers)))
+        zf_snaps[name] = snap
+        zf_legacy[name] = (frozenset(getattr(chk, "_inter_faces_idx", ()) or ()),
+                           frozenset(getattr(chk, "_inter_object_names", ()) or ()))
+    zf_findings, zf_pairs = sck.zfight.check_z_fighting_inter_scene(
+        zf_snaps, threshold=zf_th)
+    zf_core = {}
+    for (owner, other), faces in zf_pairs.items():
+        fset, onames = zf_core.get(owner, (set(), set()))
+        fset.update(faces)
+        onames.add(other)
+        zf_core[owner] = (fset, onames)
+    for name, (lfaces, lnames) in zf_legacy.items():
+        cfaces, cnames = zf_core.get(name, (set(), set()))
+        compared += 1
+        if frozenset(cfaces) != lfaces or frozenset(cnames) != lnames:
+            mismatches.append(
+                f"{name}.z_fighting_inter: addon {sorted(lnames)}:{len(lfaces)} "
+                f"vs core {sorted(cnames)}:{len(cfaces)}")
     expect(objects >= 10, f"core parity saw only {objects} tracked objects")
     expect(not mismatches,
            "core parity mismatches:\n    " + "\n    ".join(mismatches[:10]))

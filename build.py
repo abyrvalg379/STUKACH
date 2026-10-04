@@ -48,6 +48,7 @@ FILES = [
     "_core/checks/scene.py",
     "_core/checks/uv.py",
     "_core/checks/transform.py",
+    "_core/checks/zfight.py",
 ]
 
 

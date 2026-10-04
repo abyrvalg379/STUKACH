@@ -134,8 +134,6 @@ class MeshCheckObject:
         # whichever axis check runs first computes all three via the core
         self._sym_batch:      object = None
         self._sym_batch_key:  tuple = ()
-        self._zf_kd_key: tuple = ()  # (mesh_key, transform_key) - inter z-fighting KD cache stamp
-        self._zf_kd_cache = None   # (kd, centroids, aabb_min, aabb_max)
         self._core_snap = None        # vendored-core MeshSnapshot, shared per update cycle
         self._core_snap_key: tuple = ()
         self._core_snap_tkey: tuple = ()   # transform stamp the snapshot matrices carry
@@ -1005,164 +1003,51 @@ class MeshCheck:
 
     @classmethod
     def _run_inter_object_z_fighting(cls):
-        """Detect Z-fighting between pairs of tracked objects (world space).
+        """Inter-object Z-fighting — scene-scope rule of the vendored core.
 
-        Two passes over all O(n²) object pairs; results are injected into
-        each object's ZFighting checker via checker.add_inter_results():
-        - BVHTree overlap — faces that geometrically intersect;
-        - KD-tree centroid range — coincident parallel faces, which never
-          intersect and are invisible to the BVH (a Shift-D duplicate left
-          in place).
-        Only coplanar face pairs are flagged: normal dot > 0.99, centroids
-        within 0.1 mm.
-        """
-        mc = bpy.context.window_manager.mesh_check_props
+        Strangler 6c: the BVHTree/KD passes moved to
+        _core.zfight.check_z_fighting_inter_scene (grid broad-phase +
+        Moeller tri-tri over world fan triangles, centroid grid for the
+        parallel duplicates).  The addon builds the batch of core snapshots
+        and injects the per-pair results back into the checkers."""
+        try:
+            mc = bpy.context.window_manager.mesh_check_props
+        except Exception:
+            return
         if not getattr(mc, 'z_fighting', False):
             return
-
-        import numpy as np
-        from mathutils.bvhtree import BVHTree
-        from mathutils.kdtree import KDTree
-
-        pairs = []
+        targets = {}
         for obj, mc_obj in cls.objects.items():
-            if mc_obj._checks.get('z_fighting') is None:
+            chk = mc_obj._checks.get('z_fighting')
+            if chk is None:
                 continue
             try:
                 _ = obj.name   # ReferenceError if the object was deleted
             except ReferenceError:
                 continue
-            pairs.append((obj, mc_obj))
-        if len(pairs) < 2:
+            targets[obj.name] = (obj, mc_obj, chk)
+        if len(targets) < 2:
             return
-
-        # Performance guard
-        total_faces = sum(len(mc_obj.bm_object.faces) for _, mc_obj in pairs)
+        total_faces = sum(len(mc_obj.bm_object.faces)
+                          for _o, mc_obj, _c in targets.values())
         if total_faces > cls._INTER_Z_FIGHT_MAX_TOTAL_FACES:
             return
-
-        # Build world-space BVH for each object
-        def _world_bvh(mc_obj):
-            bm  = mc_obj.bm_object
-            mw  = mc_obj._object.matrix_world
-            if not bm.faces:
-                return None
-            bm.faces.ensure_lookup_table()
-            bm.verts.ensure_lookup_table()
-            verts_ws       = [mw @ v.co for v in bm.verts]
-            face_vert_idx  = [[v.index for v in f.verts] for f in bm.faces]
-            try:
-                return BVHTree.FromPolygons(verts_ws, face_vert_idx, epsilon=0.0001)
-            except Exception:
-                return None
-
-        bvh_list = [(obj, mc_obj, _world_bvh(mc_obj)) for obj, mc_obj in pairs]
-        eps_normal = 0.99
-
-        # Per-object world-space face centroids + KD-tree over them - feeds
-        # the coincident-parallel-faces pass inside the pair loop below.
-        # Cached per (mesh, transform) like _core_snap - Live re-runs this pass
-        # on every flush and rebuilding the KD tree each time would dominate.
-        def _centroid_kd(mc_obj):
-            # matrix_world, not _transform_key: a parent rotating around the
-            # object origin moves the world centroids without touching the
-            # local key - the cache must be exactly as fresh as no cache.
-            key = (mc_obj._mesh_key, tuple(mc_obj._object.matrix_world))
-            cached = mc_obj._zf_kd_cache
-            if cached is not None and mc_obj._zf_kd_key == key:
-                return cached
-            bm = mc_obj.bm_object
-            bm.faces.ensure_lookup_table()
-            mw = mc_obj._object.matrix_world
-            centroids = [mw @ f.calc_center_median() for f in bm.faces]
-            co_np = np.array(centroids, dtype=np.float64).reshape(-1, 3)
-            if not centroids:
-                empty = np.empty(0)
-                result = (KDTree(0), centroids, empty, empty)
-            else:
-                kd = KDTree(len(centroids))
-                for i, co in enumerate(centroids):
-                    kd.insert(co, i)
-                kd.balance()
-                result = (kd, centroids, co_np.min(axis=0), co_np.max(axis=0))
-            mc_obj._zf_kd_key = key
-            mc_obj._zf_kd_cache = result
-            return result
-
-        kd_map = {mc_obj: _centroid_kd(mc_obj) for _, mc_obj in pairs}
-
-        for i in range(len(bvh_list)):
-            obj_a, mc_a, bvh_a = bvh_list[i]
-            if bvh_a is None:
+        from ._core import zfight as _sck_zf
+        sl = bpy.context.scene.unit_settings.scale_length or 1.0
+        try:
+            snaps = {name: mc_obj.core_snapshot()
+                     for name, (_o, mc_obj, _c) in targets.items()}
+            _findings, pairs = _sck_zf.check_z_fighting_inter_scene(
+                snaps, threshold=0.0001 / sl)
+        except Exception as e:
+            alog(f"[AssetChecker] Inter-object Z-fighting error: {e}")
+            return
+        for (owner, other), faces in pairs.items():
+            entry = targets.get(owner)
+            if entry is None:
                 continue
-            checker_a = mc_a._checks['z_fighting']
-            bm_a  = mc_a.bm_object
-            rot_a = obj_a.matrix_world.to_3x3().normalized()
-
-            for j in range(i + 1, len(bvh_list)):
-                obj_b, mc_b, bvh_b = bvh_list[j]
-                if bvh_b is None:
-                    continue
-                checker_b = mc_b._checks['z_fighting']
-                bm_b  = mc_b.bm_object
-                rot_b = obj_b.matrix_world.to_3x3().normalized()
-
-                try:
-                    overlapping = bvh_a.overlap(bvh_b)
-                except Exception:
-                    continue
-
-                # Same three-stage filter used for intra-object detection:
-                # 1. Same winding only (signed dot, not abs) — removes
-                #    inner/outer shell pairs and faces at a geometry-
-                #    intersection interface pointing in opposite directions.
-                # 2. Centroid ≤ 1 mm world-space — removes geometry that
-                #    physically passes through another object (the face
-                #    centroids are far apart even though BVH volumes overlap).
-                sl        = bpy.context.scene.unit_settings.scale_length or 1.0
-                threshold = 0.0001 / sl     # 0.1 mm — same gate as intra-object
-
-                mw_a = obj_a.matrix_world
-                mw_b = obj_b.matrix_world
-
-                inter_a: set = set()
-                inter_b: set = set()
-                for idx_a, idx_b in overlapping:
-                    n_a = (rot_a @ bm_a.faces[idx_a].normal).normalized()
-                    n_b = (rot_b @ bm_b.faces[idx_b].normal).normalized()
-                    # Stage 1 — same winding
-                    if n_a.dot(n_b) <= eps_normal:
-                        continue
-                    # Stage 2 — centroids within 1 mm (world space)
-                    ca = mw_a @ bm_a.faces[idx_a].calc_center_median()
-                    cb = mw_b @ bm_b.faces[idx_b].calc_center_median()
-                    if (ca - cb).length > threshold:
-                        continue
-                    inter_a.add(idx_a)
-                    inter_b.add(idx_b)
-
-                # Pass 2 - coincident parallel faces (a Shift-D duplicate left
-                # in place): they never geometrically intersect, so pass 1 is
-                # blind to them.  KD range over world face centroids keeps the
-                # same centroid gate; the winding gate below is shared.
-                kd_a, cent_a, aabb_min_a, aabb_max_a = kd_map[mc_a]
-                kd_b, cent_b, aabb_min_b, aabb_max_b = kd_map[mc_b]
-                separated = ((aabb_min_a > aabb_max_b + threshold).any()
-                             or (aabb_min_b > aabb_max_a + threshold).any())
-                if not separated:
-                    for idx_a, co_a in enumerate(cent_a):
-                        for _co, idx_b, _d in kd_b.find_range(co_a, threshold):
-                            n_a = (rot_a @ bm_a.faces[idx_a].normal).normalized()
-                            n_b = (rot_b @ bm_b.faces[idx_b].normal).normalized()
-                            if n_a.dot(n_b) <= eps_normal:
-                                continue
-                            inter_a.add(idx_a)
-                            inter_b.add(idx_b)
-
-                if inter_a:
-                    checker_a.add_inter_results(inter_a, obj_b.name)
-                if inter_b:
-                    checker_b.add_inter_results(inter_b, obj_a.name)
+            _obj, _mc_obj, chk = entry
+            chk.add_inter_results(set(faces), other)
 
     @classmethod
     def _run_global_uv_padding(cls) -> None:

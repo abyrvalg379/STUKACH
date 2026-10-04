@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Callable, Dict, Optional
 
 from .model import MeshSnapshot, Finding
-from .checks import topology, surface, symmetry, scene, uv, transform
+from .checks import topology, surface, symmetry, scene, uv, transform, zfight
 
 # rule id → (severity, evaluator callable, param name → default)
 RULES: Dict[str, tuple] = {
@@ -97,6 +97,9 @@ SCENE_RULES: Dict[str, tuple] = {
     "uv_padding": ("INFO", uv.check_uv_padding_batch,
                    {"tex_size": 4096, "shell_px": 16, "tile_px": 8,
                     "max_polys": 50_000, "max_uv_verts": 200_000}),
+    "z_fighting_inter": ("BLOCKER", zfight.check_z_fighting_inter_batch,
+                         {"threshold": 0.0001, "normal_dot": 0.99,
+                          "max_total_faces": 500_000}),
 }
 
 

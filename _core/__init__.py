@@ -11,7 +11,7 @@ Public API:
     naming (contract + hygiene validators), verdict/merge
 """
 from .model import MeshSnapshot, Finding, edge_length
-from .checks import topology, surface, symmetry, scene, uv, transform
+from .checks import topology, surface, symmetry, scene, uv, transform, zfight
 from .registry import RULES, SCENE_RULES, run_checks, run_scene_checks
 from . import naming
 from .verdict import verdict, merge
@@ -19,4 +19,4 @@ from .verdict import verdict, merge
 __all__ = ["MeshSnapshot", "Finding", "edge_length",
            "RULES", "run_checks", "SCENE_RULES", "run_scene_checks",
            "naming", "verdict", "merge"]
-__version__ = "0.11.0"
+__version__ = "0.12.0"
