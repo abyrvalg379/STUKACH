@@ -26,13 +26,14 @@ CORE_DELEGATED = frozenset({
     "uv_stretch", "uv_texel_density", "uv_material_udim", "uv_padding",
     "origin_at_zero", "scale", "non_applied_transform",
     "mesh_data_naming", "mat_suffix", "mat_numbering",
+    "uncentered_pivots", "sharp_edges",
 })
 
 
 def build_snapshot(me, node: str = "", shape: str = "",
                    parent_types=None, scene=None, world_matrix=None,
                    local_matrix=None, material_names=None,
-                   rotate_pivot=None):
+                   rotate_pivot=None, custom_normal_driven=None):
     """Build a stukach_core MeshSnapshot from a bpy Mesh (OBJECT mode data)."""
     from . import _core
 
@@ -51,6 +52,12 @@ def build_snapshot(me, node: str = "", shape: str = "",
     ev = numpy.empty(n_edges * 2, dtype=numpy.int64)
     me.edges.foreach_get("vertices", ev)
     edges = [(int(ev[i]), int(ev[i + 1])) for i in range(0, n_edges * 2, 2)]
+    es = numpy.empty(n_edges, dtype=bool)
+    me.edges.foreach_get("use_edge_sharp", es)
+    edge_smooth = numpy.logical_not(es).tolist()   # the datablock stores sharp; smooth is its negation
+    fs = numpy.empty(n_faces, dtype=bool)
+    me.polygons.foreach_get("use_smooth", fs)
+    face_smooth = fs.tolist()
 
     # connected-face counts from face corner walks (same walk as core
     # MeshSnapshot.edge_faces, so non_manifold/lamina parity is preserved)
@@ -91,8 +98,9 @@ def build_snapshot(me, node: str = "", shape: str = "",
         face_starlike=[True] * n_faces,
         face_uvs=face_uvs,
         edges=edges,
-        edge_smooth=[False] * n_edges,
+        edge_smooth=edge_smooth,
         edge_conn=edge_conn,
+        face_smooth=face_smooth,
         parent_types=list(parent_types or []),
         scene=dict(scene or {}),
         uv_set_count=uv_set_count,
@@ -101,13 +109,14 @@ def build_snapshot(me, node: str = "", shape: str = "",
         local_matrix=tuple(local_matrix or ()),
         face_mat=face_mat,
         material_names=list(material_names or []),
+        custom_normal_driven=custom_normal_driven,
     )
 
 
 def build_snapshot_from_bm(bm, node: str = "", shape: str = "",
                            parent_types=None, scene=None, world_matrix=None,
                    local_matrix=None, material_names=None,
-                   rotate_pivot=None):
+                   rotate_pivot=None, custom_normal_driven=None):
     """BMesh variant for EDIT mode (me.* is stale there).  Reads the same
     data the OBJECT-mode adapter does, straight off the live BMesh."""
     from . import _core
@@ -146,6 +155,7 @@ def build_snapshot_from_bm(bm, node: str = "", shape: str = "",
         edges=edges,
         edge_smooth=[e.smooth for e in bm.edges],
         edge_conn=edge_conn,
+        face_smooth=[f.smooth for f in bm.faces],
         parent_types=list(parent_types or []),
         scene=dict(scene or {}),
         uv_set_count=len(bm.loops.layers.uv),
@@ -154,4 +164,5 @@ def build_snapshot_from_bm(bm, node: str = "", shape: str = "",
         local_matrix=tuple(local_matrix or ()),
         face_mat=[f.material_index for f in bm.faces],
         material_names=list(material_names or []),
+        custom_normal_driven=custom_normal_driven,
     )

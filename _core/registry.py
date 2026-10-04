@@ -44,6 +44,9 @@ RULES: Dict[str, tuple] = {
                             {"tol": 0.001}),
     # surface
     "face_aspect_ratio":  ("INFO",    surface.check_face_aspect_ratio, {"threshold": 6.0}),
+    "sharp_edges":        ("WARNING", surface.check_sharp_edges,
+                           {"threshold_deg": 60.0, "bevel_ratio": 0.005,
+                            "skip_custom_normals": True}),
     # symmetry
     "symmetry_x":         ("INFO",    symmetry.check_symmetry, {"axis": 0, "threshold": 0.001}),
     "symmetry_y":         ("INFO",    symmetry.check_symmetry, {"axis": 1, "threshold": 0.001}),

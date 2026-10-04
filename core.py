@@ -2935,58 +2935,30 @@ class SharpEdgesNotHard(_EdgeOverlay, BaseCheck):
         self._edges_idx: List[int] = []
 
     def set_datas(self):
+        # Strangler 6b: detection in the vendored core (snapshot carries the
+        # honest edge/face shading flags + the custom-normal-driven skip);
+        # prefs flow in as rule params, the overlay renders finding.elements
         obj = self._parent._object
-        me = obj.data
-        bm = self._parent.bm_object
-        bm.edges.ensure_lookup_table()
         self._edges_idx = []
-        if getattr(me, 'has_custom_normals', False) or any(
-                m.show_viewport and 'smooth by angle' in m.name.lower()
-                for m in obj.modifiers):
-            self._count = 0
-            self.metric_text = "skipped: shading is custom-normal driven"
-            return
+        self.metric_text = ""
+        threshold_deg = self.ANGLE_THRESHOLD_DEG
+        bevel_ratio = self.BEVEL_WIDTH_RATIO
         try:
             addon_name = __name__.rsplit(".", 1)[0]
             prefs = bpy.context.preferences.addons[addon_name].preferences
             threshold_deg = float(prefs.sharp_angle_deg)
+            bevel_ratio = float(prefs.sharp_bevel_width) / 100.0
         except Exception:
-            threshold_deg = self.ANGLE_THRESHOLD_DEG
-        threshold = math.radians(threshold_deg)
-        bb = obj.bound_box
-        diag = (mathutils.Vector((bb[6][0] - bb[0][0], bb[6][1] - bb[0][1],
-                                  bb[6][2] - bb[0][2]))).length
-        if diag <= 0.0:
-            diag = 1.0
-        try:
-            addon_name = __name__.rsplit(".", 1)[0]
-            prefs = bpy.context.preferences.addons[addon_name].preferences
-            strip_max = (prefs.sharp_bevel_width / 100.0) * diag
-        except Exception:
-            strip_max = self.BEVEL_WIDTH_RATIO * diag
-        for e in bm.edges:
-            if not e.smooth or not e.is_manifold:
-                continue
-            angle = e.calc_face_angle(0.0)
-            if angle < threshold:
-                continue
-            # Flat-shaded on both sides — the edge renders hard regardless of
-            # the sharp flag, there is nothing to miss here.
-            lf = e.link_faces
-            if len(lf) == 2 and not lf[0].smooth and not lf[1].smooth:
-                continue
-            # Bevel-aware: skip edges hugging a narrow strip face (chamfers)
-            is_bevel = False
-            for f in lf:
-                longest = max(ed.calc_length() for ed in f.edges)
-                if longest > 0.0 and f.calc_area() / longest < strip_max:
-                    is_bevel = True
-                    break
-            if is_bevel:
-                continue
-            self._edges_idx.append(e.index)
-        self._count = len(self._edges_idx)
-        self.metric_text = ""
+            pass
+        finding = _sck_core.surface.check_sharp_edges(
+            self._parent.core_snapshot(),
+            threshold_deg=threshold_deg, bevel_ratio=bevel_ratio)
+        if finding is None:
+            self._count = 0
+            return
+        self._count = finding.count
+        self.metric_text = finding.metric or ""
+        self._edges_idx = [i for (t, i) in finding.elements if t == "edge"]
 
     def get_select_data(self):
         return ('EDGE', self._edges_idx)

@@ -19,4 +19,4 @@ from .verdict import verdict, merge
 __all__ = ["MeshSnapshot", "Finding", "edge_length",
            "RULES", "run_checks", "SCENE_RULES", "run_scene_checks",
            "naming", "verdict", "merge"]
-__version__ = "0.10.0"
+__version__ = "0.11.0"

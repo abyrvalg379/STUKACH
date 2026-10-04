@@ -55,6 +55,8 @@ class MeshSnapshot:
     edges: List[Tuple[int, int]] = field(default_factory=list)        # edge → (v0, v1)
     edge_smooth: List[bool] = field(default_factory=list)
     edge_conn: List[int] = field(default_factory=list)                # edge → connected face count
+    face_smooth: List[bool] = field(default_factory=list)             # face → smooth shading flag (empty = not reported)
+    custom_normal_driven: Optional[bool] = None                       # True = shading is custom-normal driven (sharp flags meaningless)
 
     world_matrix: Tuple[float, ...] = ()
     rotate_pivot: Tuple[float, float, float] = (0.0, 0.0, 0.0)

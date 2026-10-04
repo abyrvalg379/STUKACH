@@ -266,6 +266,14 @@ class MeshCheckObject:
             mat_names = []
         # the object's pivot in world space = world translation for Blender
         pivot = tuple(self._object.matrix_world.translation)
+        # sharp flags are meaningless when shading is authored in normals
+        # (custom split normals or the Smooth by Angle modifier)
+        try:
+            cnd = bool(getattr(me, 'has_custom_normals', False)) or any(
+                m.show_viewport and 'smooth by angle' in m.name.lower()
+                for m in self._object.modifiers)
+        except Exception:
+            cnd = False
         if me.is_editmode:
             snap = build_snapshot_from_bm(self.bm_object,
                                           node=self._object.name, shape=me.name,
@@ -274,7 +282,8 @@ class MeshCheckObject:
                                           world_matrix=world,
                                           local_matrix=local,
                                           material_names=mat_names,
-                                          rotate_pivot=pivot)
+                                          rotate_pivot=pivot,
+                                          custom_normal_driven=cnd)
         else:
             snap = build_snapshot(me, node=self._object.name, shape=me.name,
                                   parent_types=parent_types,
@@ -282,7 +291,8 @@ class MeshCheckObject:
                                   world_matrix=world,
                                   local_matrix=local,
                                   material_names=mat_names,
-                                  rotate_pivot=pivot)
+                                  rotate_pivot=pivot,
+                                  custom_normal_driven=cnd)
         self._core_snap = snap
         self._core_snap_key = key
         self._core_snap_tkey = self._transform_key
